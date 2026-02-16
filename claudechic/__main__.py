@@ -84,7 +84,7 @@ def main():
             resume_session_id=resume_id,
             initial_prompt=initial_prompt,
             remote_port=args.remote_port,
-            skip_permissions=args.dangerously_skip_permissions,
+            bypass_permissions=args.dangerously_skip_permissions,
             theme_override=args.theme,
         )
         app.run()

@@ -135,7 +135,7 @@ def _make_spawn_agent(caller_name: str | None = None):
     @tool(
         "spawn_agent",
         "Create a new Claude agent in claudechic. The agent gets its own chat view and can work independently.",
-        {"name": str, "path": str, "prompt": str},
+        {"name": str, "path": str, "prompt": str, "permission_mode": str},
     )
     async def spawn_agent(args: dict[str, Any]) -> dict[str, Any]:
         """Spawn a new agent, optionally with an initial prompt."""
@@ -156,9 +156,16 @@ def _make_spawn_agent(caller_name: str | None = None):
         if _app.agent_mgr.find_by_name(name):
             return _error_response(f"Agent '{name}' already exists")
 
+        # Inherit permission_mode from parent agent
+        parent_mode = (
+            _app.agent_mgr.active.permission_mode if _app.agent_mgr.active else None
+        )
+
         try:
             # Create agent via AgentManager (handles SDK connection)
-            agent = await _app.agent_mgr.create(name=name, cwd=path, switch_to=False)
+            agent = await _app.agent_mgr.create(
+                name=name, cwd=path, switch_to=False, permission_mode=parent_mode
+            )
         except Exception as e:
             return _error_response(f"Error creating agent: {e}")
 
@@ -181,7 +188,7 @@ def _make_spawn_worktree(caller_name: str | None = None):
     @tool(
         "spawn_worktree",
         "Create a git worktree (feature branch) with a new agent. Useful for isolated feature development.",
-        {"name": str, "base_branch": str, "prompt": str},
+        {"name": str, "base_branch": str, "prompt": str, "permission_mode": str},
     )
     async def spawn_worktree(args: dict[str, Any]) -> dict[str, Any]:
         """Create a git worktree and spawn an agent in it."""
@@ -197,10 +204,16 @@ def _make_spawn_worktree(caller_name: str | None = None):
         if not success or wt_path is None:
             return _error_response(f"Error creating worktree: {message}")
 
+        # Inherit permission_mode from parent agent
+        parent_mode = (
+            _app.agent_mgr.active.permission_mode if _app.agent_mgr.active else None
+        )
+
         try:
             # Create agent in the worktree via AgentManager
             agent = await _app.agent_mgr.create(
-                name=name, cwd=wt_path, worktree=name, switch_to=False
+                name=name, cwd=wt_path, worktree=name, switch_to=False,
+                permission_mode=parent_mode
             )
         except Exception as e:
             return _error_response(

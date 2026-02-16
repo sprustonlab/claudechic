@@ -117,6 +117,7 @@ class AgentManager:
         resume: str | None = None,
         switch_to: bool = True,
         model: str | None = None,
+        permission_mode: str | None = None,
     ) -> Agent:
         """Create and connect a new agent.
 
@@ -127,6 +128,7 @@ class AgentManager:
             resume: Session ID to resume
             switch_to: Whether to make this the active agent
             model: Model override (None = SDK default)
+            permission_mode: Permission mode override (None = inherit from factory)
 
         Returns:
             The created agent (connected and ready)
@@ -139,9 +141,14 @@ class AgentManager:
 
         # Create options and connect
         options = self._options_factory(
-            cwd=cwd, resume=resume, agent_name=agent.name, model=model
+            cwd=cwd, resume=resume, agent_name=agent.name, model=model,
+            permission_mode=permission_mode
         )
         await agent.connect(options, resume=resume)
+
+        # Set agent's permission_mode after connection if specified
+        if permission_mode is not None:
+            agent.permission_mode = permission_mode
 
         # Register agent
         self.agents[agent.id] = agent

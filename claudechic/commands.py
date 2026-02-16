@@ -81,6 +81,7 @@ BARE_WORDS: dict[str, str] = {
 # Variants are additional completions like "/agent close" for "/agent"
 COMMANDS: list[tuple[str, str, list[str]]] = [
     ("/clear", "Clear chat and start new session", []),
+    ("/clearui", "Clear chat display (keep session)", []),
     ("/diff", "Review changes vs target (default HEAD)", []),
     ("/resume", "Resume a previous session", []),
     (
@@ -178,6 +179,13 @@ def handle_command(app: "ChatApp", prompt: str) -> bool:
     if cmd == "/clear":
         _track_command(app, "clear")
         app._start_new_session()
+        return True
+
+    if cmd == "/clearui":
+        _track_command(app, "clearui")
+        chat_view = app._chat_view
+        if chat_view:
+            chat_view.clear()
         return True
 
     if cmd.startswith("/resume"):

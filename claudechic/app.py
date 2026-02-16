@@ -164,7 +164,7 @@ class ChatApp(App):
         resume_session_id: str | None = None,
         initial_prompt: str | None = None,
         remote_port: int = 0,
-        skip_permissions: bool = False,
+        bypass_permissions: bool = False,
         theme_override: str | None = None,
     ) -> None:
         super().__init__()
@@ -175,7 +175,7 @@ class ChatApp(App):
         self._resume_on_start = resume_session_id
         self._initial_prompt = initial_prompt
         self._remote_port = remote_port
-        self._skip_permissions = skip_permissions
+        self._bypass_permissions = bypass_permissions
         self._theme_override = theme_override
         # Event queues for testing
         self.interactions: asyncio.Queue[PermissionRequest] = asyncio.Queue()
@@ -610,6 +610,7 @@ class ChatApp(App):
         resume: str | None = None,
         agent_name: str | None = None,
         model: str | None = None,
+        permission_mode: str | None = None,
     ) -> ClaudeAgentOptions:
         """Create SDK options with common settings.
 
@@ -625,10 +626,18 @@ class ChatApp(App):
         if os.environ.get("VIRTUAL_ENV"):
             env["VIRTUAL_ENV"] = ""
 
+        # Determine effective permission mode:
+        # 1. Use explicit permission_mode if provided
+        # 2. Otherwise use bypassPermissions if _bypass_permissions flag is set
+        # 3. Otherwise use default
+        effective_mode = (
+            permission_mode
+            if permission_mode is not None
+            else ("bypassPermissions" if self._bypass_permissions else "default")
+        )
+
         return ClaudeAgentOptions(
-            permission_mode="bypassPermissions"
-            if self._skip_permissions
-            else "default",
+            permission_mode=effective_mode,
             env=env,
             setting_sources=["user", "project", "local"],
             cwd=cwd,
@@ -682,7 +691,7 @@ class ChatApp(App):
         self.theme = self._theme_override or CONFIG.get("theme") or "chic"
 
         # Warn if running in YOLO mode
-        if self._skip_permissions:
+        if self._bypass_permissions:
             self.notify("⚠️ Permission checks disabled", severity="warning", timeout=5)
 
         # Initialize AgentManager (but don't create agent yet - wait for screen ready)

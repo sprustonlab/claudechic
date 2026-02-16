@@ -179,7 +179,7 @@ class Agent:
         self.pending_images: list[ImageAttachment] = []
         self.file_index: FileIndex | None = None
         self.todos: list[dict] = []
-        self.permission_mode: str = "default"  # default, acceptEdits, plan
+        self.permission_mode: str = "default"  # default, acceptEdits, plan, planSwarm, bypassPermissions
         self.session_allowed_tools: set[str] = set()  # Tools allowed for this session
         self._pending_followup: str | None = None  # Auto-send after current response
         self.model: str | None = None  # Model override (None = SDK default)
@@ -754,6 +754,11 @@ Key Rules:
         if tool_name.startswith("mcp__chic__"):
             return PermissionResultAllow()
 
+        # Auto-approve ALL tools in bypass mode
+        if self.permission_mode == "bypassPermissions":
+            log.info(f"Auto-approved {tool_name} (bypassPermissions mode)")
+            return PermissionResultAllow()
+
         # Block mutating tools in plan mode (except writes to plan file)
         # Note: PreToolUse hook in app.py also blocks these; this is a fallback
         if self.permission_mode == "plan" and tool_name in self.PLAN_MODE_BLOCKED_TOOLS:
@@ -876,7 +881,7 @@ Key Rules:
                 self.observer.on_status_changed(self)
 
     # Valid permission modes
-    PERMISSION_MODES = {"default", "acceptEdits", "plan", "planSwarm"}
+    PERMISSION_MODES = {"default", "acceptEdits", "plan", "planSwarm", "bypassPermissions"}
 
     def _set_permission_mode_local(self, mode: str) -> None:
         """Update permission mode locally without calling SDK.
