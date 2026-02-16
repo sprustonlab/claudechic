@@ -62,7 +62,7 @@ include = ["claudechic*"]
 claudechic = ["*.tcss", "*.md", "prompts/*.md"]
 
 [tool.pyright]
-exclude = ["build"]
+exclude = ["build", ".venv", "dist", "site", "**/__pycache__"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
