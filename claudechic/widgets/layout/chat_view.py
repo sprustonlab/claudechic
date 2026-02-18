@@ -502,31 +502,33 @@ class ChatView(AutoHideScroll):
             task.add_tool_use(block)
             return
 
-        # Auto-collapse old tools
-        while len(self._recent_tools) >= RECENT_TOOLS_EXPANDED > 0:
-            old = self._recent_tools.pop(0)
-            old.collapse()
+        # Batch collapse + mount to avoid multiple CSS recalculations
+        with self.app.batch_update():
+            # Auto-collapse old tools
+            while len(self._recent_tools) >= RECENT_TOOLS_EXPANDED > 0:
+                old = self._recent_tools.pop(0)
+                old.collapse()
 
-        # Create widget based on tool type
-        collapsed = RECENT_TOOLS_EXPANDED == 0 or tool.name in COLLAPSE_BY_DEFAULT
-        cwd = self._agent.cwd if self._agent else None
-        if tool.name == ToolName.TASK:
-            widget = TaskWidget(block, collapsed=collapsed, cwd=cwd)
-            self._active_task_widgets[tool.id] = widget
-        elif tool.name.startswith("mcp__chic__"):
-            widget = AgentToolWidget(block, cwd=cwd)
-        elif tool.name == ToolName.EXIT_PLAN_MODE:
-            # Pass agent's plan_path for correct plan file lookup
-            plan_path = self._agent.plan_path if self._agent else None
-            widget = ToolUseWidget(
-                block, collapsed=collapsed, cwd=cwd, plan_path=plan_path
-            )
-        else:
-            widget = ToolUseWidget(block, collapsed=collapsed, cwd=cwd)
+            # Create widget based on tool type
+            collapsed = RECENT_TOOLS_EXPANDED == 0 or tool.name in COLLAPSE_BY_DEFAULT
+            cwd = self._agent.cwd if self._agent else None
+            if tool.name == ToolName.TASK:
+                widget = TaskWidget(block, collapsed=collapsed, cwd=cwd)
+                self._active_task_widgets[tool.id] = widget
+            elif tool.name.startswith("mcp__chic__"):
+                widget = AgentToolWidget(block, cwd=cwd)
+            elif tool.name == ToolName.EXIT_PLAN_MODE:
+                # Pass agent's plan_path for correct plan file lookup
+                plan_path = self._agent.plan_path if self._agent else None
+                widget = ToolUseWidget(
+                    block, collapsed=collapsed, cwd=cwd, plan_path=plan_path
+                )
+            else:
+                widget = ToolUseWidget(block, collapsed=collapsed, cwd=cwd)
 
-        self._pending_tool_widgets[tool.id] = widget
-        self._recent_tools.append(widget)
-        self.mount(widget)
+            self._pending_tool_widgets[tool.id] = widget
+            self._recent_tools.append(widget)
+            self.mount(widget)
         self.scroll_if_tailing()
 
     def update_tool_result(
