@@ -234,6 +234,11 @@ class Agent:
         self.client = ClaudeSDKClient(options)
         await self.client.connect()
 
+        # Notify SDK of initial permission mode if not default
+        # Must happen AFTER connect() completes (async timing requirement)
+        if self.permission_mode != "default":
+            await self.client.set_permission_mode(self.permission_mode)
+
         # Capture the claude process PID for background process tracking
         from claudechic.processes import get_claude_pid_from_client
 
@@ -876,7 +881,7 @@ Key Rules:
                 self.observer.on_status_changed(self)
 
     # Valid permission modes
-    PERMISSION_MODES = {"default", "acceptEdits", "plan", "planSwarm"}
+    PERMISSION_MODES = {"default", "acceptEdits", "plan", "planSwarm", "bypassPermissions"}
 
     def _set_permission_mode_local(self, mode: str) -> None:
         """Update permission mode locally without calling SDK.

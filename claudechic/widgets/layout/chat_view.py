@@ -79,6 +79,7 @@ class ChatView(AutoHideScroll):
         self._active_task_widgets: dict[str, TaskWidget] = {}
         self._recent_tools: list[ToolUseWidget | TaskWidget | AgentToolWidget] = []
         self._thinking_indicator: ThinkingIndicator | None = None
+        self._hidden_widget_count: int = 0
 
         # Deferred update tracking for hidden views
         self._needs_rerender: bool = False
@@ -506,3 +507,25 @@ class ChatView(AutoHideScroll):
                 self._thinking_indicator = ThinkingIndicator()
                 self.mount(self._thinking_indicator)
                 self.scroll_end(animate=False)
+
+    def clear_to_recent(self, keep: int = 10) -> None:
+        """Remove all but the most recent N widgets.
+
+        Does NOT affect Agent.messages or JSONL - only UI.
+        """
+        children = list(self.children)
+
+        if len(children) <= keep:
+            return
+
+        # Remove oldest widgets
+        to_remove = children[:-keep]
+        for widget in to_remove:
+            widget.remove()
+
+        # Update hidden count
+        self._hidden_widget_count += len(to_remove)
+
+        # Clean up tracking lists
+        self._recent_tools = [w for w in self._recent_tools if w.parent is not None]
+        self._current_response = None  # Reset streaming state

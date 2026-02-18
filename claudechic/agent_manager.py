@@ -10,6 +10,7 @@ from typing import Callable, Iterator
 from claude_agent_sdk import ClaudeAgentOptions
 
 from claudechic.agent import Agent
+from claudechic.config import CONFIG
 from claudechic.protocols import AgentManagerObserver, AgentObserver, PermissionHandler
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,11 @@ class AgentManager:
         self.agents: dict[str, Agent] = {}
         self.active_id: str | None = None
         self._options_factory = options_factory
+
+        # Global permission state (applies to all agents)
+        self.global_permission_mode: str = CONFIG.get(
+            "default_permission_mode", "bypassPermissions"
+        )
 
         # Protocol-based observers (set by ChatApp)
         self.manager_observer: AgentManagerObserver | None = None
@@ -91,6 +97,8 @@ class AgentManager:
             The created agent (not yet connected)
         """
         agent = Agent(name=name, cwd=cwd, worktree=worktree)
+        # Inherit global permission mode
+        agent.permission_mode = self.global_permission_mode
 
         # Wire callbacks
         self._wire_agent_callbacks(agent)
@@ -133,6 +141,8 @@ class AgentManager:
         """
         agent = Agent(name=name, cwd=cwd, worktree=worktree)
         agent.model = model
+        # Inherit global permission mode (before connect so SDK notification uses it)
+        agent.permission_mode = self.global_permission_mode
 
         # Wire callbacks
         self._wire_agent_callbacks(agent)
@@ -259,3 +269,15 @@ class AgentManager:
     def __contains__(self, agent_id: str) -> bool:
         """Check if agent exists."""
         return agent_id in self.agents
+
+    async def set_global_permission_mode(self, mode: str) -> None:
+        """Update permission mode for all agents.
+
+        Args:
+            mode: One of 'default', 'acceptEdits', 'plan', 'bypassPermissions'
+        """
+        self.global_permission_mode = mode
+        for agent in self.agents.values():
+            await agent.set_permission_mode(mode)
+        if self.manager_observer:
+            self.manager_observer.on_global_permission_mode_changed(mode)

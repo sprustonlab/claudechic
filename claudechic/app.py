@@ -514,38 +514,51 @@ class ChatApp(App):
                 self.input_container.remove_class("hidden")
 
     def action_cycle_permission_mode(self) -> None:
-        """Cycle permission mode: default -> acceptEdits -> plan -> default.
+        """Cycle global permission mode: bypassPermissions -> default -> acceptEdits -> plan.
 
         planSwarm is not in the cycle - use /plan-swarm to enter, shift-tab to exit.
+        Changes apply to ALL agents immediately.
         """
-        if self._agent:
-            agent = self._agent  # Capture for closure
-            modes = ["default", "acceptEdits", "plan"]
-            current = agent.permission_mode
+        if not self.agent_mgr:
+            return
 
-            # If in planSwarm, exit to default (not in normal cycle)
-            if current == "planSwarm":
-                next_mode = "default"
-            else:
-                next_idx = (modes.index(current) + 1) % len(modes)
-                next_mode = modes[next_idx]
+        modes = ["bypassPermissions", "acceptEdits", "plan", "default"]
+        current = self.agent_mgr.global_permission_mode
 
-            # Schedule the async call
-            async def set_mode():
-                await agent.set_permission_mode(next_mode)
+        # If in planSwarm, exit to bypassPermissions (not in normal cycle)
+        if current not in modes:
+            next_mode = "bypassPermissions"
+        else:
+            next_idx = (modes.index(current) + 1) % len(modes)
+            next_mode = modes[next_idx]
 
-            self.run_worker(set_mode(), exclusive=False)
+        # Schedule the async call to update all agents
+        async def set_mode():
+            await self.agent_mgr.set_global_permission_mode(next_mode)
 
-            # Show notification with friendly names
-            display = {"default": "Default", "acceptEdits": "Auto-edit", "plan": "Plan"}
-            self.notify(f"Mode: {display[next_mode]}")
+        self.run_worker(set_mode(), exclusive=False)
 
-    def _update_footer_permission_mode(self) -> None:
-        """Update footer to reflect current agent's permission mode."""
+        # Show notification with friendly names
+        display = {"default": "Default", "acceptEdits": "Auto-edit", "plan": "Plan", "bypassPermissions": "Bypass"}
+        self.notify(f"Mode: {display[next_mode]}")
+
+    def _update_footer_permission_mode(self, mode: str | None = None) -> None:
+        """Update footer to reflect current permission mode.
+
+        Args:
+            mode: If provided, use this mode. Otherwise, use active agent's mode
+                  or global mode from AgentManager.
+        """
         try:
-            self.status_footer.permission_mode = (
-                self._agent.permission_mode if self._agent else "default"
-            )
+            if mode is None:
+                # Prefer global mode from AgentManager as source of truth
+                if self.agent_mgr:
+                    mode = self.agent_mgr.global_permission_mode
+                elif self._agent:
+                    mode = self._agent.permission_mode
+                else:
+                    mode = "default"
+            self.status_footer.permission_mode = mode
         except Exception:
             pass  # Footer may not be mounted yet
 
@@ -625,10 +638,17 @@ class ChatApp(App):
         if os.environ.get("VIRTUAL_ENV"):
             env["VIRTUAL_ENV"] = ""
 
-        return ClaudeAgentOptions(
-            permission_mode="bypassPermissions"
+        # Use global permission mode from AgentManager (runtime source of truth)
+        # --yolo flag forces bypass regardless of config
+        permission_mode = (
+            "bypassPermissions"
             if self._skip_permissions
-            else "default",
+            else (
+                self.agent_mgr.global_permission_mode if self.agent_mgr else "default"
+            )
+        )
+        return ClaudeAgentOptions(
+            permission_mode=permission_mode,
             env=env,
             setting_sources=["user", "project", "local"],
             cwd=cwd,
@@ -2387,6 +2407,12 @@ class ChatApp(App):
 
         # Refresh autocomplete after agent closed
         self._refresh_dynamic_completions()
+
+    def on_global_permission_mode_changed(self, mode: str) -> None:
+        """Handle global permission mode change (applies to all agents)."""
+        log.info(f"Global permission mode changed: {mode}")
+        # Update footer with the new mode directly
+        self._update_footer_permission_mode(mode)
 
     def on_status_changed(self, agent: Agent) -> None:
         """Handle agent status change."""

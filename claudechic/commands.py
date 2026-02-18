@@ -81,6 +81,7 @@ BARE_WORDS: dict[str, str] = {
 # Variants are additional completions like "/agent close" for "/agent"
 COMMANDS: list[tuple[str, str, list[str]]] = [
     ("/clear", "Clear chat and start new session", []),
+    ("/clearui", "Clear UI widgets (keeps history)", []),
     ("/diff", "Review changes vs target (default HEAD)", []),
     ("/resume", "Resume a previous session", []),
     (
@@ -179,6 +180,10 @@ def handle_command(app: "ChatApp", prompt: str) -> bool:
         _track_command(app, "clear")
         app._start_new_session()
         return True
+
+    if cmd.startswith("/clearui"):
+        _track_command(app, "clearui")
+        return _handle_clearui(app, cmd)
 
     if cmd.startswith("/resume"):
         _track_command(app, "resume")
@@ -738,6 +743,20 @@ def _handle_processes(app: "ChatApp") -> None:
     else:
         processes = []
     app.push_screen(ProcessModal(processes))
+
+
+def _handle_clearui(app: "ChatApp", command: str) -> bool:
+    """Clear UI for all agents, keeping last N widgets each."""
+    parts = command.split(maxsplit=1)
+    keep = 10
+    if len(parts) > 1 and parts[1].strip().isdigit():
+        keep = int(parts[1].strip())
+
+    for chat_view in app._chat_views.values():
+        chat_view.clear_to_recent(keep)
+
+    app.notify(f"Cleared UI (keeping last {keep})")
+    return True
 
 
 def _handle_reviews(app: "ChatApp", job_id: str | None) -> None:

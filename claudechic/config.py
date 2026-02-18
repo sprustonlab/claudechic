@@ -34,6 +34,7 @@ def _load() -> tuple[dict, bool]:
         config.setdefault("experimental", {})
         config.setdefault("worktree", {})
         config["worktree"].setdefault("path_template", None)
+        config.setdefault("default_permission_mode", "bypassPermissions")
         # Migrate legacy vim key to vi-mode
         if "vim" in config:
             config["vi-mode"] = config.pop("vim")
@@ -43,6 +44,7 @@ def _load() -> tuple[dict, bool]:
         config = {
             "analytics": {"enabled": True, "id": str(uuid.uuid4())},
             "recent-tools-expanded": 2,
+            "default_permission_mode": "bypassPermissions",
         }
         new_install = True
         _save(config)

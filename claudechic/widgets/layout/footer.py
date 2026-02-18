@@ -151,6 +151,11 @@ class StatusFooter(Static):
                 label.set_class(True, "active")
                 label.set_class(False, "plan-mode")
                 label.set_class(False, "plan-swarm-mode")
+            elif value == "bypassPermissions":
+                label.update("Bypass: all auto-approved")
+                label.set_class(True, "active")
+                label.set_class(False, "plan-mode")
+                label.set_class(False, "plan-swarm-mode")
             else:  # default
                 label.update("Auto-edit: off")
                 label.set_class(False, "active")

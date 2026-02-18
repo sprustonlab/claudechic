@@ -26,6 +26,10 @@ class AgentManagerObserver(Protocol):
         """Called when an agent is closed."""
         ...
 
+    def on_global_permission_mode_changed(self, mode: str) -> None:
+        """Called when global permission mode changes."""
+        ...
+
 
 class AgentObserver(Protocol):
     """Observer for per-agent events.

@@ -751,3 +751,153 @@ async def test_tool_use_widget_edit_lazy_diff():
         # DiffWidget should now exist
         diffs = widget.query(DiffWidget)
         assert len(diffs) == 1
+
+
+# --- ChatView.clear_to_recent tests ---
+
+
+@pytest.mark.asyncio
+async def test_clear_to_recent_removes_old_widgets():
+    """clear_to_recent removes all but last N widgets."""
+    from claudechic.widgets.layout.chat_view import ChatView
+
+    class TestApp(App):
+        def compose(self):
+            yield ChatView(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_view = app.query_one(ChatView)
+
+        # Add 15 messages
+        for i in range(15):
+            chat_view.mount(ChatMessage(f"Message {i}"))
+        await pilot.pause()
+
+        assert len(chat_view.children) == 15
+
+        # Clear to recent 5
+        chat_view.clear_to_recent(keep=5)
+        await pilot.pause()
+
+        # Should have 5 remaining
+        assert len(chat_view.children) == 5
+        # Hidden count updated
+        assert chat_view._hidden_widget_count == 10
+
+
+@pytest.mark.asyncio
+async def test_clear_to_recent_fewer_than_keep():
+    """clear_to_recent with fewer widgets than keep does nothing."""
+    from claudechic.widgets.layout.chat_view import ChatView
+
+    class TestApp(App):
+        def compose(self):
+            yield ChatView(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_view = app.query_one(ChatView)
+
+        # Add only 3 messages
+        for i in range(3):
+            chat_view.mount(ChatMessage(f"Message {i}"))
+        await pilot.pause()
+
+        assert len(chat_view.children) == 3
+
+        # Clear to recent 10 (keep > current)
+        chat_view.clear_to_recent(keep=10)
+        await pilot.pause()
+
+        # Should still have 3
+        assert len(chat_view.children) == 3
+        assert chat_view._hidden_widget_count == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_to_recent_empty():
+    """clear_to_recent on empty view does nothing."""
+    from claudechic.widgets.layout.chat_view import ChatView
+
+    class TestApp(App):
+        def compose(self):
+            yield ChatView(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_view = app.query_one(ChatView)
+
+        # Verify empty
+        assert len(chat_view.children) == 0
+
+        # Clear (should not error)
+        chat_view.clear_to_recent(keep=10)
+        await pilot.pause()
+
+        assert len(chat_view.children) == 0
+        assert chat_view._hidden_widget_count == 0
+
+
+@pytest.mark.asyncio
+async def test_clear_to_recent_preserves_most_recent():
+    """clear_to_recent keeps the N most recent widgets."""
+    from claudechic.widgets.layout.chat_view import ChatView
+
+    class TestApp(App):
+        def compose(self):
+            yield ChatView(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_view = app.query_one(ChatView)
+
+        # Add numbered messages
+        for i in range(10):
+            chat_view.mount(ChatMessage(f"Message {i}"))
+        await pilot.pause()
+
+        # Clear to recent 3
+        chat_view.clear_to_recent(keep=3)
+        await pilot.pause()
+
+        # Should have messages 7, 8, 9 (the last 3)
+        messages = list(chat_view.query(ChatMessage))
+        assert len(messages) == 3
+        assert messages[0].get_raw_content() == "Message 7"
+        assert messages[1].get_raw_content() == "Message 8"
+        assert messages[2].get_raw_content() == "Message 9"
+
+
+@pytest.mark.asyncio
+async def test_clear_to_recent_accumulates_hidden_count():
+    """Multiple clear_to_recent calls accumulate hidden count."""
+    from claudechic.widgets.layout.chat_view import ChatView
+
+    class TestApp(App):
+        def compose(self):
+            yield ChatView(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat_view = app.query_one(ChatView)
+
+        # Add 10 messages
+        for i in range(10):
+            chat_view.mount(ChatMessage(f"Message {i}"))
+        await pilot.pause()
+
+        # First clear: 10 -> 5, hidden = 5
+        chat_view.clear_to_recent(keep=5)
+        await pilot.pause()
+        assert chat_view._hidden_widget_count == 5
+
+        # Add 5 more messages (now 10 total)
+        for i in range(5):
+            chat_view.mount(ChatMessage(f"New {i}"))
+        await pilot.pause()
+
+        # Second clear: 10 -> 3, hidden += 7
+        chat_view.clear_to_recent(keep=3)
+        await pilot.pause()
+        assert chat_view._hidden_widget_count == 12  # 5 + 7

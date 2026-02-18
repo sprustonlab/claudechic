@@ -35,20 +35,32 @@ async def test_app_mounts_basic_widgets(mock_sdk):
 
 @pytest.mark.asyncio
 async def test_permission_mode_cycle(mock_sdk):
-    """Shift+Tab cycles permission mode: default -> acceptEdits -> plan -> default."""
+    """Shift+Tab cycles permission mode: bypassPermissions -> acceptEdits -> plan -> default -> bypassPermissions.
+
+    Note: Initial mode is bypassPermissions (from CONFIG default).
+    Cycle goes from most permissive to most restrictive, then back to bypass.
+    """
     app = ChatApp()
     async with app.run_test() as pilot:
         assert app._agent is not None
-        assert app._agent.permission_mode == "default"
+        # Initial mode is bypassPermissions (CONFIG default)
+        assert app._agent.permission_mode == "bypassPermissions"
 
+        # Cycle: bypassPermissions -> acceptEdits
         await pilot.press("shift+tab")
         assert app._agent.permission_mode == "acceptEdits"
 
+        # Cycle: acceptEdits -> plan
         await pilot.press("shift+tab")
         assert app._agent.permission_mode == "plan"
 
+        # Cycle: plan -> default
         await pilot.press("shift+tab")
         assert app._agent.permission_mode == "default"
+
+        # Cycle: default -> bypassPermissions (back to start)
+        await pilot.press("shift+tab")
+        assert app._agent.permission_mode == "bypassPermissions"
 
 
 @pytest.mark.asyncio
@@ -57,10 +69,16 @@ async def test_permission_mode_footer_updates(mock_sdk):
     app = ChatApp()
     async with app.run_test() as pilot:
         footer = app.query_one(StatusFooter)
-        assert footer.permission_mode == "default"
+        # Initial mode is bypassPermissions (CONFIG default)
+        assert footer.permission_mode == "bypassPermissions"
 
+        # First cycle: bypassPermissions -> acceptEdits
         await pilot.press("shift+tab")
         assert footer.permission_mode == "acceptEdits"
+
+        # Second cycle: acceptEdits -> plan
+        await pilot.press("shift+tab")
+        assert footer.permission_mode == "plan"
 
 
 @pytest.mark.asyncio
@@ -775,3 +793,142 @@ async def test_stop_review_polling_unconditional(mock_sdk):
         fake_timer.stop.assert_called_once()
         assert app._review_poll_timer is None
         assert app._review_poll_agent_id is None
+
+
+# =============================================================================
+# /clearui command
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_clearui_command_keeps_last_10(mock_sdk):
+    """/clearui keeps the last 10 widgets by default."""
+    app = ChatApp()
+    async with app.run_test() as pilot:
+        chat_view = app._chat_view
+        assert chat_view is not None
+
+        # Add 15 messages
+        for i in range(15):
+            msg = ChatMessage(f"Message {i}")
+            chat_view.mount(msg)
+        await pilot.pause()
+
+        assert len(chat_view.children) == 15
+
+        # Send /clearui
+        await submit_command(app, pilot, "/clearui")
+        await pilot.pause()
+
+        # Should keep last 10
+        assert len(chat_view.children) == 10
+        # Hidden count should be updated
+        assert chat_view._hidden_widget_count == 5
+
+
+@pytest.mark.asyncio
+async def test_clearui_command_custom_keep(mock_sdk):
+    """/clearui 3 keeps only last 3 widgets."""
+    app = ChatApp()
+    async with app.run_test() as pilot:
+        chat_view = app._chat_view
+        assert chat_view is not None
+
+        # Add 10 messages
+        for i in range(10):
+            msg = ChatMessage(f"Message {i}")
+            chat_view.mount(msg)
+        await pilot.pause()
+
+        assert len(chat_view.children) == 10
+
+        # Send /clearui 3
+        await submit_command(app, pilot, "/clearui 3")
+        await pilot.pause()
+
+        # Should keep last 3
+        assert len(chat_view.children) == 3
+        assert chat_view._hidden_widget_count == 7
+
+
+@pytest.mark.asyncio
+async def test_clearui_command_fewer_than_keep(mock_sdk):
+    """/clearui with fewer widgets than keep count does nothing."""
+    app = ChatApp()
+    async with app.run_test() as pilot:
+        chat_view = app._chat_view
+        assert chat_view is not None
+
+        # Add only 5 messages (less than default 10)
+        for i in range(5):
+            msg = ChatMessage(f"Message {i}")
+            chat_view.mount(msg)
+        await pilot.pause()
+
+        assert len(chat_view.children) == 5
+
+        # Send /clearui (default keep=10)
+        await submit_command(app, pilot, "/clearui")
+        await pilot.pause()
+
+        # Should keep all 5 (less than 10)
+        assert len(chat_view.children) == 5
+        assert chat_view._hidden_widget_count == 0
+
+
+@pytest.mark.asyncio
+async def test_clearui_command_empty_view(mock_sdk):
+    """/clearui on empty view does nothing."""
+    app = ChatApp()
+    async with app.run_test() as pilot:
+        chat_view = app._chat_view
+        assert chat_view is not None
+
+        # Verify empty
+        assert len(chat_view.children) == 0
+
+        # Send /clearui
+        await submit_command(app, pilot, "/clearui")
+        await pilot.pause()
+
+        # Still empty, no error
+        assert len(chat_view.children) == 0
+        assert chat_view._hidden_widget_count == 0
+
+
+@pytest.mark.asyncio
+async def test_clearui_all_agents(mock_sdk):
+    """/clearui clears UI for all agents."""
+    app = ChatApp()
+    async with app.run_test() as pilot:
+        # Create second agent
+        await submit_command(app, pilot, "/agent second")
+        await wait_for_workers(app)
+
+        assert len(app.agents) == 2
+        agent_ids = list(app.agents.keys())
+
+        # Add messages to both chat views
+        for agent_id in agent_ids:
+            chat_view = app._chat_views.get(agent_id)
+            if chat_view:
+                for i in range(15):
+                    msg = ChatMessage(f"Message {i}")
+                    chat_view.mount(msg)
+        await pilot.pause()
+
+        # Verify both have 15 messages
+        for agent_id in agent_ids:
+            chat_view = app._chat_views.get(agent_id)
+            if chat_view:
+                assert len(chat_view.children) == 15
+
+        # Send /clearui (should affect all agents)
+        await submit_command(app, pilot, "/clearui")
+        await pilot.pause()
+
+        # Both should be reduced to 10
+        for agent_id in agent_ids:
+            chat_view = app._chat_views.get(agent_id)
+            if chat_view:
+                assert len(chat_view.children) == 10
