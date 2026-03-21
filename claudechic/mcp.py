@@ -135,7 +135,7 @@ def _make_spawn_agent(caller_name: str | None = None):
     @tool(
         "spawn_agent",
         "Create a new Claude agent in claudechic. The agent gets its own chat view and can work independently.",
-        {"name": str, "path": str, "prompt": str},
+        {"name": str, "path": str, "prompt": str, "model": str},
     )
     async def spawn_agent(args: dict[str, Any]) -> dict[str, Any]:
         """Spawn a new agent, optionally with an initial prompt."""
@@ -149,6 +149,14 @@ def _make_spawn_agent(caller_name: str | None = None):
         path = Path(args.get("path", str(default_cwd))).resolve()
         prompt = args.get("prompt")
 
+        # Inherit caller's model if not explicitly specified
+        caller_model = None
+        if caller_name:
+            caller_agent = _app.agent_mgr.find_by_name(caller_name)
+            if caller_agent:
+                caller_model = caller_agent.model
+        model = args.get("model") or caller_model
+
         if not path.exists():
             return _error_response(f"Path '{path}' does not exist")
 
@@ -158,7 +166,7 @@ def _make_spawn_agent(caller_name: str | None = None):
 
         try:
             # Create agent via AgentManager (handles SDK connection)
-            agent = await _app.agent_mgr.create(name=name, cwd=path, switch_to=False)
+            agent = await _app.agent_mgr.create(name=name, cwd=path, switch_to=False, model=model)
         except Exception as e:
             return _error_response(f"Error creating agent: {e}")
 
@@ -523,6 +531,27 @@ def create_chic_server(caller_name: str | None = None):
     # finish_worktree is experimental - enable with experimental.finish_worktree: true
     if CONFIG.get("experimental", {}).get("finish_worktree", False):
         tools.append(finish_worktree)
+
+    # LSF cluster tools (always registered; LSF availability checked at runtime)
+    from claudechic.cluster import (
+        cluster_jobs,
+        cluster_kill,
+        cluster_status,
+        cluster_submit,
+        _make_cluster_watch,
+    )
+
+    tools.extend([
+        cluster_jobs,
+        cluster_status,
+        cluster_submit,
+        cluster_kill,
+        _make_cluster_watch(
+            caller_name=caller_name,
+            send_notification=_send_prompt_fire_and_forget,
+            find_agent=_find_agent_by_name,
+        ),
+    ])
 
     return create_sdk_mcp_server(
         name="chic",
