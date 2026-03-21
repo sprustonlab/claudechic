@@ -36,9 +36,9 @@ log = logging.getLogger(__name__)
 # Configuration helpers
 # ---------------------------------------------------------------------------
 
-#: Always injected into every submitted command string to prevent
-#: torch.compile from hanging on cluster nodes.
-TORCH_COMPILE_DISABLE_VAR = "TORCH_COMPILE_DISABLE=1"
+#: Always injected into every submitted command string so that
+#: Python output is visible in real-time via LSF log files.
+PYTHONUNBUFFERED_VAR = "PYTHONUNBUFFERED=1"
 
 #: Continuation lines in ``bjobs -l`` have ≥26 leading spaces; section
 #: headers like RUNLIMIT have only 1.
@@ -298,7 +298,7 @@ def _submit_job(
 ) -> dict[str, Any]:
     """Build bsub invocation, submit, and return ``{job_id, message}``."""
     # Build environment-variable prefix
-    env_parts = [TORCH_COMPILE_DISABLE_VAR]
+    env_parts = [PYTHONUNBUFFERED_VAR]
     conda_envs = _get_conda_envs_dirs()
     if conda_envs and "conda run" in command:
         env_parts.append(f"CONDA_ENVS_DIRS={conda_envs}")
@@ -510,7 +510,7 @@ async def cluster_status(args: dict[str, Any]) -> dict[str, Any]:
     "cluster_submit",
     (
         "Submit a job to the LSF cluster. "
-        "TORCH_COMPILE_DISABLE=1 is always prepended. "
+        "PYTHONUNBUFFERED=1 is always prepended. "
         "CONDA_ENVS_DIRS is set automatically when the command contains 'conda run'."
     ),
     {
