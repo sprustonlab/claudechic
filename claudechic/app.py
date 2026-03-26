@@ -637,6 +637,9 @@ class ChatApp(App):
         # Clear VIRTUAL_ENV so agents in worktrees use their own venv
         if os.environ.get("VIRTUAL_ENV"):
             env["VIRTUAL_ENV"] = ""
+        # Expose agent name so guardrail hooks can identify the Coordinator vs sub-agents
+        if agent_name:
+            env["CLAUDE_AGENT_NAME"] = agent_name
 
         # Use global permission mode from AgentManager (runtime source of truth)
         # CLI flag --yolo sets global_permission_mode at init, no special handling needed here
