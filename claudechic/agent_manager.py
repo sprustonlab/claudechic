@@ -270,6 +270,28 @@ class AgentManager:
         """Check if agent exists."""
         return agent_id in self.agents
 
+    def get_topology(self) -> dict:
+        """Serialize current agent topology for persistence.
+
+        Returns a dict suitable for saving via ``sessions.save_topology()``.
+        """
+        agents_list = []
+        for agent in self.agents.values():
+            agents_list.append(
+                {
+                    "name": agent.name,
+                    "cwd": str(agent.cwd),
+                    "session_id": agent.session_id,
+                    "worktree": agent.worktree,
+                    "model": agent.model,
+                }
+            )
+        return {
+            "version": 1,
+            "active_agent_name": self.active.name if self.active else None,
+            "agents": agents_list,
+        }
+
     async def set_global_permission_mode(self, mode: str) -> None:
         """Update permission mode for all agents.
 

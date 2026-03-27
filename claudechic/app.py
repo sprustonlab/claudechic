@@ -47,6 +47,8 @@ from claudechic.sessions import (
     get_context_from_session,
     get_plan_path_for_session,
     get_recent_sessions,
+    load_topology,
+    save_topology,
 )
 from claudechic.features.diff import EditFileRequested
 from claudechic.features.worktree import list_worktrees
@@ -811,6 +813,9 @@ class ChatApp(App):
             await self._load_and_display_history(resume)
             self.notify(f"Resuming {resume[:8]}...")
 
+            # Restore subagents from topology
+            await self._restore_subagents(resume)
+
         # Fetch SDK commands and update autocomplete
         await self._update_slash_commands()
 
@@ -951,13 +956,22 @@ class ChatApp(App):
         self._review_poll_agent_id = None
 
     async def _load_and_display_history(
-        self, session_id: str, cwd: Path | None = None
+        self,
+        session_id: str,
+        cwd: Path | None = None,
+        agent: Agent | None = None,
     ) -> None:
         """Load session history into agent and render in chat view.
 
         This uses Agent.messages as the single source of truth.
+
+        Args:
+            session_id: Session ID to load history from.
+            cwd: Working directory for session lookup.
+            agent: Explicit agent to load history into. If None, uses the
+                   currently active agent (backward compat).
         """
-        agent = self._agent
+        agent = agent or self._agent
         if not agent:
             return
 
@@ -1548,12 +1562,138 @@ class ChatApp(App):
             self._last_quit_time = now
             self.notify("Press Ctrl+C again to quit")
 
+    def _save_topology(self) -> None:
+        """Persist multi-agent topology so ``--resume`` can restore subagents.
+
+        Called on: session init, response complete, agent close, and exit.
+        Skips silently if the main agent has no session_id yet.
+        """
+        if not self.agent_mgr:
+            return
+
+        # Find the main agent (first non-worktree, or just the first agent)
+        main_agent: Agent | None = None
+        for agent in self.agent_mgr:
+            if not agent.worktree:
+                main_agent = agent
+                break
+        if main_agent is None:
+            # All agents are worktrees — use the first agent as main
+            agents_iter = iter(self.agent_mgr)
+            main_agent = next(agents_iter, None)
+        if main_agent is None or not main_agent.session_id:
+            return  # Nothing to save yet
+
+        topo = self.agent_mgr.get_topology()
+        try:
+            save_topology(main_agent.session_id, topo, cwd=main_agent.cwd)
+        except Exception as exc:
+            log.warning("Failed to save topology: %s", exc)
+
+    async def _restore_subagents(self, main_session_id: str) -> None:
+        """Restore subagents from a saved topology file.
+
+        Called during ``_connect_initial_client`` after the main agent is
+        connected and its history is loaded.  Each subagent entry is
+        recreated with ``agent_mgr.create(resume=...)``.
+
+        Args:
+            main_session_id: Session ID of the main agent (used to find topology).
+        """
+        if not self.agent_mgr:
+            return
+
+        main_agent = self.agent_mgr.active
+        if not main_agent:
+            return
+
+        topo = load_topology(main_session_id, cwd=main_agent.cwd)
+        if not topo:
+            return
+
+        entries = topo.get("agents", [])
+        if len(entries) <= 1:
+            return  # Single-agent session, nothing to restore
+
+        main_name = main_agent.name
+        restored = 0
+
+        for entry in entries:
+            name = entry.get("name")
+            if not name:
+                continue
+
+            # Skip the main agent (already connected)
+            if name == main_name:
+                continue
+
+            # Skip if agent with this name already exists
+            if self.agent_mgr.find_by_name(name):
+                log.info("Skipping duplicate agent '%s' during restore", name)
+                continue
+
+            cwd_str = entry.get("cwd")
+            session_id = entry.get("session_id")
+            worktree = entry.get("worktree")
+            model = entry.get("model")
+
+            if not session_id:
+                log.warning("Skipping agent '%s': no session_id in topology", name)
+                continue
+
+            # Validate CWD exists (worktree may have been deleted)
+            cwd_path = Path(cwd_str) if cwd_str else main_agent.cwd
+            if not cwd_path.exists():
+                log.warning(
+                    "Skipping agent '%s': cwd '%s' no longer exists", name, cwd_path
+                )
+                self.notify(
+                    f"Skipped restoring '{name}' — directory no longer exists",
+                    severity="warning",
+                )
+                continue
+
+            try:
+                agent = await self.agent_mgr.create(
+                    name=name,
+                    cwd=cwd_path,
+                    worktree=worktree,
+                    resume=session_id,
+                    switch_to=False,
+                    model=model,
+                )
+                # Load and display history for the restored subagent
+                await self._load_and_display_history(
+                    session_id, cwd=cwd_path, agent=agent
+                )
+                restored += 1
+                log.info("Restored agent '%s' (session=%s)", name, session_id[:8])
+            except Exception as exc:
+                log.warning("Failed to restore agent '%s': %s", name, exc)
+                self.notify(
+                    f"Failed to restore agent '{name}'",
+                    severity="warning",
+                )
+
+        if restored:
+            self.notify(f"Restored {restored} subagent{'s' if restored != 1 else ''}")
+
+            # Switch back to the originally-active agent
+            active_name = topo.get("active_agent_name")
+            if active_name:
+                target = self.agent_mgr.find_by_name(active_name)
+                if target:
+                    self.agent_mgr.switch(target.id)
+
     async def _cleanup_and_exit(self, reason: str = "quit") -> None:
         """Disconnect all agents and exit.
 
         Args:
             reason: Why the app is closing (quit, crash, error)
         """
+        # Save topology before closing agents (agents still have session_ids)
+        self._save_topology()
+
         # Close all agents in parallel (fires agent_closed events with message_count)
         if self.agent_mgr:
             await self.agent_mgr.close_all()
@@ -2412,6 +2552,9 @@ class ChatApp(App):
         """Handle agent closure from AgentManager."""
         log.info(f"Agent closed: {agent_id}")
 
+        # Topology changed — persist (agent already removed from manager)
+        self._save_topology()
+
         # Track analytics
         metadata = self._agent_metadata.pop(agent_id, {})
         duration = time.time() - metadata.get("created_at", time.time())
@@ -2533,6 +2676,9 @@ class ChatApp(App):
         """Handle agent response completion."""
         log.info(f"Agent {agent.name} completed response")
 
+        # Persist topology after each response (session_id confirmed)
+        self._save_topology()
+
         # Check for unrecognized slash commands (passed through but no Skill invoked)
         pending_cmd = self._pending_slash_commands.pop(agent.id, None)
         if pending_cmd:
@@ -2630,6 +2776,9 @@ class ChatApp(App):
     def on_system_message(self, agent: Agent, message: SystemMessage) -> None:
         """Handle system message from agent - post Textual Message for UI."""
         self.post_message(SystemNotification(message, agent_id=agent.id))
+        # Save topology when session_id is first assigned (init message)
+        if message.subtype == "init":
+            self._save_topology()
 
     def on_command_output(self, agent: Agent, content: str) -> None:
         """Handle command output from agent (e.g., /context)."""

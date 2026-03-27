@@ -1,12 +1,16 @@
 """Session management - loading and listing Claude Code sessions."""
 
 import json
+import logging
 import os
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 import aiofiles
+
+log = logging.getLogger(__name__)
 
 
 def is_valid_uuid(s: str) -> bool:
@@ -347,3 +351,74 @@ async def get_context_from_session(
         return None
 
     return None
+
+
+# ---------------------------------------------------------------------------
+# Topology persistence (multi-agent session save/restore)
+# ---------------------------------------------------------------------------
+
+
+def _get_project_sessions_dir_for_write(cwd: Path | None = None) -> Path:
+    """Get project sessions dir, creating it if necessary (for writes).
+
+    Unlike get_project_sessions_dir(), this never returns None.
+    """
+    cwd = (cwd or Path.cwd()).absolute()
+    project_key = (
+        str(cwd).replace(os.sep, "-").replace(":", "").replace("_", "-").replace(".", "-")
+    )
+    sessions_dir = Path.home() / ".claude/projects" / project_key
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    return sessions_dir
+
+
+def save_topology(session_id: str, data: dict, cwd: Path | None = None) -> None:
+    """Atomically write topology JSON alongside session files.
+
+    File: ``{sessions_dir}/{session_id}.topology.json``
+
+    The write is atomic (write-to-temp + rename) to avoid partial reads.
+    """
+    sessions_dir = _get_project_sessions_dir_for_write(cwd)
+    target = sessions_dir / f"{session_id}.topology.json"
+
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(sessions_dir), suffix=".topology.tmp"
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, str(target))
+        log.debug("Saved topology to %s", target)
+    except (IOError, OSError) as exc:
+        log.warning("Failed to save topology: %s", exc)
+        # Clean up temp file on error
+        try:
+            os.unlink(tmp_path)
+        except (NameError, OSError):
+            pass
+
+
+def load_topology(session_id: str, cwd: Path | None = None) -> dict | None:
+    """Load topology JSON for a session.
+
+    Returns the parsed dict, or None if the file doesn't exist or is corrupt.
+    """
+    sessions_dir = get_project_sessions_dir(cwd)
+    if not sessions_dir:
+        return None
+
+    target = sessions_dir / f"{session_id}.topology.json"
+    if not target.exists():
+        return None
+
+    try:
+        with open(target, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or "agents" not in data:
+            log.warning("Invalid topology file: %s", target)
+            return None
+        return data
+    except (json.JSONDecodeError, IOError, OSError) as exc:
+        log.warning("Failed to load topology: %s", exc)
+        return None
