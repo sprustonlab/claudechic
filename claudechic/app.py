@@ -140,7 +140,7 @@ class ChatApp(App):
 
     BINDINGS = [
         Binding("ctrl+y", "copy_selection", "Copy", priority=True, show=False),
-        Binding("ctrl+c", "quit", "Quit", priority=True, show=False),
+        Binding("ctrl+c", "copy_or_quit", "Copy/Quit", priority=True, show=False),
         Binding("ctrl+s", "screenshot", "Screenshot", show=False),
         # Agent switching: ctrl+1 through ctrl+9
         *[
@@ -1424,6 +1424,15 @@ class ChatApp(App):
         chat_view = self._chat_view
         if chat_view:
             chat_view.clear()
+
+    def action_copy_or_quit(self) -> None:
+        """Ctrl+C: copy selection if any, otherwise quit."""
+        selected = self.screen.get_selected_text()
+        if selected and selected.strip():
+            self.copy_to_clipboard(selected)
+            self.notify("Copied to clipboard")
+        else:
+            self.action_quit()
 
     def action_copy_selection(self) -> None:
         selected = self.screen.get_selected_text()
