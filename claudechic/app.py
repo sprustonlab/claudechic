@@ -2180,11 +2180,13 @@ class ChatApp(App):
         self._update_footer_model(model)
         if agent.client:
             self.notify(f"Switching to {model}...")
+            session_id = agent.session_id
             await agent.disconnect()
             options = self._make_options(
-                cwd=agent.cwd, agent_name=agent.name, model=model
+                cwd=agent.cwd, agent_name=agent.name, model=model,
+                resume=session_id,
             )
-            await agent.connect(options)
+            await agent.connect(options, resume=session_id)
 
     @work(group="model_prompt", exclusive=True, exit_on_error=False)
     async def _handle_model_prompt(self) -> None:
