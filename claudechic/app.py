@@ -92,6 +92,7 @@ from claudechic.widgets import (
     PendingShellWidget,
 )
 from claudechic.widgets.layout.footer import (
+    DiagnosticsLabel,
     PermissionModeLabel,
     ModelLabel,
     StatusFooter,
@@ -2038,6 +2039,17 @@ class ChatApp(App):
     ) -> None:
         """Handle model label press - open model selector."""
         self._handle_model_prompt()
+
+    def on_diagnostics_label_requested(
+        self, event: DiagnosticsLabel.Requested
+    ) -> None:  # noqa: ARG002
+        """Handle diagnostics label press - open diagnostics modal."""
+        from claudechic.widgets.modals.diagnostics import DiagnosticsModal
+
+        agent = self._agent
+        session_id = agent.session_id if agent else None
+        cwd = agent.cwd if agent else None
+        self.push_screen(DiagnosticsModal(session_id=session_id, cwd=cwd))
 
     def _close_sidebar_overlay(self) -> None:
         """Close sidebar overlay if open."""

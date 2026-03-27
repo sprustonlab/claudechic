@@ -85,6 +85,10 @@ ModelLabel:hover {
     background: $panel;
 }
 
+DiagnosticsLabel:hover {
+    background: $panel;
+}
+
 .footer-sep {
     color: $panel;
     width: auto;
