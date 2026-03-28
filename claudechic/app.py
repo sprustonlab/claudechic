@@ -3023,14 +3023,16 @@ class ChatApp(App):
 
     def _update_footer_model(self, model: str | None) -> None:
         """Update footer to show agent's model."""
+        from claudechic.widgets.prompts import _model_matches
+
         if not self._available_models:
             # No model info yet - show raw value or empty
             self.status_footer.model = model.capitalize() if model else ""
             return
-        # Find matching model, or default if model is None
+        # Find matching model (alias-aware), or default if model is None
         active = self._available_models[0]
         for m in self._available_models:
-            if model and m.get("value") == model:
+            if model and _model_matches(m.get("value", ""), model):
                 active = m
                 break
             if not model and m.get("value") == "default":
