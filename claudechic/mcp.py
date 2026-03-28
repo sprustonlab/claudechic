@@ -183,9 +183,14 @@ def _make_spawn_agent(caller_name: str | None = None):
         if not path.exists():
             return _error_response(f"Path '{path}' does not exist")
 
-        # Check if agent with this name already exists
+        # Check if agent with this name already exists (active or closed)
         if _app.agent_mgr.find_by_name(name):
             return _error_response(f"Agent '{name}' already exists")
+        if _app.agent_mgr.find_closed_by_name(name):
+            return _error_response(
+                f"A closed agent named '{name}' exists. "
+                f"Ask the user to run /agent reopen {name}"
+            )
 
         try:
             # Create agent via AgentManager (handles SDK connection)

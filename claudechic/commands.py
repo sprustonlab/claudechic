@@ -89,7 +89,7 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
         "Create git worktree with agent",
         ["/worktree finish", "/worktree cleanup", "/worktree discard"],
     ),
-    ("/agent", "Create or list agents", ["/agent close"]),
+    ("/agent", "Create or list agents", ["/agent close", "/agent reopen"]),
     ("/shell", "Run shell command (or -i for interactive)", []),
     ("/theme", "Search themes", []),
     ("/compactish", "Compact session to reduce context", []),
@@ -457,12 +457,34 @@ def _handle_agent(app: "ChatApp", command: str) -> bool:
         app._close_agent(target)
         return True
 
+    if subcommand == "reopen":
+        target = parts[2] if len(parts) > 2 else None
+        if not target:
+            # List closed agents available for reopen
+            if app.agent_mgr and app.agent_mgr.closed_agents:
+                names = ", ".join(app.agent_mgr.closed_agents.keys())
+                app.notify(f"Closed agents: {names}\nUse /agent reopen <name>")
+            else:
+                app.notify("No closed agents to reopen")
+            return True
+        app._reopen_agent(target)
+        return True
+
     # Check if agent with this name exists - switch to it
     name = subcommand
     if app.agent_mgr:
         existing = app.agent_mgr.find_by_name(name)
         if existing:
             app.agent_mgr.switch(existing.id)
+            return True
+
+        # Check if name collides with a closed agent
+        if app.agent_mgr.find_closed_by_name(name):
+            app.notify(
+                f"A closed agent named '{name}' exists. "
+                f"Use /agent reopen {name} to reopen it.",
+                severity="warning",
+            )
             return True
 
     # Create new agent - parse optional --model flag (supports --model=x or --model x)

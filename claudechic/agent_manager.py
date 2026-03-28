@@ -41,6 +41,7 @@ class AgentManager:
                 (Agent sets its own permission handler).
         """
         self.agents: dict[str, Agent] = {}
+        self.closed_agents: dict[str, dict] = {}
         self.active_id: str | None = None
         self._options_factory = options_factory
 
@@ -217,12 +218,16 @@ class AgentManager:
 
         return True
 
-    async def close(self, agent_id: str, *, skip_switch: bool = False) -> None:
+    async def close(
+        self, agent_id: str, *, skip_switch: bool = False, soft: bool = True
+    ) -> None:
         """Close an agent and clean up.
 
         Args:
             agent_id: ID of agent to close
             skip_switch: If True, don't switch to another agent (used by close_all)
+            soft: If True, preserve metadata in closed_agents for later reopen.
+                  If False (used by close_all at exit), discard completely.
         """
         agent = self.agents.pop(agent_id, None)
         if not agent:
@@ -232,6 +237,17 @@ class AgentManager:
         name = agent.name
         was_active = agent_id == self.active_id
         message_count = len(agent.messages)
+
+        # Capture metadata before disconnect (session_id needed for reopen)
+        if soft and agent.session_id:
+            self.closed_agents[name] = {
+                "name": name,
+                "cwd": str(agent.cwd),
+                "session_id": agent.session_id,
+                "worktree": agent.worktree,
+                "model": agent.model,
+            }
+            log.info(f"Soft-closed agent '{name}' (session={agent.session_id[:8]})")
 
         # Disconnect
         await agent.disconnect()
@@ -248,15 +264,70 @@ class AgentManager:
             self.active_id = None
 
     async def close_all(self) -> None:
-        """Close all agents in parallel."""
+        """Close all agents in parallel.
+
+        Uses soft=False because this is called during app exit — agents are
+        terminating, not hibernating. Topology is already saved before this.
+        """
         agent_ids = list(self.agents.keys())
         results = await asyncio.gather(
-            *(self.close(aid, skip_switch=True) for aid in agent_ids),
+            *(self.close(aid, skip_switch=True, soft=False) for aid in agent_ids),
             return_exceptions=True,
         )
         for aid, result in zip(agent_ids, results):
             if isinstance(result, Exception):
                 log.warning(f"Failed to close agent {aid}: {result}")
+
+    def find_closed_by_name(self, name: str) -> dict | None:
+        """Find a closed agent's metadata by name.
+
+        Returns the metadata dict if found, None otherwise.
+        Does NOT search active agents — use find_by_name() for that.
+        """
+        return self.closed_agents.get(name)
+
+    async def reopen(self, name: str) -> "Agent":
+        """Reopen a previously closed agent.
+
+        Removes the entry from closed_agents and creates a new Agent via
+        create(resume=session_id). The reopened agent gets a fresh SDK
+        connection but resumes the original session history.
+
+        Args:
+            name: Name of the closed agent to reopen
+
+        Returns:
+            The reopened Agent (connected and ready)
+
+        Raises:
+            ValueError: If agent not found in closed_agents or CWD missing
+        """
+        entry = self.closed_agents.pop(name, None)
+        if entry is None:
+            raise ValueError(f"No closed agent named '{name}'")
+
+        cwd = Path(entry["cwd"])
+        if not cwd.exists():
+            # Put it back — reopen failed
+            self.closed_agents[name] = entry
+            raise ValueError(
+                f"Cannot reopen '{name}' — directory '{cwd}' no longer exists"
+            )
+
+        session_id = entry["session_id"]
+        worktree = entry.get("worktree")
+        model = entry.get("model")
+
+        log.info(f"Reopening agent '{name}' (session={session_id[:8]})")
+
+        return await self.create(
+            name=name,
+            cwd=cwd,
+            worktree=worktree,
+            resume=session_id,
+            switch_to=True,
+            model=model,
+        )
 
     def __len__(self) -> int:
         """Number of agents."""
@@ -274,6 +345,8 @@ class AgentManager:
         """Serialize current agent topology for persistence.
 
         Returns a dict suitable for saving via ``sessions.save_topology()``.
+        Active and closed agents are merged into a single ``"agents"`` list.
+        Closed entries carry ``"closed": true``; active entries omit the key.
         """
         agents_list = []
         for agent in self.agents.values():
@@ -286,6 +359,8 @@ class AgentManager:
                     "model": agent.model,
                 }
             )
+        for entry in self.closed_agents.values():
+            agents_list.append({**entry, "closed": True})
         return {
             "version": 1,
             "active_agent_name": self.active.name if self.active else None,

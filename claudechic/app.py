@@ -1708,6 +1708,18 @@ class ChatApp(App):
                 log.warning("Skipping agent '%s': no session_id in topology", name)
                 continue
 
+            # Closed agents: add to closed_agents dict (no SDK connection)
+            if entry.get("closed"):
+                self.agent_mgr.closed_agents[name] = {
+                    "name": name,
+                    "cwd": cwd_str or str(main_agent.cwd),
+                    "session_id": session_id,
+                    "worktree": worktree,
+                    "model": model,
+                }
+                log.info("Loaded closed agent '%s' (session=%s)", name, session_id[:8])
+                continue
+
             # Validate CWD exists (worktree may have been deleted)
             cwd_path = Path(cwd_str) if cwd_str else main_agent.cwd
             if not cwd_path.exists():
@@ -2459,6 +2471,31 @@ class ChatApp(App):
         """Close an agent via Textual worker (fire-and-forget for UI callers)."""
         await self._close_agent_core(agent_id)
 
+    @work(group="reopen_agent", exclusive=True, exit_on_error=False)
+    async def _reopen_agent(self, name: str) -> None:
+        """Reopen a previously closed agent.
+
+        Delegates to AgentManager.reopen() which creates a new Agent via
+        create(resume=session_id). Then loads and displays history.
+        """
+        if self.agent_mgr is None:
+            self.notify("Agent manager not initialized", severity="error")
+            return
+
+        try:
+            agent = await self.agent_mgr.reopen(name)
+        except ValueError as e:
+            self.notify(str(e), severity="error")
+            return
+
+        # Load and display history for the reopened agent
+        if agent.session_id:
+            await self._load_and_display_history(
+                agent.session_id, cwd=agent.cwd, agent=agent
+            )
+
+        self.notify(f"Agent '{name}' reopened")
+
     def on_app_focus(self) -> None:
         if self._chat_input:
             self._chat_input.focus()
@@ -3098,8 +3135,12 @@ class ChatApp(App):
             return PermissionResponse(PermissionChoice.DENY)
 
     def _update_footer_model(self, model: str | None) -> None:
-        """Update footer to show agent's model."""
+        """Update footer to show agent's model and adjust context bar."""
+        from claudechic.formatting import get_context_window
         from claudechic.widgets.prompts import _model_matches
+
+        # Update context bar's max tokens based on model
+        self.context_bar.max_tokens = get_context_window(model)
 
         if not self._available_models:
             # No model info yet - show raw value or empty
