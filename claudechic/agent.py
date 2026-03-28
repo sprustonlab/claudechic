@@ -184,6 +184,8 @@ class Agent:
         self._pre_plan_permission_mode: str = "default"  # mode before entering plan
         self.session_allowed_tools: set[str] = set()  # Tools allowed for this session
         self._pending_followup: str | None = None  # Auto-send after current response
+        self._pending_reply_to: str | None = None  # Agent name we owe a reply to
+        self._reply_nudge_count: int = 0  # How many nudges sent for current obligation
         self.model: str | None = "opus"  # Model override (None = SDK default)
 
         # Worktree finish state (for /worktree finish flow)
@@ -916,9 +918,14 @@ Key Rules:
         """Send permission mode to SDK without changing local state.
 
         Use this when local state was already set via ``_set_permission_mode_local``
-        but the SDK still needs to be notified.  Unlike ``set_permission_mode``,
-        this skips the ``self.permission_mode != mode`` guard and always writes.
+        but the SDK still needs to be notified.
+
+        Because this runs as a deferred task (via ``create_safe_task``), the
+        local state may have changed between scheduling and execution.  If so,
+        skip the SDK call — whoever changed the mode is responsible for syncing.
         """
+        if self.permission_mode != mode:
+            return  # Local state changed since we were scheduled; skip
         if self.client and self.session_id:
             await self.client.set_permission_mode(mode)
 

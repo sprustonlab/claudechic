@@ -88,6 +88,24 @@ def _track_mcp_tool(tool_name: str) -> None:
         )
 
 
+def _clear_pending_reply_if_matched(
+    sender_name: str | None, recipient_name: str
+) -> None:
+    """Clear _pending_reply_to if the sender is replying to their caller.
+
+    Called from tell_agent. If the sending agent has
+    _pending_reply_to == recipient_name, it means the agent is delivering
+    its required answer — clear the obligation.
+    """
+    if not sender_name or not _app or not _app.agent_mgr:
+        return
+    sender = _app.agent_mgr.find_by_name(sender_name)
+    if sender and sender._pending_reply_to == recipient_name:
+        sender._pending_reply_to = None
+        sender._reply_nudge_count = 0
+        log.debug("Agent '%s' fulfilled reply obligation to '%s'", sender_name, recipient_name)
+
+
 def _send_prompt_fire_and_forget(
     agent,
     prompt: str,
@@ -135,7 +153,19 @@ def _make_spawn_agent(caller_name: str | None = None):
     @tool(
         "spawn_agent",
         "Create a new Claude agent in claudechic. The agent gets its own chat view and can work independently.",
-        {"name": str, "path": str, "prompt": str},
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "path": {"type": "string"},
+                "prompt": {"type": "string"},
+                "requires_answer": {
+                    "type": "boolean",
+                    "description": "If true, the spawned agent is expected to reply back to the caller using tell_agent. It will be nudged if idle without replying.",
+                },
+            },
+            "required": ["name", "path", "prompt"],
+        },
     )
     async def spawn_agent(args: dict[str, Any]) -> dict[str, Any]:
         """Spawn a new agent, optionally with an initial prompt."""
@@ -148,6 +178,7 @@ def _make_spawn_agent(caller_name: str | None = None):
         default_cwd = _app.agent_mgr.active.cwd if _app.agent_mgr.active else Path.cwd()
         path = Path(args.get("path", str(default_cwd))).resolve()
         prompt = args.get("prompt")
+        requires_answer = args.get("requires_answer", False)
 
         if not path.exists():
             return _error_response(f"Path '{path}' does not exist")
@@ -162,6 +193,10 @@ def _make_spawn_agent(caller_name: str | None = None):
             agent = await _app.agent_mgr.create(name=name, cwd=path, switch_to=False, model="opus")
         except Exception as e:
             return _error_response(f"Error creating agent: {e}")
+
+        # Track that this agent owes a reply to the caller
+        if requires_answer and caller_name:
+            agent._pending_reply_to = caller_name
 
         result = f"Created agent '{name}' in {path}"
 
@@ -246,6 +281,10 @@ def _make_ask_agent(caller_name: str | None = None):
             agent, prompt, caller_name=caller_name, expect_reply=True
         )
 
+        # NOTE: Do NOT clear _pending_reply_to here. ask_agent is a
+        # follow-up question, not a final answer. The obligation is only
+        # fulfilled when the agent uses tell_agent to deliver a result.
+
         return _text_response(
             f"Question queued for '{name}'. Delivery is asynchronous - the message may not arrive if the agent is disconnected."
         )
@@ -275,6 +314,9 @@ def _make_tell_agent(caller_name: str | None = None):
             return _error_response(error or "Agent not found")
 
         _send_prompt_fire_and_forget(agent, message, caller_name=caller_name)
+
+        # Clear pending reply if this agent is replying to its caller
+        _clear_pending_reply_if_matched(caller_name, name)
 
         return _text_response(f"Message queued for '{name}'. Delivery is asynchronous.")
 

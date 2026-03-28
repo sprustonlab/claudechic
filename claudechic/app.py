@@ -205,7 +205,7 @@ class ChatApp(App):
         self._chat_views: dict[str, ChatView] = {}  # agent_id -> ChatView
         self._agent_metadata: dict[
             str, dict
-        ] = {}  # agent_id -> {created_at, same_directory}
+        ] = {}  # agent_id -> {created_at, same_directory, name}
         self._active_prompts: dict[
             str, Any
         ] = {}  # agent_id -> SelectionPrompt/QuestionPrompt
@@ -1572,6 +1572,63 @@ class ChatApp(App):
             self._last_quit_time = now
             self.notify("Press Ctrl+C again to quit")
 
+    # Seconds to wait before nudging an idle agent that owes a reply
+    REPLY_NUDGE_DELAY = 15
+    # Maximum number of nudges before giving up
+    REPLY_NUDGE_MAX = 3
+
+    def _schedule_reply_nudge(self, agent: Agent) -> None:
+        """Schedule a nudge if *agent* goes idle without replying to its caller.
+
+        Called from ``on_complete`` when ``agent._pending_reply_to`` is set.
+        If the agent is still idle and still owes a reply when the timer
+        fires, a reminder message is sent automatically (up to REPLY_NUDGE_MAX
+        times).
+        """
+        caller = agent._pending_reply_to
+        if not caller:
+            return
+        # Check nudge count — give up after max attempts
+        nudge_count = agent._reply_nudge_count
+        if nudge_count >= self.REPLY_NUDGE_MAX:
+            log.info(
+                "Agent '%s' hit max nudge count (%d) for '%s', giving up",
+                agent.name, self.REPLY_NUDGE_MAX, caller,
+            )
+            agent._pending_reply_to = None
+            agent._reply_nudge_count = 0
+            return
+
+        agent_id = agent.id  # capture for closure
+
+        def _fire_nudge() -> None:
+            # Re-resolve agent (may have been closed)
+            if not self.agent_mgr or agent_id not in self.agent_mgr.agents:
+                return
+            a = self.agent_mgr.agents[agent_id]
+            # Only nudge if still idle and still owes a reply to the same caller
+            if a._pending_reply_to != caller:
+                return
+            if a.status != AgentStatus.IDLE:
+                return
+            # Check caller still exists — no point nudging to reply to a dead agent
+            if not self.agent_mgr.find_by_name(caller):
+                log.info("Caller '%s' no longer exists, clearing reply obligation on '%s'", caller, a.name)
+                a._pending_reply_to = None
+                a._reply_nudge_count = 0
+                return
+            # Increment nudge count
+            a._reply_nudge_count += 1
+            nudge = (
+                f"You have been idle for {self.REPLY_NUDGE_DELAY} seconds, but no "
+                f"message has been sent to '{caller}'. Remember that an answer is "
+                f"required. Use tell_agent to reply to '{caller}'."
+            )
+            log.info("Nudging agent '%s' to reply to '%s' (%d/%d)", a.name, caller, a._reply_nudge_count, self.REPLY_NUDGE_MAX)
+            create_safe_task(a.send(nudge), name=f"nudge-reply-{a.name}")
+
+        self.set_timer(self.REPLY_NUDGE_DELAY, _fire_nudge)
+
     def _save_topology(self) -> None:
         """Persist multi-agent topology so ``--resume`` can restore subagents.
 
@@ -2468,6 +2525,7 @@ class ChatApp(App):
         self._agent_metadata[agent.id] = {
             "created_at": time.time(),
             "same_directory": same_directory,
+            "name": agent.name,
         }
         self.run_worker(
             capture(
@@ -2588,6 +2646,20 @@ class ChatApp(App):
 
         # Track analytics
         metadata = self._agent_metadata.pop(agent_id, {})
+
+        # Clear reply obligations pointing at the closed agent.
+        # The agent is already popped from the manager, so we use the name
+        # stored in metadata to find remaining agents that owe it a reply.
+        closed_name = metadata.get("name")
+        if closed_name and self.agent_mgr:
+            for a in self.agent_mgr:
+                if a._pending_reply_to == closed_name:
+                    log.info(
+                        "Clearing reply obligation on '%s' — caller '%s' was closed",
+                        a.name, closed_name,
+                    )
+                    a._pending_reply_to = None
+                    a._reply_nudge_count = 0
         duration = time.time() - metadata.get("created_at", time.time())
         same_directory = metadata.get("same_directory", True)
         self.run_worker(
@@ -2730,6 +2802,10 @@ class ChatApp(App):
                     SystemInfo(f"⚠️ API Error: {error_msg}", severity="error")
                 )
                 chat_view.scroll_if_tailing()
+
+        # Nudge agent if it owes a reply but just went idle
+        if agent._pending_reply_to:
+            self._schedule_reply_nudge(agent)
 
         # Post ResponseComplete message for existing UI handler
         self.post_message(ResponseComplete(result, agent_id=agent.id))
