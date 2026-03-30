@@ -13,7 +13,9 @@ Exposes tools for Claude to manage agents within claudechic:
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -577,6 +579,43 @@ def _make_close_agent(caller_name: str | None = None):
     return close_agent
 
 
+def discover_mcp_tools(mcp_tools_dir: Path, **kwargs) -> list:
+    """Walk mcp_tools/, import each eligible .py, call get_tools()."""
+    tools = []
+    if not mcp_tools_dir.is_dir():
+        return tools
+
+    for py_file in sorted(mcp_tools_dir.glob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+
+        module_name = f"mcp_tools.{py_file.stem}"
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec is None or spec.loader is None:
+                log.warning("mcp_tools: could not load spec for %s", py_file.name)
+                continue
+
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            spec.loader.exec_module(module)
+
+            get_tools_fn = getattr(module, "get_tools", None)
+            if get_tools_fn is None:
+                log.debug("mcp_tools: %s has no get_tools(), skipping", py_file.name)
+                continue
+
+            file_tools = get_tools_fn(**kwargs)
+            tools.extend(file_tools)
+            log.info("mcp_tools: loaded %d tool(s) from %s", len(file_tools), py_file.name)
+
+        except Exception:
+            log.warning("mcp_tools: failed to load %s, skipping", py_file.name, exc_info=True)
+            continue
+
+    return tools
+
+
 def create_chic_server(caller_name: str | None = None):
     """Create the chic MCP server with all tools.
 
@@ -620,6 +659,16 @@ def create_chic_server(caller_name: str | None = None):
             find_agent=_find_agent_by_name,
         ),
     ])
+
+    # Discover mcp_tools/ plugins
+    mcp_tools_dir = Path.cwd() / "mcp_tools"
+    external_tools = discover_mcp_tools(
+        mcp_tools_dir,
+        caller_name=caller_name,
+        send_notification=_send_prompt_fire_and_forget,
+        find_agent=_find_agent_by_name,
+    )
+    tools.extend(external_tools)
 
     return create_sdk_mcp_server(
         name="chic",
