@@ -585,6 +585,20 @@ def discover_mcp_tools(mcp_tools_dir: Path, **kwargs) -> list:
     if not mcp_tools_dir.is_dir():
         return tools
 
+    # Pre-load helper modules (underscore-prefixed) so tool files can import them
+    for py_file in sorted(mcp_tools_dir.glob("_*.py")):
+        if py_file.name == "__init__.py":
+            continue
+        module_name = f"mcp_tools.{py_file.stem}"
+        try:
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
+        except Exception:
+            log.warning("mcp_tools: failed to load helper %s", py_file.name, exc_info=True)
+
     for py_file in sorted(mcp_tools_dir.glob("*.py")):
         if py_file.name.startswith("_"):
             continue
@@ -637,38 +651,15 @@ def create_chic_server(caller_name: str | None = None):
     if CONFIG.get("experimental", {}).get("finish_worktree", False):
         tools.append(finish_worktree)
 
-    # LSF cluster tools (always registered; LSF availability checked at runtime)
-    from claudechic.cluster import (
-        cluster_jobs,
-        cluster_kill,
-        cluster_logs,
-        cluster_status,
-        cluster_submit,
-        _make_cluster_watch,
-    )
-
-    tools.extend([
-        cluster_jobs,
-        cluster_status,
-        cluster_submit,
-        cluster_kill,
-        cluster_logs,
-        _make_cluster_watch(
-            caller_name=caller_name,
-            send_notification=_send_prompt_fire_and_forget,
-            find_agent=_find_agent_by_name,
-        ),
-    ])
-
     # Discover mcp_tools/ plugins
     mcp_tools_dir = Path.cwd() / "mcp_tools"
-    external_tools = discover_mcp_tools(
+    discovered_tools = discover_mcp_tools(
         mcp_tools_dir,
         caller_name=caller_name,
         send_notification=_send_prompt_fire_and_forget,
         find_agent=_find_agent_by_name,
     )
-    tools.extend(external_tools)
+    tools.extend(discovered_tools)
 
     return create_sdk_mcp_server(
         name="chic",
