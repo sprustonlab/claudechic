@@ -175,6 +175,7 @@ class Agent:
         self.status: AgentStatus = AgentStatus.IDLE
         self._thinking: bool = False  # Whether this agent is currently thinking
         self._interrupted: bool = False  # Suppress errors after intentional interrupt
+        self._was_interrupted: bool = False  # Previous response was interrupted (drain leftovers)
 
         # Chat history
         self.messages: list[ChatItem] = []
@@ -462,6 +463,7 @@ class Agent:
         self._current_text_buffer = ""
         self._needs_new_message = True
         self._thinking_hidden = False  # Reset for new response
+        self._was_interrupted = self._interrupted  # Remember if prev response was interrupted
         self._interrupted = False  # Clear interrupt flag for new query
 
         # Start response processing
@@ -582,6 +584,26 @@ Key Rules:
                 await self.client.query(prompt)  # type: ignore[union-attr]
 
             had_tool_use: dict[str | None, bool] = {}
+
+            # After an interrupt, the SDK stream may contain leftover messages
+            # (ToolResult, ResultMessage) from the cancelled response.  The
+            # ResultMessage terminates the receive_response() iterator, so we
+            # must drain them in a separate loop, then call receive_response()
+            # again for the real response.
+            if self._was_interrupted:
+                async for message in self.client.receive_response():  # type: ignore[union-attr]
+                    if isinstance(message, (AssistantMessage, StreamEvent)):
+                        # Real response started in same stream — process it
+                        await self._handle_sdk_message(message, had_tool_use)
+                        break
+                    log.debug(
+                        "Draining leftover message after interrupt: %s",
+                        type(message).__name__,
+                    )
+                else:
+                    # Iterator exhausted (hit ResultMessage) — real response
+                    # will come in the next receive_response() call
+                    log.debug("Leftover stream exhausted, reading fresh response")
 
             async for message in self.client.receive_response():  # type: ignore[union-attr]
                 await self._handle_sdk_message(message, had_tool_use)

@@ -1136,6 +1136,12 @@ class ChatApp(App):
         chat_view.update_tool_result(
             event.block.tool_use_id, event.block, event.parent_tool_use_id
         )
+        # Don't show thinking indicator if agent was interrupted — the
+        # ToolResultMessage may arrive (from the message queue) after
+        # _interrupt_and_cleanup has already cleared the response state.
+        agent = self._get_agent(event.agent_id)
+        if agent and agent._interrupted:
+            return
         self._show_thinking(event.agent_id)
 
     def on_system_notification(self, event: SystemNotification) -> None:
@@ -2038,6 +2044,23 @@ class ChatApp(App):
         if self._agent and self._agent.id == agent.id:
             self.plan_section.set_plan(plan_path)
 
+    async def _interrupt_and_cleanup(self, agent: "Agent") -> None:
+        """Interrupt agent and clean up response state after cancellation completes.
+
+        Cleanup must happen AFTER interrupt() returns, not before — otherwise
+        late text chunks (still arriving before the response task is cancelled)
+        can recreate _current_response, leaving stale state that blocks the
+        next response from rendering.
+        """
+        await agent.interrupt()
+        # Now the response task is fully cancelled — no more text chunks
+        self._hide_thinking()
+        chat_view = self._chat_views.get(agent.id)
+        if chat_view:
+            if chat_view._current_response:
+                chat_view._current_response.flush()
+            chat_view.end_response(None)
+
     def action_escape(self) -> None:
         """Handle Escape: cancel picker, dismiss prompts, close overlay, or interrupt agent."""
         # Sidebar overlay takes priority (most likely what user wants to dismiss)
@@ -2059,9 +2082,10 @@ class ChatApp(App):
         # client.interrupt() did, and never crashes the app on timeout).
         if self._agent and self._agent.status == "busy":
             self.run_worker(
-                self._agent.interrupt(), exclusive=False, exit_on_error=False
+                self._interrupt_and_cleanup(self._agent),
+                exclusive=False,
+                exit_on_error=False,
             )
-            self._hide_thinking()
             self.notify("Interrupted")
             self.chat_input.focus()
             return
