@@ -84,13 +84,21 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
     ("/clearui", "Clear UI widgets (keeps history)", []),
     ("/diff", "Review changes vs target (default HEAD)", []),
     ("/resume", "Resume a previous session", []),
-    ("/resume_topology", "Resume a multi-agent session", []),
     (
         "/worktree",
         "Create git worktree with agent",
         ["/worktree finish", "/worktree cleanup", "/worktree discard"],
     ),
     ("/agent", "Create or list agents", ["/agent close", "/agent reopen"]),
+    (
+        "/chicsession",
+        "Named multi-agent sessions",
+        [
+            "/chicsession save",
+            "/chicsession list",
+            "/chicsession restore",
+        ],
+    ),
     ("/shell", "Run shell command (or -i for interactive)", []),
     ("/theme", "Search themes", []),
     ("/compactish", "Compact session to reduce context", []),
@@ -135,6 +143,8 @@ def get_help_commands() -> list[tuple[str, str]]:
             display_name = "/resume [id]"
         elif name == "/agent":
             display_name = "/agent [name] [path]"
+        elif name == "/chicsession":
+            display_name = "/chicsession <subcommand>"
         elif name == "/shell":
             display_name = "/shell <cmd>"
         elif name == "/compactish":
@@ -186,10 +196,6 @@ def handle_command(app: "ChatApp", prompt: str) -> bool:
         _track_command(app, "clearui")
         return _handle_clearui(app, cmd)
 
-    if cmd.startswith("/resume_topology"):
-        _track_command(app, "resume_topology")
-        return _handle_resume_topology(app, cmd)
-
     if cmd.startswith("/resume"):
         _track_command(app, "resume")
         return _handle_resume(app, cmd)
@@ -200,6 +206,12 @@ def handle_command(app: "ChatApp", prompt: str) -> bool:
         # worktree_action event is tracked separately with more detail
         handle_worktree_command(app, cmd)
         return True
+
+    if cmd.startswith("/chicsession"):
+        from claudechic.chicsession_cmd import handle_chicsession_command
+
+        _track_command(app, "chicsession")
+        return handle_chicsession_command(app, cmd)
 
     if cmd.startswith("/agent"):
         _track_command(app, "agent")
@@ -396,12 +408,6 @@ def _handle_resume(app: "ChatApp", command: str) -> bool:
         app.resume_session(session_id)
     else:
         app._show_session_picker()
-    return True
-
-
-def _handle_resume_topology(app: "ChatApp", command: str) -> bool:
-    """Handle /resume_topology command — show picker for multi-agent sessions."""
-    app._show_topology_picker()
     return True
 
 
