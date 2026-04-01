@@ -1,9 +1,8 @@
 """Command handler for /chicsession slash command.
 
 Subcommands:
-    /chicsession save <name>      — Snapshot all active agents
-    /chicsession list              — Show available chicsessions
-    /chicsession restore <name>   — Restore all agents from a chicsession
+    /chicsession save <name>       — Snapshot all active agents
+    /chicsession restore [name]    — Restore agents (shows picker if no name)
 """
 
 from __future__ import annotations
@@ -43,16 +42,12 @@ def handle_chicsession_command(app: ChatApp, command: str) -> bool:
         _handle_save(app, name)
         return True
 
-    if subcommand == "list":
-        _handle_list(app)
-        return True
-
     if subcommand == "restore":
         name = parts[2] if len(parts) > 2 else None
-        if not name:
-            app.notify("Usage: /chicsession restore <name>", severity="error")
-            return True
-        app.run_worker(_handle_restore(app, name))
+        if name:
+            app.run_worker(_handle_restore(app, name))
+        else:
+            _show_restore_picker(app)
         return True
 
     _show_usage(app)
@@ -68,8 +63,7 @@ def _show_usage(app: ChatApp) -> None:
         "| Subcommand | Description |\n"
         "|------------|-------------|\n"
         "| `save <name>` | Snapshot all active agents |\n"
-        "| `list` | Show available chicsessions |\n"
-        "| `restore <name>` | Restore all agents from a chicsession |"
+        "| `restore [name]` | Restore agents (shows picker if no name) |"
     )
     chat_view = app._chat_view
     if chat_view:
@@ -131,46 +125,26 @@ def _handle_save(app: ChatApp, name: str) -> None:
     mgr = _get_manager()
     mgr.save(cs)
 
+    # Activate auto-save: future agent create/close will update this file
+    app._chicsession_name = name
+
     app.notify(f"Chicsession '{name}' saved — {len(entries)} agent(s)")
     log.info("Saved chicsession '%s' with %d agents", name, len(entries))
 
 
-def _handle_list(app: ChatApp) -> None:
-    """Show available chicsessions."""
-    from claudechic.widgets import ChatMessage
+def _show_restore_picker(app: ChatApp) -> None:
+    """Show the chicsession picker screen."""
+    from claudechic.screens import ChicsessionScreen
 
-    mgr = _get_manager()
-    names = mgr.list_chicsessions()
+    root = _get_root()
 
-    chat_view = app._chat_view
-    if not chat_view:
-        return
+    def on_dismiss(name: str | None) -> None:
+        if name:
+            app.run_worker(_handle_restore(app, name))
+        if hasattr(app, "chat_input") and app.chat_input:
+            app.chat_input.focus()
 
-    if not names:
-        msg = ChatMessage(
-            "No chicsessions found. Use `/chicsession save <name>` to create one."
-        )
-        msg.add_class("system-message")
-        chat_view.mount(msg)
-        chat_view.scroll_if_tailing()
-        return
-
-    lines = [
-        "**Chicsessions**\n",
-        "| Name | Agents |",
-        "|------|--------|",
-    ]
-    for cs_name in names:
-        try:
-            cs = mgr.load(cs_name)
-            lines.append(f"| {cs_name} | {len(cs.agents)} |")
-        except (ValueError, FileNotFoundError):
-            lines.append(f"| {cs_name} | ? |")
-
-    msg = ChatMessage("\n".join(lines))
-    msg.add_class("system-message")
-    chat_view.mount(msg)
-    chat_view.scroll_if_tailing()
+    app.push_screen(ChicsessionScreen(root), on_dismiss)
 
 
 async def _handle_restore(app: ChatApp, name: str) -> None:
@@ -241,7 +215,50 @@ async def _handle_restore(app: ChatApp, name: str) -> None:
         if target:
             agent_mgr.switch(target.id)
 
+    # Activate auto-save: future agent create/close will update this file
+    app._chicsession_name = name
+
     msg = f"Chicsession '{name}' restored — {restored} agent(s)"
     if failed:
         msg += f", {failed} failed"
     app.notify(msg)
+
+
+def auto_save_chicsession(app: ChatApp) -> None:
+    """Re-snapshot all active agents and save to the active chicsession.
+
+    Called from app.py hooks (on_agent_created, on_agent_closed, on_system_message)
+    when ``app._chicsession_name`` is set. No-op otherwise.
+    """
+    name = getattr(app, "_chicsession_name", None)
+    if not name:
+        return
+
+    agent_mgr = app.agent_mgr
+    if not agent_mgr:
+        return
+
+    entries: list[ChicsessionEntry] = []
+    for agent in agent_mgr.agents.values():
+        if not agent.session_id:
+            continue
+        entries.append(
+            ChicsessionEntry(
+                name=agent.name,
+                session_id=agent.session_id,
+                cwd=str(agent.cwd),
+            )
+        )
+
+    if not entries:
+        return
+
+    active = agent_mgr.active
+    active_name = active.name if active else entries[0].name
+
+    cs = Chicsession(name=name, active_agent=active_name, agents=entries)
+    try:
+        _get_manager().save(cs)
+        log.debug("Auto-saved chicsession '%s' (%d agents)", name, len(entries))
+    except Exception as exc:
+        log.warning("Failed to auto-save chicsession '%s': %s", name, exc)

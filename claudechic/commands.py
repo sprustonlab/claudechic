@@ -95,7 +95,6 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
         "Named multi-agent sessions",
         [
             "/chicsession save",
-            "/chicsession list",
             "/chicsession restore",
         ],
     ),

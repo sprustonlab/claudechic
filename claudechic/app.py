@@ -218,6 +218,8 @@ class ChatApp(App):
         # Track pending slash commands passed to Claude (for typo detection)
         # agent_id -> command name (e.g., "/cleanup")
         self._pending_slash_commands: dict[str, str] = {}
+        # Active chicsession name — when set, agent create/close auto-saves
+        self._chicsession_name: str | None = None
 
     def _fatal_error(self) -> None:
         """Override to use plain Python tracebacks instead of rich's fancy ones."""
@@ -2511,6 +2513,11 @@ class ChatApp(App):
             )
         )
 
+        # Auto-save chicsession if active
+        from claudechic.chicsession_cmd import auto_save_chicsession
+
+        auto_save_chicsession(self)
+
         try:
             # Create chat view for the agent
             is_first_agent = len(self.agent_mgr.agents) == 1 if self.agent_mgr else True
@@ -2633,6 +2640,11 @@ class ChatApp(App):
     def on_agent_closed(self, agent_id: str, message_count: int = 0) -> None:
         """Handle agent closure from AgentManager."""
         log.info(f"Agent closed: {agent_id}")
+
+        # Auto-save chicsession if active (agent already removed from manager)
+        from claudechic.chicsession_cmd import auto_save_chicsession
+
+        auto_save_chicsession(self)
 
         # Track analytics
         metadata = self._agent_metadata.pop(agent_id, {})
@@ -2876,6 +2888,11 @@ class ChatApp(App):
     def on_system_message(self, agent: Agent, message: SystemMessage) -> None:
         """Handle system message from agent - post Textual Message for UI."""
         self.post_message(SystemNotification(message, agent_id=agent.id))
+        # Auto-save when session_id is first assigned (init message)
+        if message.subtype == "init":
+            from claudechic.chicsession_cmd import auto_save_chicsession
+
+            auto_save_chicsession(self)
 
     def on_command_output(self, agent: Agent, content: str) -> None:
         """Handle command output from agent (e.g., /context)."""

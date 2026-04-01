@@ -1,7 +1,7 @@
 """Chicsession management — named multi-agent session snapshots.
 
 A chicsession is a named snapshot of agents persisted at
-`<root>/.chicsessions/<name>.json`. Save, list, restore — that's it.
+`<root>/.chicsessions/<name>.json`. Save and restore — that's it.
 """
 
 from __future__ import annotations
