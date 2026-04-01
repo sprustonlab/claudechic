@@ -126,6 +126,7 @@ class AgentManager:
         resume: str | None = None,
         switch_to: bool = True,
         model: str | None = None,
+        agent_type: str | None = None,
     ) -> Agent:
         """Create and connect a new agent.
 
@@ -136,6 +137,7 @@ class AgentManager:
             resume: Session ID to resume
             switch_to: Whether to make this the active agent
             model: Model override (None = SDK default)
+            agent_type: Role type (e.g. "Implementer") — injected as CLAUDE_AGENT_ROLE
 
         Returns:
             The created agent (connected and ready)
@@ -150,7 +152,8 @@ class AgentManager:
 
         # Create options and connect
         options = self._options_factory(
-            cwd=cwd, resume=resume, agent_name=agent.name, model=model
+            cwd=cwd, resume=resume, agent_name=agent.name, model=model,
+            agent_type=agent_type,
         )
         await agent.connect(options, resume=resume)
 
@@ -249,8 +252,14 @@ class AgentManager:
             }
             log.info(f"Soft-closed agent '{name}' (session={agent.session_id[:8]})")
 
-        # Disconnect
-        await agent.disconnect()
+        # Disconnect — wrap in try/except so a single agent's disconnect
+        # failure doesn't prevent cleanup of subsequent agents in a batch.
+        try:
+            await asyncio.wait_for(agent.disconnect(), timeout=10.0)
+        except asyncio.TimeoutError:
+            log.warning(f"Disconnect timed out for agent '{name}' (id={agent_id})")
+        except Exception as e:
+            log.warning(f"Disconnect failed for agent '{name}': {e}")
         log.info(f"Closed agent '{name}' (id={agent_id})")
 
         if self.manager_observer:

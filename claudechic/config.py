@@ -35,6 +35,7 @@ def _load() -> tuple[dict, bool]:
         config.setdefault("worktree", {})
         config["worktree"].setdefault("path_template", None)
         config.setdefault("default_permission_mode", "default")
+        config.setdefault("show_message_metadata", True)  # Show timestamp/tokens by default
         # Migrate legacy vim key to vi-mode
         if "vim" in config:
             config["vi-mode"] = config.pop("vim")
@@ -45,6 +46,7 @@ def _load() -> tuple[dict, bool]:
             "analytics": {"enabled": True, "id": str(uuid.uuid4())},
             "recent-tools-expanded": 2,
             "default_permission_mode": "default",
+            "show_message_metadata": True,  # Show timestamp/tokens by default
         }
         new_install = True
         _save(config)

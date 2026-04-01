@@ -62,7 +62,7 @@ from claudechic.agent import Agent, ImageAttachment, ToolUse
 from claudechic.agent_manager import AgentManager
 from claudechic.analytics import capture
 from claudechic.config import CONFIG, NEW_INSTALL, save as save_config
-from claudechic.enums import AgentStatus, PermissionChoice, ToolName
+from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
 from claudechic.mcp import set_app, create_chic_server
 from claudechic.file_index import FileIndex
 from claudechic.history import append_to_history
@@ -457,8 +457,8 @@ class ChatApp(App):
         self.client = None
         if old:
             try:
-                await old.interrupt()
-            except Exception:
+                await asyncio.wait_for(old.interrupt(), timeout=5.0)
+            except (asyncio.TimeoutError, Exception):
                 pass
             # Skip disconnect() - it causes race conditions with SDK cleanup.
             # interrupt() is sufficient to stop the subprocess.
@@ -636,6 +636,7 @@ class ChatApp(App):
         resume: str | None = None,
         agent_name: str | None = None,
         model: str | None = None,
+        agent_type: str | None = None,
     ) -> ClaudeAgentOptions:
         """Create SDK options with common settings.
 
@@ -650,6 +651,14 @@ class ChatApp(App):
         # Clear VIRTUAL_ENV so agents in worktrees use their own venv
         if os.environ.get("VIRTUAL_ENV"):
             env["VIRTUAL_ENV"] = ""
+        # Expose agent name so guardrail hooks can identify the Coordinator vs sub-agents
+        if agent_name:
+            env["CLAUDE_AGENT_NAME"] = agent_name
+        # Expose app PID so team-mode guardrails can create session-scoped markers
+        env["CLAUDECHIC_APP_PID"] = str(os.getpid())
+        # Expose agent role type so guardrail hooks can enforce role-based permissions
+        if agent_type:
+            env["CLAUDE_AGENT_ROLE"] = agent_type
 
         # Use global permission mode from AgentManager (runtime source of truth)
         # CLI flag --yolo sets global_permission_mode at init, no special handling needed here
@@ -1159,6 +1168,12 @@ class ChatApp(App):
         chat_view.update_tool_result(
             event.block.tool_use_id, event.block, event.parent_tool_use_id
         )
+        # Don't show thinking indicator if agent was interrupted — the
+        # ToolResultMessage may arrive (from the message queue) after
+        # _interrupt_and_cleanup has already cleared the response state.
+        agent = self._get_agent(event.agent_id)
+        if agent and agent._response_state == ResponseState.INTERRUPTED:
+            return
         self._show_thinking(event.agent_id)
 
     def on_system_notification(self, event: SystemNotification) -> None:
@@ -1387,10 +1402,11 @@ class ChatApp(App):
             agent.session_id = event.result.session_id
             self.refresh_context()
         if chat_view:
-            # End response via ChatView (hides thinking, flushes content)
-            chat_view.end_response()
-            # Flush any pending debounced content and mark summary
+            # Save reference before end_response clears it
             current = chat_view._current_response
+            # End response via ChatView (hides thinking, updates metadata, clears ref)
+            chat_view.end_response(event.result)
+            # Flush any pending debounced content and mark summary
             if current:
                 current.flush()
                 if agent and agent.response_had_tools:
@@ -2103,6 +2119,24 @@ class ChatApp(App):
         if self._agent and self._agent.id == agent.id:
             self.plan_section.set_plan(plan_path)
 
+    async def _interrupt_and_cleanup(self, agent: "Agent") -> None:
+        """Interrupt agent and clean up response state after cancellation completes.
+
+        Cleanup must happen AFTER interrupt() returns, not before — otherwise
+        late text chunks (still arriving before the response task is cancelled)
+        can recreate _current_response, leaving stale state that blocks the
+        next response from rendering.
+
+        Note: agent.interrupt() already calls on_complete() which triggers
+        ResponseComplete → end_response, so we only flush + hide thinking here.
+        """
+        await agent.interrupt()
+        # Now the response task is fully cancelled — no more text chunks
+        self._hide_thinking()
+        chat_view = self._chat_views.get(agent.id)
+        if chat_view and chat_view._current_response:
+            chat_view._current_response.flush()
+
     def action_escape(self) -> None:
         """Handle Escape: cancel picker, dismiss prompts, close overlay, or interrupt agent."""
         # Sidebar overlay takes priority (most likely what user wants to dismiss)
@@ -2119,10 +2153,14 @@ class ChatApp(App):
             active_prompt.cancel()
             return
 
-        # Interrupt running agent via Agent.interrupt() (handles errors + state)
+        # Interrupt running agent - route through _interrupt_and_cleanup which
+        # calls agent.interrupt() (SDK-first + SIGINT fallback) then cleans up UI.
         if self._agent and self._agent.status == "busy":
-            self.run_worker(self._agent.interrupt(), exclusive=False)
-            self._hide_thinking()
+            self.run_worker(
+                self._interrupt_and_cleanup(self._agent),
+                exclusive=False,
+                exit_on_error=False,
+            )
             self.notify("Interrupted")
             self.chat_input.focus()
             return
@@ -2532,12 +2570,18 @@ class ChatApp(App):
         # Remove chat view before closing (AgentManager.close removes from agents dict)
         chat_view = self._chat_views.pop(agent_id, None)
         if chat_view:
-            await chat_view.remove()
+            try:
+                await chat_view.remove()
+            except Exception as e:
+                log.warning("Failed to remove chat view for '%s': %s", agent_name, e)
         self._active_prompts.pop(agent_id, None)
 
         # Close via AgentManager (handles disconnect, removes from agents dict,
         # triggers on_agent_closed, and switches to another agent if needed)
-        await self.agent_mgr.close(agent_id)
+        try:
+            await self.agent_mgr.close(agent_id)
+        except Exception as e:
+            log.warning("Failed to close agent '%s': %s", agent_name, e)
 
         self.notify(f"Agent '{agent_name}' closed")
 
@@ -2687,12 +2731,29 @@ class ChatApp(App):
             log.exception(f"Failed to create agent UI: {e}")
 
     def on_agent_switched(self, new_agent: Agent, old_agent: Agent | None) -> None:
-        """Handle agent switch from AgentManager."""
+        """Handle agent switch from AgentManager.
+
+        Guards against concurrent agent closures: when multiple agents are
+        being closed simultaneously, this callback may fire with agents
+        whose chat views have already been removed from the DOM.
+        """
         log.info(f"Switched to agent: {new_agent.name}")
+
+        # Guard: if the new agent's chat view was already removed (agent
+        # is being closed concurrently), skip the switch entirely.
+        if new_agent.id not in self._chat_views:
+            log.warning(
+                "on_agent_switched: new agent '%s' has no chat view (concurrent close?), skipping",
+                new_agent.name,
+            )
+            return
 
         # Use update=False to defer CSS recalculation, refresh_css at end
         if old_agent:
-            old_agent.pending_input = self.chat_input.text
+            try:
+                old_agent.pending_input = self.chat_input.text
+            except Exception:
+                pass  # chat_input may be in a bad state during mass closure
             old_chat_view = self._chat_views.get(old_agent.id)
             if old_chat_view:
                 old_chat_view.add_class("hidden", update=False)

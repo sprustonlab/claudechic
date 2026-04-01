@@ -241,7 +241,7 @@ async def load_session_messages(session_id: str, cwd: Path | None = None) -> lis
                             continue
                         if any(tag in content for tag in skip_tags):
                             continue
-                        messages.append({"type": "user", "content": content})
+                        messages.append({"type": "user", "content": content, "timestamp": d.get("timestamp")})
                 elif d.get("type") == "assistant":
                     msg = d.get("message", {})
                     content_blocks = msg.get("content", [])
@@ -251,7 +251,7 @@ async def load_session_messages(session_id: str, cwd: Path | None = None) -> lis
                                 text = block.get("text", "")
                                 if text.strip():
                                     messages.append(
-                                        {"type": "assistant", "content": text}
+                                        {"type": "assistant", "content": text, "timestamp": d.get("timestamp"), "model": msg.get("model")}
                                     )
                             elif block.get("type") == "tool_use":
                                 messages.append(
