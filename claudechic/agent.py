@@ -539,10 +539,14 @@ class Agent:
         log.info("Agent '%s': interrupt() started (state=%s)", self.name, self._response_state)
         self._set_response_state(ResponseState.INTERRUPTED)
         self._pending_messages.clear()  # User cancelled; don't auto-resume queued messages
-        # Interrupt SDK first — breaks the stream so the task can unblock
+        # Interrupt SDK first — breaks the stream so the task can unblock.
+        # 5s timeout prevents hanging if the CLI doesn't acknowledge.
         if self.client:
             try:
-                await self.client.interrupt()
+                await asyncio.wait_for(self.client.interrupt(), timeout=5.0)
+            except asyncio.TimeoutError:
+                log.warning("Agent '%s': SDK interrupt timed out (5s), sending SIGINT", self.name)
+                self._sigint_fallback()
             except Exception:
                 pass
         # Now cancel the task (stream already broken, will unblock)
