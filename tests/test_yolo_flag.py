@@ -8,8 +8,6 @@ These tests verify:
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -63,6 +61,7 @@ class TestSpawnedAgentsInheritBypassMode:
         app = ChatApp(skip_permissions=True)
         async with app.run_test() as pilot:
             # Verify initial state
+            assert app.agent_mgr is not None
             assert app.agent_mgr.global_permission_mode == "bypassPermissions"
             assert len(app.agents) == 1
 
@@ -86,6 +85,7 @@ class TestSpawnedAgentsInheritBypassMode:
         app = ChatApp(skip_permissions=False)
         async with app.run_test() as pilot:
             # Verify initial state
+            assert app.agent_mgr is not None
             assert app.agent_mgr.global_permission_mode == "default"
 
             # Create new agent
@@ -180,6 +180,7 @@ class TestYoloFlagIntegration:
         app = ChatApp(skip_permissions=True)
         async with app.run_test() as pilot:
             # Start in bypass mode
+            assert app.agent_mgr is not None
             assert app.agent_mgr.global_permission_mode == "bypassPermissions"
 
             # Cycle to acceptEdits

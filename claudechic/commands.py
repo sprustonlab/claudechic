@@ -90,6 +90,14 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
         ["/worktree finish", "/worktree cleanup", "/worktree discard"],
     ),
     ("/agent", "Create or list agents", ["/agent close", "/agent reopen"]),
+    (
+        "/chicsession",
+        "Named multi-agent sessions",
+        [
+            "/chicsession save",
+            "/chicsession restore",
+        ],
+    ),
     ("/shell", "Run shell command (or -i for interactive)", []),
     ("/theme", "Search themes", []),
     ("/compactish", "Compact session to reduce context", []),
@@ -134,6 +142,8 @@ def get_help_commands() -> list[tuple[str, str]]:
             display_name = "/resume [id]"
         elif name == "/agent":
             display_name = "/agent [name] [path]"
+        elif name == "/chicsession":
+            display_name = "/chicsession <subcommand>"
         elif name == "/shell":
             display_name = "/shell <cmd>"
         elif name == "/compactish":
@@ -195,6 +205,12 @@ def handle_command(app: "ChatApp", prompt: str) -> bool:
         # worktree_action event is tracked separately with more detail
         handle_worktree_command(app, cmd)
         return True
+
+    if cmd.startswith("/chicsession"):
+        from claudechic.chicsession_cmd import handle_chicsession_command
+
+        _track_command(app, "chicsession")
+        return handle_chicsession_command(app, cmd)
 
     if cmd.startswith("/agent"):
         _track_command(app, "agent")

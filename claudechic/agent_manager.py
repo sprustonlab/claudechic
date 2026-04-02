@@ -70,7 +70,7 @@ class AgentManager:
 
     def find_by_name(self, name: str) -> Agent | None:
         """Find agent by name."""
-        for agent in self.agents.values():
+        for agent in list(self.agents.values()):
             if agent.name == name:
                 return agent
         return None
@@ -276,7 +276,7 @@ class AgentManager:
         """Close all agents in parallel.
 
         Uses soft=False because this is called during app exit — agents are
-        terminating, not hibernating. Topology is already saved before this.
+        terminating, not hibernating.
         """
         agent_ids = list(self.agents.keys())
         results = await asyncio.gather(
@@ -350,32 +350,6 @@ class AgentManager:
         """Check if agent exists."""
         return agent_id in self.agents
 
-    def get_topology(self) -> dict:
-        """Serialize current agent topology for persistence.
-
-        Returns a dict suitable for saving via ``sessions.save_topology()``.
-        Active and closed agents are merged into a single ``"agents"`` list.
-        Closed entries carry ``"closed": true``; active entries omit the key.
-        """
-        agents_list = []
-        for agent in self.agents.values():
-            agents_list.append(
-                {
-                    "name": agent.name,
-                    "cwd": str(agent.cwd),
-                    "session_id": agent.session_id,
-                    "worktree": agent.worktree,
-                    "model": agent.model,
-                }
-            )
-        for entry in self.closed_agents.values():
-            agents_list.append({**entry, "closed": True})
-        return {
-            "version": 1,
-            "active_agent_name": self.active.name if self.active else None,
-            "agents": agents_list,
-        }
-
     async def set_global_permission_mode(self, mode: str) -> None:
         """Update permission mode for all agents.
 
@@ -383,7 +357,7 @@ class AgentManager:
             mode: One of 'default', 'acceptEdits', 'plan', 'bypassPermissions'
         """
         self.global_permission_mode = mode
-        for agent in self.agents.values():
+        for agent in list(self.agents.values()):
             await agent.set_permission_mode(mode)
         if self.manager_observer:
             self.manager_observer.on_global_permission_mode_changed(mode)

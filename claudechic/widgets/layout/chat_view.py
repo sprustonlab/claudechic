@@ -220,6 +220,11 @@ class ChatView(AutoHideScroll):
 
         # Single mount_all triggers one CSS recalculation instead of N
         self.mount_all(widgets)
+
+        # Restore streaming state so subsequent append_text/append_tool_use
+        # calls work correctly if agent is mid-response when view becomes visible.
+        self._restore_streaming_state(widgets)
+
         self.scroll_end(animate=False)
 
     def _create_collapsed_turn(
@@ -366,6 +371,39 @@ class ChatView(AutoHideScroll):
             return ToolUseWidget(
                 block, collapsed=should_collapse, completed=completed, cwd=cwd
             )
+
+    def _restore_streaming_state(self, widgets: list[Widget]) -> None:
+        """Restore _current_response and _recent_tools from mounted widgets.
+
+        After _render_full() rebuilds from agent.messages, streaming state like
+        _current_response is reset. If the agent is mid-response (BUSY), subsequent
+        append_text() calls need _current_response to point to the last assistant
+        ChatMessage so text is appended to the correct widget instead of creating
+        duplicates.
+
+        _recent_tools must also be rebuilt so auto-collapse logic works correctly
+        for new tool uses arriving after re-render.
+        """
+        # Rebuild _recent_tools from the mounted tool widgets (most recent N)
+        tool_widgets = [
+            w
+            for w in widgets
+            if isinstance(w, (ToolUseWidget, TaskWidget, AgentToolWidget))
+        ]
+        # Keep only the last RECENT_TOOLS_EXPANDED for collapse tracking
+        if RECENT_TOOLS_EXPANDED > 0:
+            self._recent_tools = tool_widgets[-RECENT_TOOLS_EXPANDED:]
+        else:
+            self._recent_tools = []
+
+        # Restore _current_response to the last assistant ChatMessage if agent is
+        # mid-response. This ensures append_text(new_message=False) appends to the
+        # correct widget rather than creating a duplicate.
+        if self._agent and self._agent.status == AgentStatus.BUSY:
+            for w in reversed(widgets):
+                if isinstance(w, ChatMessage) and w.has_class("assistant-message"):
+                    self._current_response = w
+                    break
 
     # -----------------------------------------------------------------------
     # Streaming API - called by ChatApp during live response

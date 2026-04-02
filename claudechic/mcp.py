@@ -106,7 +106,9 @@ def _clear_pending_reply_if_matched(
     if sender and sender._pending_reply_to == recipient_name:
         sender._pending_reply_to = None
         sender._reply_nudge_count = 0
-        log.debug("Agent '%s' fulfilled reply obligation to '%s'", sender_name, recipient_name)
+        log.debug(
+            "Agent '%s' fulfilled reply obligation to '%s'", sender_name, recipient_name
+        )
 
 
 def _send_prompt_fire_and_forget(
@@ -491,7 +493,6 @@ async def _process_finish_resolution(
 
 async def _do_cleanup(agent: Any, info: Any) -> dict[str, Any]:
     """Attempt cleanup and return appropriate response."""
-    import asyncio
 
     success, warning = await asyncio.to_thread(finish_cleanup, info)
     if success:
@@ -650,6 +651,30 @@ def create_chic_server(caller_name: str | None = None):
     # finish_worktree is experimental - enable with experimental.finish_worktree: true
     if CONFIG.get("experimental", {}).get("finish_worktree", False):
         tools.append(finish_worktree)
+
+    # LSF cluster tools (always registered; LSF availability checked at runtime)
+    try:
+        from claudechic.cluster import (
+            cluster_jobs,
+            cluster_kill,
+            cluster_status,
+            cluster_submit,
+            _make_cluster_watch,
+        )
+
+        tools.extend([
+            cluster_jobs,
+            cluster_status,
+            cluster_submit,
+            cluster_kill,
+            _make_cluster_watch(
+                caller_name=caller_name,
+                send_notification=_send_prompt_fire_and_forget,
+                find_agent=_find_agent_by_name,
+            ),
+        ])
+    except ImportError:
+        log.debug("Cluster tools not available (missing dependencies)")
 
     # Discover mcp_tools/ plugins
     mcp_tools_dir = Path.cwd() / "mcp_tools"

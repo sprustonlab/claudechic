@@ -1,26 +1,22 @@
 """Tests for claudechic LSF cluster tools (claudechic/cluster.py).
 
 Coverage:
-    1.  _parse_bjobs_wide()       — real-output fixtures, edge cases
-    2.  _collapse_lsf_lines()     — continuation vs section-header indent
-    3.  _parse_bjobs_detail()     — running job, DONE job, multi-line command wrap
-    4.  _submit_job()             — command-building: env-var injection, bsub flags
-    5.  _run_lsf() / SSH          — local vs SSH dispatch via shutil.which mock
-    6.  _list_jobs/_get_job_status/_kill_job — happy-path and error-path
-    7.  _watch_lsf_exit/_run_watch — watch mechanism (pytest-asyncio)
-    8.  Config resolution          — env var, config file, defaults
-    9.  Log dir auto-creation      — _submit_job creates parent dirs for log paths
-    10. Log path parsing           — stdout/stderr/cwd extraction from bjobs -l
-    11. _resolve_log_path/_read_tail — path resolution and file reading helpers
-    12. LSF integration            — real cluster + _get_job_logs (skipped when bsub not in PATH)
+    1. _parse_bjobs_wide()       — real-output fixtures, edge cases
+    2. _collapse_lsf_lines()     — continuation vs section-header indent
+    3. _parse_bjobs_detail()     — running job, DONE job, multi-line command wrap
+    4. _submit_job()             — command-building: env-var injection, bsub flags
+    5. _run_lsf() / SSH          — local vs SSH dispatch via shutil.which mock
+    6. _list_jobs/_get_job_status/_kill_job — happy-path and error-path
+    7. _watch_lsf_exit/_run_watch — watch mechanism (pytest-asyncio)
+    8. Config resolution          — env var, config file, defaults
+    9. LSF integration            — real cluster (skipped when bsub not in PATH)
 """
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -28,7 +24,6 @@ from claudechic.cluster import (
     PYTHONUNBUFFERED_VAR,
     _collapse_lsf_lines,
     _get_conda_envs_dirs,
-    _get_job_logs,
     _get_job_status,
     _get_lsf_profile,
     _get_ssh_target,
@@ -38,8 +33,6 @@ from claudechic.cluster import (
     _lsf_available,
     _parse_bjobs_detail,
     _parse_bjobs_wide,
-    _read_tail,
-    _resolve_log_path,
     _run_lsf,
     _run_watch,
     _submit_job,
@@ -349,7 +342,6 @@ class TestParseBjobsDetail:
             "job_id", "job_name", "status", "queue", "exec_host",
             "submit_time", "cpu_time_seconds", "mem_gb", "max_mem_gb",
             "run_limit_min", "command",
-            "stdout_path", "stderr_path", "execution_cwd",
         }
         assert expected_keys == set(d.keys())
 
@@ -359,7 +351,6 @@ class TestParseBjobsDetail:
             "job_id", "job_name", "status", "queue", "exec_host",
             "submit_time", "cpu_time_seconds", "mem_gb", "max_mem_gb",
             "run_limit_min", "command",
-            "stdout_path", "stderr_path", "execution_cwd",
         }
         assert expected_keys == set(d.keys())
 
@@ -843,175 +834,7 @@ class TestClusterConfig:
 
 
 # ===========================================================================
-# 9. Log dir auto-creation (Step 7)
-# ===========================================================================
-
-
-class TestSubmitJobLogDirCreation:
-    """Verify that _submit_job() creates parent dirs for stdout_path/stderr_path."""
-
-    @pytest.fixture(autouse=True)
-    def capture_bsub_cmd(self, monkeypatch):
-        self._captured: list[str] = []
-
-        def fake_run_lsf(cmd: str, timeout: int = 60):
-            self._captured.append(cmd)
-            return BSUB_SUCCESS_OUTPUT, "", 0
-
-        monkeypatch.setattr("claudechic.cluster._run_lsf", fake_run_lsf)
-
-    def test_creates_stdout_parent_dir(self, tmp_path):
-        log_dir = tmp_path / "new_logs" / "subdir"
-        stdout_path = str(log_dir / "job.out")
-        assert not log_dir.exists()
-
-        _submit_job(
-            queue="local", cpus=1, walltime="1:00",
-            command="python train.py",
-            stdout_path=stdout_path,
-        )
-        assert log_dir.exists()
-
-    def test_creates_stderr_parent_dir(self, tmp_path):
-        log_dir = tmp_path / "new_logs" / "subdir"
-        stderr_path = str(log_dir / "job.err")
-        assert not log_dir.exists()
-
-        _submit_job(
-            queue="local", cpus=1, walltime="1:00",
-            command="python train.py",
-            stderr_path=stderr_path,
-        )
-        assert log_dir.exists()
-
-    def test_creates_both_log_dirs(self, tmp_path):
-        out_dir = tmp_path / "out_logs"
-        err_dir = tmp_path / "err_logs"
-        _submit_job(
-            queue="local", cpus=1, walltime="1:00",
-            command="python train.py",
-            stdout_path=str(out_dir / "job.out"),
-            stderr_path=str(err_dir / "job.err"),
-        )
-        assert out_dir.exists()
-        assert err_dir.exists()
-
-    def test_existing_dir_no_error(self, tmp_path):
-        """Should not fail if log dir already exists (exist_ok=True)."""
-        log_dir = tmp_path / "existing"
-        log_dir.mkdir()
-        _submit_job(
-            queue="local", cpus=1, walltime="1:00",
-            command="python train.py",
-            stdout_path=str(log_dir / "job.out"),
-        )
-        # No exception raised
-
-    def test_empty_paths_skip_mkdir(self, tmp_path):
-        """Empty string paths should not cause mkdir errors."""
-        _submit_job(
-            queue="local", cpus=1, walltime="1:00",
-            command="python train.py",
-            stdout_path="",
-            stderr_path="",
-        )
-        # No exception raised
-
-
-# ===========================================================================
-# 10. Log path parsing from bjobs detail
-# ===========================================================================
-
-
-class TestParseBjobsDetailLogPaths:
-    """Verify log path and execution CWD extraction from bjobs -l output."""
-
-    def test_running_stdout_path(self):
-        d = _parse_bjobs_detail(BJOBS_DETAIL_RUNNING, "148755848")
-        assert d["stdout_path"] is not None
-        assert "gmm_unet_k1_148755848.out" in d["stdout_path"]
-
-    def test_running_stderr_path(self):
-        d = _parse_bjobs_detail(BJOBS_DETAIL_RUNNING, "148755848")
-        assert d["stderr_path"] is not None
-        assert "gmm_unet_k1_148755848.err" in d["stderr_path"]
-
-    def test_running_execution_cwd(self):
-        d = _parse_bjobs_detail(BJOBS_DETAIL_RUNNING, "148755848")
-        assert d["execution_cwd"] is not None
-        assert "DECODE-PRISM" in d["execution_cwd"]
-
-    def test_done_stdout_path(self):
-        d = _parse_bjobs_detail(BJOBS_DETAIL_DONE, "148755855")
-        assert d["stdout_path"] is not None
-        assert "gmm_unet_k2_148755855.out" in d["stdout_path"]
-
-    def test_done_stderr_path(self):
-        d = _parse_bjobs_detail(BJOBS_DETAIL_DONE, "148755855")
-        assert d["stderr_path"] is not None
-        assert "gmm_unet_k2_148755855.err" in d["stderr_path"]
-
-
-# ===========================================================================
-# 11. _resolve_log_path and _read_tail helpers
-# ===========================================================================
-
-
-class TestResolveLogPath:
-    def test_absolute_path_unchanged(self):
-        p = _resolve_log_path("/abs/path/job.out", "/some/cwd")
-        from pathlib import Path
-        assert p == Path("/abs/path/job.out")
-
-    def test_relative_path_resolved_against_cwd(self):
-        from pathlib import Path
-        p = _resolve_log_path("logs/job.out", "/work/dir")
-        assert p == Path("/work/dir/logs/job.out")
-
-    def test_home_expanded_in_cwd(self, monkeypatch):
-        monkeypatch.setenv("HOME", "/users/testuser")
-        from pathlib import Path
-        p = _resolve_log_path("logs/job.out", "$HOME/project")
-        assert p == Path("/users/testuser/project/logs/job.out")
-
-    def test_home_expanded_in_path(self, monkeypatch):
-        monkeypatch.setenv("HOME", "/users/testuser")
-        from pathlib import Path
-        p = _resolve_log_path("$HOME/logs/job.out", None)
-        assert p == Path("/users/testuser/logs/job.out")
-
-    def test_no_cwd_returns_relative(self):
-        from pathlib import Path
-        p = _resolve_log_path("logs/job.out", None)
-        assert p == Path("logs/job.out")
-
-
-class TestReadTail:
-    def test_reads_full_file_when_tail_zero(self, tmp_path):
-        f = tmp_path / "test.log"
-        f.write_text("line1\nline2\nline3\n")
-        result = _read_tail(f, 0)
-        assert result == "line1\nline2\nline3\n"
-
-    def test_reads_last_n_lines(self, tmp_path):
-        f = tmp_path / "test.log"
-        f.write_text("line1\nline2\nline3\nline4\nline5\n")
-        result = _read_tail(f, 2)
-        assert result == "line4\nline5\n"
-
-    def test_tail_larger_than_file_returns_all(self, tmp_path):
-        f = tmp_path / "test.log"
-        f.write_text("line1\nline2\n")
-        result = _read_tail(f, 100)
-        assert result == "line1\nline2\n"
-
-    def test_nonexistent_file_returns_none(self, tmp_path):
-        result = _read_tail(tmp_path / "missing.log", 10)
-        assert result is None
-
-
-# ===========================================================================
-# 12. LSF integration tests — require real bsub in PATH
+# 9. LSF integration tests — require real bsub in PATH
 # ===========================================================================
 
 _lsf_skip = pytest.mark.skipif(
@@ -1075,54 +898,3 @@ class TestLSFIntegration:
         direct = _parse_bjobs_wide(stdout)
         via_tool = _list_jobs()
         assert len(via_tool) == len(direct)
-
-    # -- cluster_logs integration tests --
-
-    def test_get_job_logs_returns_expected_keys(self):
-        """_get_job_logs should return dict with required keys."""
-        jobs = _list_jobs()
-        if not jobs:
-            pytest.skip("No jobs in queue")
-        job_id = jobs[0]["job_id"]
-        result = _get_job_logs(job_id)
-        assert result["job_id"] == job_id
-        assert "stdout" in result
-        assert "stderr" in result
-        assert "log_paths" in result
-        assert "found" in result
-
-    def test_get_job_logs_log_paths_has_stdout_stderr_keys(self):
-        """log_paths sub-dict should always have stdout and stderr keys."""
-        jobs = _list_jobs()
-        if not jobs:
-            pytest.skip("No jobs in queue")
-        job_id = jobs[0]["job_id"]
-        result = _get_job_logs(job_id)
-        assert "stdout" in result["log_paths"]
-        assert "stderr" in result["log_paths"]
-
-    def test_get_job_logs_nonexistent_job_raises(self):
-        """Querying logs for a non-existent job should raise ValueError."""
-        with pytest.raises(ValueError, match="not found"):
-            _get_job_logs("99999999")
-
-    def test_get_job_logs_tail_zero_returns_at_least_as_much(self):
-        """tail=0 (full log) should return >= tail=5 content."""
-        jobs = _list_jobs()
-        if not jobs:
-            pytest.skip("No jobs in queue")
-        job_id = jobs[0]["job_id"]
-        result_tail = _get_job_logs(job_id, tail=5)
-        result_full = _get_job_logs(job_id, tail=0)
-        if result_full["found"] and result_tail["found"]:
-            assert len(result_full["stdout"]) >= len(result_tail["stdout"])
-
-    def test_get_job_logs_stdout_is_string(self):
-        """stdout and stderr values should always be strings (never None)."""
-        jobs = _list_jobs()
-        if not jobs:
-            pytest.skip("No jobs in queue")
-        job_id = jobs[0]["job_id"]
-        result = _get_job_logs(job_id)
-        assert isinstance(result["stdout"], str)
-        assert isinstance(result["stderr"], str)

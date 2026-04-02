@@ -38,6 +38,8 @@ def get_context_window(model: str | None) -> int:
         if f"-{alias}-" in f"-{model}-" or model.startswith(f"{alias}-"):
             return window
     return MAX_CONTEXT_TOKENS
+
+
 MAX_HEADER_WIDTH = 70  # Max width for tool headers
 
 # Inter-agent message patterns
