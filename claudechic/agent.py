@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import mimetypes
@@ -13,13 +14,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from claude_agent_sdk import (
     AssistantMessage,
     CLIJSONDecodeError,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    PermissionMode,
     ResultMessage,
     SystemMessage,
     ToolResultBlock,
@@ -34,7 +36,7 @@ from claude_agent_sdk.types import (
     ToolPermissionContext,
 )
 
-from claudechic.enums import AgentStatus, PermissionChoice, ToolName
+from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
 from claudechic.features.worktree.git import FinishState
 from claudechic.file_index import FileIndex
 from claudechic.permissions import PermissionRequest
@@ -125,6 +127,26 @@ class ChatItem:
 
 
 # ---------------------------------------------------------------------------
+# Response state tracking
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ResponseContext:
+    """Per-response mutable state, reset at the start of each response.
+
+    Groups the scattered boolean/nullable flags that were previously spread
+    across Agent.__init__. All fields are reset by ``Agent._start_response()``.
+    """
+
+    task: asyncio.Task[None] | None = None
+    current_assistant: AssistantContent | None = None
+    text_buffer: str = ""
+    needs_new_message: bool = True
+    had_tools: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Agent class
 # ---------------------------------------------------------------------------
 
@@ -169,18 +191,20 @@ class Agent:
         # SDK
         self.client: ClaudeSDKClient | None = None
         self.session_id: str | None = None
-        self._response_task: asyncio.Task | None = None
+        self._pending_messages: list[
+            tuple[str, str | None]
+        ] = []  # (prompt, display_as)
 
         # Status
         self.status: AgentStatus = AgentStatus.IDLE
-        self._thinking: bool = False  # Whether this agent is currently thinking
-        self._interrupted: bool = False  # Suppress errors after intentional interrupt
-        self._was_interrupted: bool = False  # Previous response was interrupted (drain leftovers)
+
+        # Response state machine (see ResponseState enum for valid transitions)
+        self._response_state: ResponseState = ResponseState.IDLE
+        self._response: ResponseContext = ResponseContext()
+        self._drain_stale_on_next_response: bool = False  # Drain leftover SDK messages after interrupt
 
         # Chat history
         self.messages: list[ChatItem] = []
-        self._current_assistant: AssistantContent | None = None
-        self._current_text_buffer: str = ""
 
         # Permission queue
         self.pending_prompts: deque[PermissionRequest] = deque()
@@ -188,11 +212,6 @@ class Agent:
         # Tool tracking (within current response)
         self.pending_tools: dict[str, ToolUse] = {}
         self.active_tasks: dict[str, str] = {}  # task_id -> accumulated text
-        self.response_had_tools: bool = False
-        self._needs_new_message: bool = True  # Start new ChatMessage on next text
-        self._thinking_hidden: bool = (
-            False  # Track if thinking indicator was hidden this response
-        )
 
         # Per-agent state
         self.pending_images: list[ImageAttachment] = []
@@ -231,6 +250,29 @@ class Agent:
         self.checkpoint_uuids: list[str] = []
 
     @property
+    def response_had_tools(self) -> bool:
+        """Whether the current/last response included any tool uses."""
+        return self._response.had_tools
+
+    @property
+    def _current_assistant(self) -> AssistantContent | None:
+        """Alias for response context's current assistant content."""
+        return self._response.current_assistant
+
+    @_current_assistant.setter
+    def _current_assistant(self, value: AssistantContent | None) -> None:
+        self._response.current_assistant = value
+
+    @property
+    def _current_text_buffer(self) -> str:
+        """Alias for response context's text buffer."""
+        return self._response.text_buffer
+
+    @_current_text_buffer.setter
+    def _current_text_buffer(self, value: str) -> None:
+        self._response.text_buffer = value
+
+    @property
     def analytics_id(self) -> str:
         """ID for analytics events (session_id if connected, else internal id)."""
         return self.session_id or self.id
@@ -259,7 +301,7 @@ class Agent:
         # Notify SDK of initial permission mode if not default
         # Must happen AFTER connect() completes (async timing requirement)
         if self.permission_mode != "default":
-            await self.client.set_permission_mode(self.permission_mode)
+            await self.client.set_permission_mode(cast(PermissionMode, self.permission_mode))
 
         # Capture the claude process PID for background process tracking
         from claudechic.processes import get_claude_pid_from_client
@@ -275,12 +317,14 @@ class Agent:
 
     async def disconnect(self) -> None:
         """Disconnect and cleanup."""
-        if self._response_task and not self._response_task.done():
-            self._response_task.cancel()
+        self._pending_messages.clear()
+        if self._response.task and not self._response.task.done():
+            self._response.task.cancel()
             try:
-                await self._response_task
+                await self._response.task
             except asyncio.CancelledError:
                 pass
+        self._set_response_state(ResponseState.IDLE)
 
         if self.client:
             try:
@@ -430,7 +474,10 @@ class Agent:
     async def send(self, prompt: str, *, display_as: str | None = None) -> None:
         """Send a message and start processing response.
 
-        The response is processed concurrently - this method returns immediately.
+        If the agent is already processing a response, the message is queued
+        and will be sent automatically once the current response finishes.
+        This prevents two tasks from competing on the SDK message stream
+        while avoiding the blocking wait that caused UI hangs.
 
         Args:
             prompt: The prompt to send to Claude
@@ -439,7 +486,21 @@ class Agent:
         if not self.client:
             raise RuntimeError("Agent not connected")
 
-        # Add user message to history (store display text if provided)
+        # If a response is in-flight, queue the message for later delivery.
+        # The _process_response finally block will drain the queue.
+        if self._response_state != ResponseState.IDLE:
+            log.info(
+                "Agent '%s' busy (%s), queuing message for later delivery",
+                self.name,
+                self._response_state,
+            )
+            self._pending_messages.append((prompt, display_as))
+            return
+
+        self._start_response(prompt, display_as=display_as)
+
+    def _start_response(self, prompt: str, *, display_as: str | None = None) -> None:
+        """Actually dispatch a prompt to the SDK (must not be called while busy)."""
         display_text = display_as or prompt
         self.messages.append(
             ChatItem(
@@ -458,16 +519,13 @@ class Agent:
             self.observer.on_prompt_sent(self, display_text, list(self.pending_images))
 
         self._set_status(AgentStatus.BUSY)
-        self.response_had_tools = False
-        self._current_assistant = None
-        self._current_text_buffer = ""
-        self._needs_new_message = True
-        self._thinking_hidden = False  # Reset for new response
-        self._was_interrupted = self._interrupted  # Remember if prev response was interrupted
-        self._interrupted = False  # Clear interrupt flag for new query
+
+        # Reset per-response state
+        self._response = ResponseContext()
+        self._set_response_state(ResponseState.STREAMING)
 
         # Start response processing
-        self._response_task = asyncio.create_task(
+        self._response.task = asyncio.create_task(
             self._process_response(prompt),
             name=f"agent-{self.id}-response",
         )
@@ -475,29 +533,48 @@ class Agent:
     async def interrupt(self) -> None:
         """Interrupt current response.
 
-        Uses a short timeout for the SDK interrupt call. If the CLI subprocess
-        doesn't acknowledge within 5 seconds, we send SIGINT directly to the
-        process — this is far more reliable than waiting for the 60-second
-        control-request timeout, and prevents the app from hanging/crashing.
+        Order: SDK interrupt first (breaks the stream), then cancel the task.
+        If the task doesn't finish within 2s, send SIGINT as a last resort.
         """
-        self._interrupted = True
-        if self._response_task and not self._response_task.done():
-            self._response_task.cancel()
-            try:
-                await self._response_task
-            except asyncio.CancelledError:
-                pass
-
+        log.info("Agent '%s': interrupt() started (state=%s)", self.name, self._response_state)
+        self._set_response_state(ResponseState.INTERRUPTED)
+        self._pending_messages.clear()  # User cancelled; don't auto-resume queued messages
+        # Interrupt SDK first — breaks the stream so the task can unblock.
+        # 5s timeout prevents hanging if the CLI doesn't acknowledge.
         if self.client:
             try:
                 await asyncio.wait_for(self.client.interrupt(), timeout=5.0)
-            except (asyncio.TimeoutError, Exception) as e:
-                log.warning("SDK interrupt timed out or failed (%s), sending SIGINT to CLI", e)
-                self._sigint_cli_process()
+            except asyncio.TimeoutError:
+                log.warning("Agent '%s': SDK interrupt timed out (5s), sending SIGINT", self.name)
+                self._sigint_fallback()
+            except Exception:
+                pass
+        # Now cancel the task (stream already broken, will unblock)
+        if self._response.task and not self._response.task.done():
+            self._response.task.cancel()
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(self._response.task), timeout=2.0
+                )
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                # Task didn't finish in time — SIGINT the CLI subprocess
+                log.warning("Agent '%s': task didn't finish after cancel, sending SIGINT", self.name)
+                self._sigint_fallback()
 
+        self._set_response_state(ResponseState.IDLE)
         self._set_status(AgentStatus.IDLE)
 
-    def _sigint_cli_process(self) -> None:
+        # Notify observer so ResponseComplete propagates to the UI.
+        # Without this, the UI would be left in a stale state (thinking
+        # spinner, leaked _current_response) because _process_response's
+        # finally block intentionally skips cleanup for INTERRUPTED state.
+        if self.observer:
+            self.observer.on_complete(self, None)
+
+        self._drain_stale_on_next_response = True
+        log.info("Agent '%s': interrupt() completed", self.name)
+
+    def _sigint_fallback(self) -> None:
         """Send SIGINT directly to the CLI subprocess as a last-resort interrupt.
 
         This bypasses the SDK control protocol entirely and sends an OS-level
@@ -529,6 +606,23 @@ class Agent:
         """Send a follow-up message after brief delay (for 'do something else' flow)."""
         await asyncio.sleep(0.1)  # Let UI update
         await self.send(message)
+
+    def _drain_next_message(self) -> None:
+        """Pop the first queued message and start processing it.
+
+        Called from the ``_process_response`` finally block (via
+        ``create_safe_task``) so that inter-agent messages delivered while the
+        agent was busy are sent without blocking the caller.
+        """
+        if not self._pending_messages:
+            return
+        prompt, display_as = self._pending_messages.pop(0)
+        log.info(
+            "Agent '%s' draining queued message (%d remaining)",
+            self.name,
+            len(self._pending_messages),
+        )
+        self._start_response(prompt, display_as=display_as)
 
     # -----------------------------------------------------------------------
     # Response processing
@@ -585,12 +679,13 @@ Key Rules:
 
             had_tool_use: dict[str | None, bool] = {}
 
-            # After an interrupt, the SDK stream may contain leftover messages
-            # (ToolResult, ResultMessage) from the cancelled response.  The
-            # ResultMessage terminates the receive_response() iterator, so we
-            # must drain them in a separate loop, then call receive_response()
-            # again for the real response.
-            if self._was_interrupted:
+            # Drain stale messages from previous interrupted response.
+            # The SDK stream may contain leftover messages (ToolResult,
+            # ResultMessage) from the cancelled response.  The ResultMessage
+            # terminates the receive_response() iterator, so we drain them
+            # first, then call receive_response() again for the real response.
+            if self._drain_stale_on_next_response:
+                self._drain_stale_on_next_response = False
                 async for message in self.client.receive_response():  # type: ignore[union-attr]
                     if isinstance(message, (AssistantMessage, StreamEvent)):
                         # Real response started in same stream — process it
@@ -605,8 +700,9 @@ Key Rules:
                     # will come in the next receive_response() call
                     log.debug("Leftover stream exhausted, reading fresh response")
 
-            async for message in self.client.receive_response():  # type: ignore[union-attr]
-                await self._handle_sdk_message(message, had_tool_use)
+            log.debug("Agent '%s': entering receive_response loop", self.name)
+            await self._receive_with_watchdog(had_tool_use)
+            log.debug("Agent '%s': exited receive_response loop normally", self.name)
 
             # Check for pending follow-up (from "do something else" permission response)
             if self._pending_followup:
@@ -622,6 +718,7 @@ Key Rules:
             log.warning("CLIJSONDecodeError: %s", e)
             if self.observer:
                 self.observer.on_error(self, str(e), e)
+                self.observer.on_complete(self, None)
             create_safe_task(
                 self._send_followup(f"Error: {e}"), name="json-decode-retry"
             )
@@ -637,22 +734,93 @@ Key Rules:
                 or ("connection" in error_str and "api" not in error_str)
             )
 
-            if self._interrupted:
+            if self._response_state == ResponseState.INTERRUPTED:
                 log.info("Suppressed error after interrupt: %s", e)
             else:
                 log.exception("Response processing failed")
                 if self.observer:
                     self.observer.on_error(self, "Response failed", e)
 
-            # Auto-reconnect on connection errors
-            if is_connection_error and self.observer:
-                self.observer.on_connection_lost(self)
+                # Auto-reconnect on connection errors
+                if is_connection_error and self.observer:
+                    self.observer.on_connection_lost(self)
 
-            if self.observer:
-                self.observer.on_complete(self, None)
+                if self.observer:
+                    self.observer.on_complete(self, None)
         finally:
+            log.debug(
+                "Agent '%s': _process_response finally block (state=%s)",
+                self.name,
+                self._response_state,
+            )
             self._flush_current_text()
-            self._set_status(AgentStatus.IDLE)
+            # Skip cleanup if interrupt() already handled it
+            if self._response_state != ResponseState.INTERRUPTED:
+                self._set_response_state(ResponseState.IDLE)
+                self._set_status(AgentStatus.IDLE)
+                # Drain queued messages after yielding to the event loop so
+                # that the ResponseComplete event propagates to observers first.
+                if self._pending_messages:
+
+                    async def _yield_then_drain() -> None:
+                        await asyncio.sleep(0)  # let ResponseComplete propagate
+                        self._drain_next_message()
+
+                    create_safe_task(_yield_then_drain(), name="drain-pending-message")
+
+    # Process liveness check interval (seconds)
+    _LIVENESS_CHECK_INTERVAL = 30
+
+    async def _receive_with_watchdog(
+        self, had_tool_use: dict[str | None, bool]
+    ) -> None:
+        """Iterate receive_response() with a process liveness check.
+
+        Periodically checks whether the claude subprocess (self._claude_pid) is
+        still alive.  If the process has died, the stream will never produce a
+        ResultMessage, so we raise an error to trigger normal cleanup.
+        """
+        import os
+
+        process_dead = False
+
+        async def _liveness_check() -> None:
+            nonlocal process_dead
+            while True:
+                await asyncio.sleep(self._LIVENESS_CHECK_INTERVAL)
+                pid = self._claude_pid
+                if pid is None:
+                    continue
+                try:
+                    os.kill(pid, 0)  # Signal 0: check existence, don't kill
+                except ProcessLookupError:
+                    log.error(
+                        "Agent '%s': claude subprocess (PID %d) is dead — "
+                        "breaking stream",
+                        self.name,
+                        pid,
+                    )
+                    process_dead = True
+                    # Cancel the response task to break the async for loop
+                    if self._response.task and not self._response.task.done():
+                        self._response.task.cancel()
+                    return
+                except OSError:
+                    # Permission error or similar — process exists
+                    pass
+
+        liveness_task = asyncio.create_task(
+            _liveness_check(), name="process-liveness"
+        )
+        try:
+            async for message in self.client.receive_response():  # type: ignore[union-attr]
+                await self._handle_sdk_message(message, had_tool_use)
+        finally:
+            liveness_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await liveness_task
+        if process_dead:
+            raise ConnectionError("Claude subprocess died during response")
 
     async def _handle_sdk_message(
         self, message: Any, had_tool_use: dict[str | None, bool]
@@ -762,8 +930,8 @@ Key Rules:
                 text = delta.get("text", "")
                 if text:
                     # Start new message after tool use or at start of response
-                    new_msg = self._needs_new_message
-                    self._needs_new_message = False
+                    new_msg = self._response.needs_new_message
+                    self._response.needs_new_message = False
                     self._handle_text_chunk(text, new_msg, parent_id)
 
     def _update_current_text_block(self) -> None:
@@ -824,8 +992,10 @@ Key Rules:
     ) -> None:
         """Handle tool use start."""
         self._flush_current_text()
-        self.response_had_tools = True
-        self._needs_new_message = True  # Next text chunk starts a new ChatMessage
+        self._response.had_tools = True
+        self._response.needs_new_message = (
+            True  # Next text chunk starts a new ChatMessage
+        )
 
         # TodoWrite updates todos
         if block.name == ToolName.TODO_WRITE:
@@ -919,6 +1089,13 @@ Key Rules:
         if tool_name == ToolName.ENTER_PLAN_MODE:
             return PermissionResultAllow()
         if tool_name.startswith("mcp__chic__"):
+            return PermissionResultAllow()
+
+        # Auto-approve ALL tools in bypassPermissions mode.
+        # Normally the CLI handles this, but if the SDK control request to set
+        # the mode timed out, the CLI may still send permission requests.
+        if self.permission_mode == "bypassPermissions":
+            log.info(f"Auto-approved {tool_name} (bypassPermissions mode)")
             return PermissionResultAllow()
 
         # Block mutating tools in plan mode (except writes to plan file)
@@ -1042,8 +1219,40 @@ Key Rules:
             if self.observer:
                 self.observer.on_status_changed(self)
 
+    # Valid response state transitions (from -> set of valid targets)
+    _VALID_RESPONSE_TRANSITIONS: dict[ResponseState, set[ResponseState]] = {
+        ResponseState.IDLE: {ResponseState.STREAMING, ResponseState.IDLE},
+        ResponseState.STREAMING: {ResponseState.IDLE, ResponseState.INTERRUPTED},
+        ResponseState.INTERRUPTED: {ResponseState.IDLE},
+    }
+
+    def _set_response_state(self, new_state: ResponseState) -> None:
+        """Transition the response state machine with validation.
+
+        Invalid transitions are logged as warnings but allowed to proceed
+        to avoid breaking existing behavior during the migration.
+        """
+        old = self._response_state
+        valid = self._VALID_RESPONSE_TRANSITIONS.get(old, set())
+        if new_state not in valid:
+            log.warning(
+                "Invalid response state transition: %s -> %s (agent=%s)",
+                old,
+                new_state,
+                self.name,
+            )
+        if old != new_state:
+            log.debug("Response state: %s -> %s (agent=%s)", old, new_state, self.name)
+        self._response_state = new_state
+
     # Valid permission modes
-    PERMISSION_MODES = {"default", "acceptEdits", "plan", "planSwarm", "bypassPermissions"}
+    PERMISSION_MODES = {
+        "default",
+        "acceptEdits",
+        "plan",
+        "planSwarm",
+        "bypassPermissions",
+    }
 
     def _set_permission_mode_local(self, mode: str) -> None:
         """Update permission mode locally without calling SDK.
@@ -1069,7 +1278,14 @@ Key Rules:
         if self.permission_mode != mode:
             return  # Local state changed since we were scheduled; skip
         if self.client and self.session_id:
-            await self.client.set_permission_mode(mode)
+            try:
+                await self.client.set_permission_mode(cast(PermissionMode, mode))
+            except Exception:
+                log.warning(
+                    "Deferred sync of permission mode '%s' to SDK failed"
+                    " (control request timeout)",
+                    mode,
+                )
 
     async def ensure_plan_path(self) -> None:
         """Fetch and cache the plan path for this session (if not already set)."""
@@ -1092,7 +1308,14 @@ Key Rules:
                 await self.ensure_plan_path()
             # Only call SDK if connected (client exists and has active connection)
             if self.client and self.session_id:
-                await self.client.set_permission_mode(mode)
+                try:
+                    await self.client.set_permission_mode(cast(PermissionMode, mode))
+                except Exception:
+                    log.warning(
+                        "Failed to sync permission mode '%s' to SDK"
+                        " (control request timeout); local state updated",
+                        mode,
+                    )
             if self.observer:
                 self.observer.on_permission_mode_changed(self)
 

@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestConfigModuleValues:
     """Test that CONFIG has correct values after module import."""
@@ -24,9 +22,10 @@ class TestConfigModuleValues:
         """Verify CONFIG contains default_permission_mode key."""
         from claudechic.config import CONFIG
 
-        assert "default_permission_mode" in CONFIG or CONFIG.get("default_permission_mode") == "default", (
-            "CONFIG should have default_permission_mode set"
-        )
+        assert (
+            "default_permission_mode" in CONFIG
+            or CONFIG.get("default_permission_mode") == "default"
+        ), "CONFIG should have default_permission_mode set"
 
     def test_config_has_analytics_section(self):
         """Verify CONFIG contains analytics section with required keys."""
@@ -225,9 +224,7 @@ class TestConfigLoadFunction:
         assert "if CONFIG_PATH.exists():" in source_code, (
             "_load() should check if CONFIG_PATH exists"
         )
-        assert "else:" in source_code, (
-            "_load() should have else branch for new install"
-        )
+        assert "else:" in source_code, "_load() should have else branch for new install"
         assert "new_install = True" in source_code, (
             "_load() should set new_install flag"
         )
@@ -298,9 +295,7 @@ class TestVimMigration:
         source_code = config_source.read_text()
 
         # Verify migration from vim to vi-mode
-        assert '"vim" in config' in source_code, (
-            "Should check for legacy 'vim' key"
-        )
+        assert '"vim" in config' in source_code, "Should check for legacy 'vim' key"
         assert 'config["vi-mode"]' in source_code or "vi-mode" in source_code, (
             "Should migrate to 'vi-mode' key"
         )

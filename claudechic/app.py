@@ -10,7 +10,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from claude_agent_sdk.types import HookEvent
@@ -30,6 +30,7 @@ from claude_agent_sdk import (
     CLIConnectionError,
     ClaudeSDKClient,
     ClaudeAgentOptions,
+    PermissionMode,
     SystemMessage,
     ToolUseBlock,
     ResultMessage,
@@ -41,14 +42,14 @@ from claudechic.messages import (
     ToolUseMessage,
     ToolResultMessage,
     CommandOutputMessage,
+    TextChunkMessage,
+    PromptSentMessage,
 )
 from claudechic.sessions import (
     find_session_by_prefix,
     get_context_from_session,
     get_plan_path_for_session,
     get_recent_sessions,
-    load_topology,
-    save_topology,
 )
 from claudechic.features.diff import EditFileRequested
 from claudechic.features.worktree import list_worktrees
@@ -59,7 +60,7 @@ from claudechic.agent import Agent, ImageAttachment, ToolUse
 from claudechic.agent_manager import AgentManager
 from claudechic.analytics import capture
 from claudechic.config import CONFIG, NEW_INSTALL, save as save_config
-from claudechic.enums import AgentStatus, PermissionChoice, ToolName
+from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
 from claudechic.mcp import set_app, create_chic_server
 from claudechic.file_index import FileIndex
 from claudechic.history import append_to_history
@@ -217,6 +218,8 @@ class ChatApp(App):
         # Track pending slash commands passed to Claude (for typo detection)
         # agent_id -> command name (e.g., "/cleanup")
         self._pending_slash_commands: dict[str, str] = {}
+        # Active chicsession name — when set, agent create/close auto-saves
+        self._chicsession_name: str | None = None
 
     def _fatal_error(self) -> None:
         """Override to use plain Python tracebacks instead of rich's fancy ones."""
@@ -536,13 +539,20 @@ class ChatApp(App):
             next_mode = modes[next_idx]
 
         # Schedule the async call to update all agents
+        agent_mgr = self.agent_mgr
+
         async def set_mode():
-            await self.agent_mgr.set_global_permission_mode(next_mode)
+            await agent_mgr.set_global_permission_mode(next_mode)
 
         self.run_worker(set_mode(), exclusive=False)
 
         # Show notification with friendly names
-        display = {"default": "Default", "acceptEdits": "Auto-edit", "plan": "Plan", "bypassPermissions": "Bypass"}
+        display = {
+            "default": "Default",
+            "acceptEdits": "Auto-edit",
+            "plan": "Plan",
+            "bypassPermissions": "Bypass",
+        }
         self.notify(f"Mode: {display[next_mode]}")
 
     def _update_footer_permission_mode(self, mode: str | None = None) -> None:
@@ -652,8 +662,9 @@ class ChatApp(App):
 
         # Use global permission mode from AgentManager (runtime source of truth)
         # CLI flag --yolo sets global_permission_mode at init, no special handling needed here
-        permission_mode = (
-            self.agent_mgr.global_permission_mode if self.agent_mgr else "default"
+        permission_mode: PermissionMode = cast(
+            PermissionMode,
+            self.agent_mgr.global_permission_mode if self.agent_mgr else "default",
         )
         return ClaudeAgentOptions(
             permission_mode=permission_mode,
@@ -829,9 +840,6 @@ class ChatApp(App):
         if resume:
             await self._load_and_display_history(resume)
             self.notify(f"Resuming {resume[:8]}...")
-
-            # Restore subagents from topology
-            await self._restore_subagents(resume)
 
         # Fetch SDK commands and update autocomplete
         await self._update_slash_commands()
@@ -1162,6 +1170,27 @@ class ChatApp(App):
         except Exception:
             pass  # OK to fail during shutdown
 
+    def on_text_chunk_message(self, event: TextChunkMessage) -> None:
+        """Handle text chunk via Textual message queue — ensures UI mutation is safe."""
+        chat_view = self._get_chat_view(event.agent_id)
+        if chat_view:
+            chat_view.append_text(
+                event.text, event.new_message, event.parent_tool_use_id
+            )
+
+    def on_prompt_sent_message(self, event: PromptSentMessage) -> None:
+        """Handle prompt sent via Textual message queue — display user message in chat."""
+        chat_view = self._get_chat_view(event.agent_id)
+        if not chat_view:
+            return
+
+        # Skip UI for /clear command (it just forwards to SDK)
+        if event.prompt.strip() == "/clear":
+            return
+
+        chat_view.append_user_message(event.prompt, event.images)
+        chat_view.start_response()
+
     @profile
     def on_tool_use_message(self, event: ToolUseMessage) -> None:
         agent = self._get_agent(event.agent_id)
@@ -1186,9 +1215,9 @@ class ChatApp(App):
         )
         # Don't show thinking indicator if agent was interrupted — the
         # ToolResultMessage may arrive (from the message queue) after
-        # _interrupt_and_cleanup has already cleared the response state.
+        # interrupt() has already cleared the response state.
         agent = self._get_agent(event.agent_id)
-        if agent and agent._interrupted:
+        if agent and agent._response_state == ResponseState.INTERRUPTED:
             return
         self._show_thinking(event.agent_id)
 
@@ -1473,8 +1502,19 @@ class ChatApp(App):
             self.post_message(ResponseComplete(None))
             return
         try:
+            # Close stale subagents from the previous session before restoring
+            if self.agent_mgr:
+                main_id = self.agent_mgr.active_id
+                stale_ids = [
+                    aid for aid in list(self.agent_mgr.agents) if aid != main_id
+                ]
+                for aid in stale_ids:
+                    await self.agent_mgr.close(aid, soft=False)
+                self.agent_mgr.closed_agents.clear()
+
             await self._reconnect_agent(agent, session_id)
             agent.session_id = session_id
+
             self.post_message(ResponseComplete(None))
             self.refresh_context()
             # Check for plan file
@@ -1657,7 +1697,9 @@ class ChatApp(App):
         if nudge_count >= self.REPLY_NUDGE_MAX:
             log.info(
                 "Agent '%s' hit max nudge count (%d) for '%s', giving up",
-                agent.name, self.REPLY_NUDGE_MAX, caller,
+                agent.name,
+                self.REPLY_NUDGE_MAX,
+                caller,
             )
             agent._pending_reply_to = None
             agent._reply_nudge_count = 0
@@ -1677,7 +1719,11 @@ class ChatApp(App):
                 return
             # Check caller still exists — no point nudging to reply to a dead agent
             if not self.agent_mgr.find_by_name(caller):
-                log.info("Caller '%s' no longer exists, clearing reply obligation on '%s'", caller, a.name)
+                log.info(
+                    "Caller '%s' no longer exists, clearing reply obligation on '%s'",
+                    caller,
+                    a.name,
+                )
                 a._pending_reply_to = None
                 a._reply_nudge_count = 0
                 return
@@ -1688,145 +1734,16 @@ class ChatApp(App):
                 f"message has been sent to '{caller}'. Remember that an answer is "
                 f"required. Use tell_agent to reply to '{caller}'."
             )
-            log.info("Nudging agent '%s' to reply to '%s' (%d/%d)", a.name, caller, a._reply_nudge_count, self.REPLY_NUDGE_MAX)
+            log.info(
+                "Nudging agent '%s' to reply to '%s' (%d/%d)",
+                a.name,
+                caller,
+                a._reply_nudge_count,
+                self.REPLY_NUDGE_MAX,
+            )
             create_safe_task(a.send(nudge), name=f"nudge-reply-{a.name}")
 
         self.set_timer(self.REPLY_NUDGE_DELAY, _fire_nudge)
-
-    def _save_topology(self) -> None:
-        """Persist multi-agent topology so ``--resume`` can restore subagents.
-
-        Called on: session init, response complete, agent close, and exit.
-        Skips silently if the main agent has no session_id yet.
-        """
-        if not self.agent_mgr:
-            return
-
-        # Find the main agent (first non-worktree, or just the first agent)
-        main_agent: Agent | None = None
-        for agent in self.agent_mgr:
-            if not agent.worktree:
-                main_agent = agent
-                break
-        if main_agent is None:
-            # All agents are worktrees — use the first agent as main
-            agents_iter = iter(self.agent_mgr)
-            main_agent = next(agents_iter, None)
-        if main_agent is None or not main_agent.session_id:
-            return  # Nothing to save yet
-
-        topo = self.agent_mgr.get_topology()
-        try:
-            save_topology(main_agent.session_id, topo, cwd=main_agent.cwd)
-        except Exception as exc:
-            log.warning("Failed to save topology: %s", exc)
-
-    async def _restore_subagents(self, main_session_id: str) -> None:
-        """Restore subagents from a saved topology file.
-
-        Called during ``_connect_initial_client`` after the main agent is
-        connected and its history is loaded.  Each subagent entry is
-        recreated with ``agent_mgr.create(resume=...)``.
-
-        Args:
-            main_session_id: Session ID of the main agent (used to find topology).
-        """
-        if not self.agent_mgr:
-            return
-
-        main_agent = self.agent_mgr.active
-        if not main_agent:
-            return
-
-        topo = load_topology(main_session_id, cwd=main_agent.cwd)
-        if not topo:
-            return
-
-        entries = topo.get("agents", [])
-        if len(entries) <= 1:
-            return  # Single-agent session, nothing to restore
-
-        main_name = main_agent.name
-        restored = 0
-
-        for entry in entries:
-            name = entry.get("name")
-            if not name:
-                continue
-
-            # Skip the main agent (already connected)
-            if name == main_name:
-                continue
-
-            # Skip if agent with this name already exists
-            if self.agent_mgr.find_by_name(name):
-                log.info("Skipping duplicate agent '%s' during restore", name)
-                continue
-
-            cwd_str = entry.get("cwd")
-            session_id = entry.get("session_id")
-            worktree = entry.get("worktree")
-            model = entry.get("model")
-
-            if not session_id:
-                log.warning("Skipping agent '%s': no session_id in topology", name)
-                continue
-
-            # Closed agents: add to closed_agents dict (no SDK connection)
-            if entry.get("closed"):
-                self.agent_mgr.closed_agents[name] = {
-                    "name": name,
-                    "cwd": cwd_str or str(main_agent.cwd),
-                    "session_id": session_id,
-                    "worktree": worktree,
-                    "model": model,
-                }
-                log.info("Loaded closed agent '%s' (session=%s)", name, session_id[:8])
-                continue
-
-            # Validate CWD exists (worktree may have been deleted)
-            cwd_path = Path(cwd_str) if cwd_str else main_agent.cwd
-            if not cwd_path.exists():
-                log.warning(
-                    "Skipping agent '%s': cwd '%s' no longer exists", name, cwd_path
-                )
-                self.notify(
-                    f"Skipped restoring '{name}' — directory no longer exists",
-                    severity="warning",
-                )
-                continue
-
-            try:
-                agent = await self.agent_mgr.create(
-                    name=name,
-                    cwd=cwd_path,
-                    worktree=worktree,
-                    resume=session_id,
-                    switch_to=False,
-                    model=model,
-                )
-                # Load and display history for the restored subagent
-                await self._load_and_display_history(
-                    session_id, cwd=cwd_path, agent=agent
-                )
-                restored += 1
-                log.info("Restored agent '%s' (session=%s)", name, session_id[:8])
-            except Exception as exc:
-                log.warning("Failed to restore agent '%s': %s", name, exc)
-                self.notify(
-                    f"Failed to restore agent '{name}'",
-                    severity="warning",
-                )
-
-        if restored:
-            self.notify(f"Restored {restored} subagent{'s' if restored != 1 else ''}")
-
-            # Switch back to the originally-active agent
-            active_name = topo.get("active_agent_name")
-            if active_name:
-                target = self.agent_mgr.find_by_name(active_name)
-                if target:
-                    self.agent_mgr.switch(target.id)
 
     async def _cleanup_and_exit(self, reason: str = "quit") -> None:
         """Disconnect all agents and exit.
@@ -1834,9 +1751,6 @@ class ChatApp(App):
         Args:
             reason: Why the app is closing (quit, crash, error)
         """
-        # Save topology before closing agents (agents still have session_ids)
-        self._save_topology()
-
         # Close all agents in parallel (fires agent_closed events with message_count)
         if self.agent_mgr:
             await self.agent_mgr.close_all()
@@ -1929,6 +1843,7 @@ class ChatApp(App):
         # Use current agent's cwd so sessions are filtered by the agent's project
         cwd = self._agent.cwd if self._agent else None
         self.push_screen(SessionScreen(cwd=cwd), on_dismiss)
+
 
     def _show_rewind_picker(self) -> None:
         """Show the rewind checkpoint picker screen."""
@@ -2092,23 +2007,6 @@ class ChatApp(App):
         if self._agent and self._agent.id == agent.id:
             self.plan_section.set_plan(plan_path)
 
-    async def _interrupt_and_cleanup(self, agent: "Agent") -> None:
-        """Interrupt agent and clean up response state after cancellation completes.
-
-        Cleanup must happen AFTER interrupt() returns, not before — otherwise
-        late text chunks (still arriving before the response task is cancelled)
-        can recreate _current_response, leaving stale state that blocks the
-        next response from rendering.
-        """
-        await agent.interrupt()
-        # Now the response task is fully cancelled — no more text chunks
-        self._hide_thinking()
-        chat_view = self._chat_views.get(agent.id)
-        if chat_view:
-            if chat_view._current_response:
-                chat_view._current_response.flush()
-            chat_view.end_response(None)
-
     def action_escape(self) -> None:
         """Handle Escape: cancel picker, dismiss prompts, close overlay, or interrupt agent."""
         # Sidebar overlay takes priority (most likely what user wants to dismiss)
@@ -2125,12 +2023,11 @@ class ChatApp(App):
             active_prompt.cancel()
             return
 
-        # Interrupt running agent - route through agent.interrupt() which has
-        # a short timeout + SIGINT fallback (never blocks for 60s like bare
-        # client.interrupt() did, and never crashes the app on timeout).
+        # Interrupt running agent via Agent.interrupt() (handles SDK interrupt,
+        # SIGINT fallback, on_complete, and state cleanup).
         if self._agent and self._agent.status == "busy":
             self.run_worker(
-                self._interrupt_and_cleanup(self._agent),
+                self._agent.interrupt(),
                 exclusive=False,
                 exit_on_error=False,
             )
@@ -2204,9 +2101,7 @@ class ChatApp(App):
         """Handle model label press - open model selector."""
         self._handle_model_prompt()
 
-    def on_diagnostics_label_requested(
-        self, event: DiagnosticsLabel.Requested
-    ) -> None:  # noqa: ARG002
+    def on_diagnostics_label_requested(self, event: DiagnosticsLabel.Requested) -> None:  # noqa: ARG002
         """Handle diagnostics label press - open diagnostics modal."""
         from claudechic.widgets.modals.diagnostics import DiagnosticsModal
 
@@ -2338,7 +2233,9 @@ class ChatApp(App):
             session_id = agent.session_id
             await agent.disconnect()
             options = self._make_options(
-                cwd=agent.cwd, agent_name=agent.name, model=model,
+                cwd=agent.cwd,
+                agent_name=agent.name,
+                model=model,
                 resume=session_id,
             )
             await agent.connect(options, resume=session_id)
@@ -2414,7 +2311,6 @@ class ChatApp(App):
             chat_view.mount(connecting_indicator)
 
         try:
-            # Resolve resume ID if auto_resume
             resume_id = None
             if auto_resume:
                 sessions = await get_recent_sessions(limit=100, cwd=cwd)
@@ -2558,7 +2454,7 @@ class ChatApp(App):
 
         self.notify(f"Agent '{agent_name}' closed")
 
-    @work(group="close_agent", exclusive=True, exit_on_error=False)
+    @work(group="close_agent", exclusive=False, exit_on_error=False)
     async def _do_close_agent(self, agent_id: str) -> None:
         """Close an agent via Textual worker (fire-and-forget for UI callers)."""
         await self._close_agent_core(agent_id)
@@ -2656,6 +2552,7 @@ class ChatApp(App):
             "same_directory": same_directory,
             "name": agent.name,
         }
+
         self.run_worker(
             capture(
                 "agent_created",
@@ -2663,6 +2560,11 @@ class ChatApp(App):
                 model=agent.model or "default",
             )
         )
+
+        # Auto-save chicsession if active
+        from claudechic.chicsession_cmd import auto_save_chicsession
+
+        auto_save_chicsession(self)
 
         try:
             # Create chat view for the agent
@@ -2787,8 +2689,10 @@ class ChatApp(App):
         """Handle agent closure from AgentManager."""
         log.info(f"Agent closed: {agent_id}")
 
-        # Topology changed — persist (agent already removed from manager)
-        self._save_topology()
+        # Auto-save chicsession if active (agent already removed from manager)
+        from claudechic.chicsession_cmd import auto_save_chicsession
+
+        auto_save_chicsession(self)
 
         # Track analytics
         metadata = self._agent_metadata.pop(agent_id, {})
@@ -2802,7 +2706,8 @@ class ChatApp(App):
                 if a._pending_reply_to == closed_name:
                     log.info(
                         "Clearing reply obligation on '%s' — caller '%s' was closed",
-                        a.name, closed_name,
+                        a.name,
+                        closed_name,
                     )
                     a._pending_reply_to = None
                     a._reply_nudge_count = 0
@@ -2925,9 +2830,6 @@ class ChatApp(App):
         """Handle agent response completion."""
         log.info(f"Agent {agent.name} completed response")
 
-        # Persist topology after each response (session_id confirmed)
-        self._save_topology()
-
         # Check for unrecognized slash commands (passed through but no Skill invoked)
         pending_cmd = self._pending_slash_commands.pop(agent.id, None)
         if pending_cmd:
@@ -2970,13 +2872,18 @@ class ChatApp(App):
     def on_text_chunk(
         self, agent: Agent, text: str, new_message: bool, parent_tool_use_id: str | None
     ) -> None:
-        """Handle text chunk from agent - update UI directly (bypasses message queue)."""
+        """Handle text chunk from agent - post Textual Message for UI."""
         sampler = get_sampler()
         if sampler:
             sampler.async_metrics.text_chunks += 1
-        chat_view = self._chat_views.get(agent.id)
-        if chat_view:
-            chat_view.append_text(text, new_message, parent_tool_use_id)
+        self.post_message(
+            TextChunkMessage(
+                text=text,
+                new_message=new_message,
+                parent_tool_use_id=parent_tool_use_id,
+                agent_id=agent.id,
+            )
+        )
 
     def on_tool_use(self, agent: Agent, tool: ToolUse) -> None:
         """Handle tool use from agent - post Textual Message for UI."""
@@ -3029,9 +2936,11 @@ class ChatApp(App):
     def on_system_message(self, agent: Agent, message: SystemMessage) -> None:
         """Handle system message from agent - post Textual Message for UI."""
         self.post_message(SystemNotification(message, agent_id=agent.id))
-        # Save topology when session_id is first assigned (init message)
+        # Auto-save when session_id is first assigned (init message)
         if message.subtype == "init":
-            self._save_topology()
+            from claudechic.chicsession_cmd import auto_save_chicsession
+
+            auto_save_chicsession(self)
 
     def on_command_output(self, agent: Agent, content: str) -> None:
         """Handle command output from agent (e.g., /context)."""
@@ -3046,17 +2955,10 @@ class ChatApp(App):
     def on_prompt_sent(
         self, agent: Agent, prompt: str, images: list[ImageAttachment]
     ) -> None:
-        """Handle prompt sent to agent - display user message in chat view."""
-        chat_view = self._chat_views.get(agent.id)
-        if not chat_view:
-            return
-
-        # Skip UI for /clear command (it just forwards to SDK)
-        if prompt.strip() == "/clear":
-            return
-
-        chat_view.append_user_message(prompt, images)
-        chat_view.start_response()
+        """Handle prompt sent to agent - post Textual Message for UI."""
+        self.post_message(
+            PromptSentMessage(prompt=prompt, images=images, agent_id=agent.id)
+        )
 
     async def _handle_agent_permission_ui(
         self, agent: Agent, request: PermissionRequest

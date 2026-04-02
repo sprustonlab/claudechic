@@ -168,9 +168,7 @@ class DiagnosticsModal(ModalScreen):
                 with VerticalScroll(id="compaction-scroll"):
                     yield Static(self._compact_summary, id="compaction-content")
             else:
-                yield Static(
-                    "(no compaction this session)", id="compaction-content"
-                )
+                yield Static("(no compaction this session)", id="compaction-content")
             with Horizontal(id="diagnostics-footer"):
                 yield Button("Close", id="close-btn")
 
