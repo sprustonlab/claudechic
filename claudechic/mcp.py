@@ -652,30 +652,6 @@ def create_chic_server(caller_name: str | None = None):
     if CONFIG.get("experimental", {}).get("finish_worktree", False):
         tools.append(finish_worktree)
 
-    # LSF cluster tools (always registered; LSF availability checked at runtime)
-    try:
-        from claudechic.cluster import (
-            cluster_jobs,
-            cluster_kill,
-            cluster_status,
-            cluster_submit,
-            _make_cluster_watch,
-        )
-
-        tools.extend([
-            cluster_jobs,
-            cluster_status,
-            cluster_submit,
-            cluster_kill,
-            _make_cluster_watch(
-                caller_name=caller_name,
-                send_notification=_send_prompt_fire_and_forget,
-                find_agent=_find_agent_by_name,
-            ),
-        ])
-    except ImportError:
-        log.debug("Cluster tools not available (missing dependencies)")
-
     # Discover mcp_tools/ plugins
     mcp_tools_dir = Path.cwd() / "mcp_tools"
     discovered_tools = discover_mcp_tools(

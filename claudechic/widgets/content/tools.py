@@ -663,7 +663,6 @@ class AgentToolWidget(BaseToolWidget):
         if is_error:
             return "(error)"
         if tool_short == "cluster_submit":
-            # Extract job ID from result
             try:
                 data = json.loads(content)
                 job_id = data.get("job_id", "")
