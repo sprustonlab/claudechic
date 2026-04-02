@@ -33,8 +33,13 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 # Locate the template hints source
 # ---------------------------------------------------------------------------
 
-_TEMPLATE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-_HINTS_SOURCE = _TEMPLATE_ROOT / "template" / "hints"
+# Look for hints/ in the claudechic repo root first, then fall back to template
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_HINTS_SOURCE = _REPO_ROOT / "hints"
+if not _HINTS_SOURCE.is_dir():
+    # Fall back to template location when running from AI_PROJECT_TEMPLATE
+    _TEMPLATE_ROOT = _REPO_ROOT.parent.parent
+    _HINTS_SOURCE = _TEMPLATE_ROOT / "template" / "hints"
 
 
 def _install_hints(dest: Path) -> None:
