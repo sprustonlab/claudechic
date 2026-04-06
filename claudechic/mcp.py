@@ -702,17 +702,52 @@ async def advance_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
 
 @tool(
     "get_phase",
-    "Get the current workflow phase. In-memory lookup, no file I/O. Agents call this at spawn time or when they need to know the current phase.",
+    "Get the current workflow state: active workflow, phase, phase list, loaded rules/injections, and errors. In-memory lookup, no file I/O.",
     {},
 )
 async def get_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-    """Get current workflow phase."""
-    if _app is None or _app._workflow_engine is None:
-        return _text_response("No active workflow.")
+    """Get current workflow state with full diagnostic info."""
+    if _app is None:
+        return _text_response("No app context.")
     _track_mcp_tool("get_phase")
 
-    phase = _app._workflow_engine.get_current_phase()
-    return _text_response(phase or "No phase set.")
+    lines: list[str] = []
+
+    # Workflow engine state
+    engine = getattr(_app, "_workflow_engine", None)
+    if engine is None:
+        lines.append("Workflow: none active")
+    else:
+        current = engine.get_current_phase()
+        next_phase = engine.get_next_phase(current) if current else None
+        phase_order = engine._phase_order
+
+        lines.append(f"Workflow: {engine.workflow_id}")
+        lines.append(f"Phase: {current or '(none)'}")
+        if next_phase:
+            lines.append(f"Next phase: {next_phase}")
+        if phase_order:
+            idx = phase_order.index(current) + 1 if current and current in phase_order else 0
+            lines.append(f"Progress: {idx}/{len(phase_order)} ({', '.join(phase_order)})")
+
+    # Manifest loader state
+    loader = getattr(_app, "_manifest_loader", None)
+    if loader:
+        result = loader.load()
+        lines.append(f"Rules: {len(result.rules)}")
+        lines.append(f"Injections: {len(result.injections)}")
+        if result.injections:
+            for inj in result.injections:
+                phases_str = f" phases={inj.phases}" if inj.phases else ""
+                lines.append(f"  - {inj.id} [{', '.join(inj.trigger)}]{phases_str}")
+        if result.errors:
+            lines.append(f"Errors: {len(result.errors)}")
+            for err in result.errors[:5]:
+                lines.append(f"  - {err.source}: {err.message}")
+    else:
+        lines.append("Loader: not initialized")
+
+    return _text_response("\n".join(lines))
 
 
 @tool(

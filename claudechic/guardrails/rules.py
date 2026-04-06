@@ -212,18 +212,20 @@ def should_skip_for_phase(rule: Rule | Injection, current_phase: str | None) -> 
 
 
 def apply_injection(injection: Injection, tool_input: dict) -> dict:
-    """Apply an injection rule to tool_input, returning a modified copy.
+    """Apply an injection rule to tool_input, mutating it in-place.
 
     The injection's detect pattern identifies what to modify, and
-    inject_value specifies what to inject. Exact injection semantics
-    depend on the specific injection's configuration.
+    inject_value specifies what to inject.  The dict is mutated
+    in-place so the SDK executes the modified command — returning
+    via hookSpecificOutput.updatedInput alone is NOT sufficient
+    because the CLI does not apply updatedInput.
 
     Args:
         injection: An Injection with detect pattern and inject_value.
-        tool_input: The current tool input dict.
+        tool_input: The current tool input dict (mutated in-place).
 
     Returns:
-        A modified copy of tool_input with the injection applied.
+        The same tool_input dict (for chaining / back-compat).
     """
     field = injection.detect_field
     current_value = _get_field(tool_input, field)
@@ -234,12 +236,10 @@ def apply_injection(injection: Injection, tool_input: dict) -> dict:
     if injection.detect_pattern and not injection.detect_pattern.search(current_value):
         return tool_input
 
-    # Apply injection — append inject_value to the target field (inline)
-    modified = dict(tool_input)
-    modified[field] = (
-        f"{current_value}{injection.inject_value}" if injection.inject_value else current_value
-    )
-    return modified
+    # Apply injection — mutate in-place so the SDK uses the modified value
+    if injection.inject_value:
+        tool_input[field] = f"{current_value}{injection.inject_value}"
+    return tool_input
 
 
 def read_phase_state(phase_state_path: Path) -> dict[str, Any] | None:

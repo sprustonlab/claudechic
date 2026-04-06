@@ -657,6 +657,26 @@ class AgentToolWidget(BaseToolWidget):
                         collapsible.add_class("error")
                 except Exception:
                     pass
+        # Generic fallback: render result content for all other MCP tools
+        elif result.content:
+            content = _extract_text_content(result.content)
+            content = SYSTEM_REMINDER_PATTERN.sub("", content)
+            try:
+                collapsible = self.query_one(QuietCollapsible)
+                if result.is_error:
+                    collapsible.add_class("error")
+                # Update the Static placeholder with the actual result
+                output_widget = collapsible.query_one(Static)
+                truncated = len(content) > 2000
+                preview = content[:2000]
+                trunc_suffix = (
+                    f"\n... (truncated, {len(content):,} chars total)"
+                    if truncated
+                    else ""
+                )
+                output_widget.update(f"{preview}{trunc_suffix}")
+            except Exception:
+                pass
 
     def _cluster_result_summary(self, tool_short: str, content: str, is_error: bool) -> str:
         """Extract a short summary from cluster tool results."""

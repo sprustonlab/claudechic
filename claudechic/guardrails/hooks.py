@@ -60,7 +60,7 @@ def create_guardrail_hooks(
     async def evaluate(hook_input: dict, match: str | None, ctx: object) -> dict:
         tool_name = hook_input.get("tool_name", "")
         tool_input = hook_input.get("tool_input", {})
-        original_tool_input = tool_input  # Track for injection detection
+        injection_applied = False
 
         # Load rules fresh every call (no mtime caching — NFS safe)
         result = loader.load()
@@ -87,7 +87,8 @@ def create_guardrail_hooks(
                 continue
             if should_skip_for_phase(injection, current_phase):
                 continue
-            tool_input = apply_injection(injection, tool_input)
+            apply_injection(injection, tool_input)
+            injection_applied = True
 
         # Step 2: Evaluate enforcement rules
         for rule in result.rules:
@@ -154,8 +155,10 @@ def create_guardrail_hooks(
                         ),
                     }
 
-        # If injections modified tool_input, return updated input via SDK protocol
-        if tool_input is not original_tool_input:
+        # If injections modified tool_input, return updatedInput via SDK protocol.
+        # In-place mutation alone is NOT enough — SDK and CLI are separate
+        # processes, so the CLI only sees changes via the hook return value.
+        if injection_applied:
             return {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",

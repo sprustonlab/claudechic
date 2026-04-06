@@ -176,7 +176,12 @@ class TestGuardrailRules:
             hit_logger.close()
 
     async def test_injection_modifies_tool_input(self, tmp_path):
-        """Injection appends to tool_input through the full hook pipeline."""
+        """Injection mutates tool_input in-place AND returns updatedInput.
+
+        SDK and CLI are separate processes.  In-place mutation covers the
+        Python side; hookSpecificOutput.updatedInput is the only channel
+        back to the CLI.  Both must happen.
+        """
         injections = [
             {
                 "id": "tee_output",
@@ -196,15 +201,25 @@ class TestGuardrailRules:
                 consume_override=token_store.consume,
             )
 
-            # The hook modifies tool_input via injections and returns updatedInput
-            result = await _call_hook(hooks, "Bash", {"command": "pytest tests/"})
+            original_tool_input = {"command": "pytest tests/"}
+            expected = "pytest tests/ 2>&1 | tee test_output.log"
+
+            result = await _call_hook(hooks, "Bash", original_tool_input)
             assert result.get("decision") != "block", "Injection should not block"
 
-            # Verify: injection returns modified tool_input via SDK protocol
+            # 1. In-place mutation — the Python dict is modified directly
+            assert original_tool_input["command"] == expected, (
+                "Injection must mutate tool_input dict in-place"
+            )
+
+            # 2. updatedInput returned via SDK protocol — CLI needs this
             hook_output = result.get("hookSpecificOutput", {})
             assert hook_output.get("hookEventName") == "PreToolUse"
             updated = hook_output.get("updatedInput", {})
-            assert updated["command"] == "pytest tests/ 2>&1 | tee test_output.log"
+            assert updated["command"] == expected, (
+                "Injection must return updatedInput via hookSpecificOutput "
+                "so the CLI (separate process) receives the modification"
+            )
         finally:
             hit_logger.close()
 
