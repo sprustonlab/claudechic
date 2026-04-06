@@ -142,5 +142,8 @@ register_check_type(
 )
 register_check_type(
     "manual-confirm",
-    lambda p: ManualConfirm(question=p["question"], confirm_fn=p["confirm_fn"]),
+    lambda p: ManualConfirm(
+        question=p.get("question") or p.get("prompt", "Confirm?"),
+        confirm_fn=p["confirm_fn"],
+    ),
 )
