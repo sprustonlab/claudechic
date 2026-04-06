@@ -60,6 +60,7 @@ def create_guardrail_hooks(
     async def evaluate(hook_input: dict, match: str | None, ctx: object) -> dict:
         tool_name = hook_input.get("tool_name", "")
         tool_input = hook_input.get("tool_input", {})
+        original_tool_input = tool_input  # Track for injection detection
 
         # Load rules fresh every call (no mtime caching — NFS safe)
         result = loader.load()
@@ -153,6 +154,14 @@ def create_guardrail_hooks(
                         ),
                     }
 
+        # If injections modified tool_input, return updated input via SDK protocol
+        if tool_input is not original_tool_input:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": tool_input,
+                }
+            }
         return {}  # No blocking rule matched — allow
 
     return {"PreToolUse": [HookMatcher(matcher=None, hooks=[evaluate])]}

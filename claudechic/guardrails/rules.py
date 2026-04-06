@@ -234,10 +234,10 @@ def apply_injection(injection: Injection, tool_input: dict) -> dict:
     if injection.detect_pattern and not injection.detect_pattern.search(current_value):
         return tool_input
 
-    # Apply injection — modify the target field
+    # Apply injection — append inject_value to the target field (inline)
     modified = dict(tool_input)
     modified[field] = (
-        f"{current_value}\n{injection.inject_value}" if injection.inject_value else current_value
+        f"{current_value}{injection.inject_value}" if injection.inject_value else current_value
     )
     return modified
 

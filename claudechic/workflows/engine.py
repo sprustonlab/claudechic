@@ -35,6 +35,7 @@ class WorkflowManifest:
 
     workflow_id: str
     phases: list[Phase] = field(default_factory=list)
+    main_role: str | None = None  # Role folder for the main agent
 
 # ---------------------------------------------------------------------------
 # Type aliases
@@ -62,6 +63,7 @@ class WorkflowManifest:
 
     workflow_id: str
     phases: list[Phase] = field(default_factory=list)
+    main_role: str | None = None  # Role folder for the main agent
 
 
 @dataclass(frozen=True)

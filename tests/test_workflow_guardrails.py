@@ -196,16 +196,15 @@ class TestGuardrailRules:
                 consume_override=token_store.consume,
             )
 
-            # The hook modifies tool_input in-place via injections, then returns {}
-            # Since there are no deny/warn rules, the result should be empty (allow)
+            # The hook modifies tool_input via injections and returns updatedInput
             result = await _call_hook(hooks, "Bash", {"command": "pytest tests/"})
             assert result.get("decision") != "block", "Injection should not block"
 
-            # Verify: to test the injection actually fires, we need to check
-            # that the injection pipeline ran. Since the hook doesn't return the
-            # modified tool_input, we verify the injection logic works by checking
-            # that the hook doesn't crash and allows the call through.
-            assert result == {} or "decision" not in result
+            # Verify: injection returns modified tool_input via SDK protocol
+            hook_output = result.get("hookSpecificOutput", {})
+            assert hook_output.get("hookEventName") == "PreToolUse"
+            updated = hook_output.get("updatedInput", {})
+            assert updated["command"] == "pytest tests/ 2>&1 | tee test_output.log"
         finally:
             hit_logger.close()
 

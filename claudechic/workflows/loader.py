@@ -88,6 +88,7 @@ class WorkflowData:
 
     workflow_id: str
     path: Path
+    main_role: str | None = None  # Role folder for the main agent (e.g. "learner")
     has_errors: bool = False  # True if any parse error in this workflow
 
 
@@ -256,8 +257,9 @@ class ManifestLoader:
             # Track workflow data (manifest populated after all parsing)
             if not self._is_global_path(path):
                 wf_id = data.get("workflow_id", path.parent.name)
+                main_role = data.get("main_role")
                 workflows.setdefault(wf_id, WorkflowData(
-                    workflow_id=wf_id, path=path.parent
+                    workflow_id=wf_id, path=path.parent, main_role=main_role,
                 ))
 
             # Dict-based files: dispatch by section keys

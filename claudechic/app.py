@@ -797,6 +797,9 @@ class ChatApp(App):
         # Register app for MCP tools
         set_app(self)
 
+        # Set cwd early — needed by workflow infrastructure and file index
+        self._cwd = Path.cwd()
+
         # Initialize workflow guidance infrastructure
         self._init_workflow_infrastructure()
 
@@ -826,7 +829,6 @@ class ChatApp(App):
             self.agent_mgr.global_permission_mode = "bypassPermissions"
 
         # Initialize file index for fuzzy file search (doesn't need widgets)
-        self._cwd = Path.cwd()
         self.file_index = FileIndex(root=self._cwd)
         self._refresh_file_index()
 
@@ -1009,6 +1011,13 @@ class ChatApp(App):
                     base.append(f"/worktree {wt.branch}")
         except Exception:
             pass  # Not a git repo or git not available
+
+        # Add discovered workflow commands
+        if hasattr(self, "_workflow_registry") and self._workflow_registry:
+            for wf_id in self._workflow_registry:
+                cmd = f"/{wf_id}"
+                if cmd not in base:
+                    base.append(cmd)
 
         autocomplete.slash_commands = base
 
@@ -1215,7 +1224,11 @@ class ChatApp(App):
             wf_phases = [
                 p for p in self._load_result.phases if p.namespace == workflow_id
             ]
-            manifest = WorkflowManifest(workflow_id=workflow_id, phases=wf_phases)
+            manifest = WorkflowManifest(
+                workflow_id=workflow_id,
+                phases=wf_phases,
+                main_role=wf_data.main_role,
+            )
 
             self._workflow_engine = WorkflowEngine(
                 manifest=manifest,
@@ -1226,9 +1239,52 @@ class ChatApp(App):
             self.notify(
                 f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
             )
+
+            # Send phase content to main agent so it can guide the user
+            if wf_data.main_role:
+                self._inject_phase_prompt_to_main_agent(
+                    workflow_id, wf_data.main_role, phase
+                )
         except Exception as e:
             log.warning("Failed to activate workflow '%s': %s", workflow_id, e)
             self.notify(f"Failed to activate workflow: {e}", severity="error")
+
+    def _inject_phase_prompt_to_main_agent(
+        self,
+        workflow_id: str,
+        main_role: str,
+        current_phase: str | None,
+    ) -> None:
+        """Read phase markdown and send it to the main agent on activation.
+
+        This ensures the user sees immediate guidance when a workflow is
+        activated, rather than just a transient toast notification.
+        """
+        try:
+            from claudechic.workflows.agent_folders import assemble_phase_prompt
+
+            prompt = assemble_phase_prompt(
+                workflows_dir=Path.cwd() / "workflows",
+                workflow_id=workflow_id,
+                role_name=main_role,
+                current_phase=current_phase,
+            )
+            if prompt:
+                intro = (
+                    f"[Workflow '{workflow_id}' activated — phase: "
+                    f"{current_phase or 'none'}]\n\n{prompt}\n\n"
+                    "Please greet the user, explain what phase they are in, "
+                    "and guide them on what to do next."
+                )
+                self._send_to_active_agent(intro, display_as=f"/{workflow_id}")
+            else:
+                log.debug(
+                    "No phase prompt found for main_role='%s' phase='%s'",
+                    main_role,
+                    current_phase,
+                )
+        except Exception:
+            log.debug("Failed to inject phase prompt to main agent", exc_info=True)
 
     def _deactivate_workflow(self) -> None:
         """Deactivate current workflow. Destroys engine, clears state."""
