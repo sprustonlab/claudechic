@@ -1255,10 +1255,10 @@ class ChatApp(App):
         main_role: str,
         current_phase: str | None,
     ) -> None:
-        """Read phase markdown and send it to the main agent on activation.
+        """Read phase markdown and broadcast to all agents.
 
-        This ensures the user sees immediate guidance when a workflow is
-        activated, rather than just a transient toast notification.
+        Sends the phase prompt to every running agent so they all
+        stay in sync when the workflow activates or advances.
         """
         try:
             from claudechic.workflows.agent_folders import assemble_phase_prompt
@@ -1276,7 +1276,12 @@ class ChatApp(App):
                     "Please greet the user, explain what phase they are in, "
                     "and guide them on what to do next."
                 )
-                self._send_to_active_agent(intro, display_as=f"/{workflow_id}")
+                # Broadcast to all agents, not just the active one
+                if self.agent_mgr:
+                    for agent in self.agent_mgr:
+                        self._send_to_agent(agent, intro)
+                else:
+                    self._send_to_active_agent(intro)
             else:
                 log.debug(
                     "No phase prompt found for main_role='%s' phase='%s'",
@@ -1284,7 +1289,7 @@ class ChatApp(App):
                     current_phase,
                 )
         except Exception:
-            log.debug("Failed to inject phase prompt to main agent", exc_info=True)
+            log.debug("Failed to inject phase prompt to agents", exc_info=True)
 
     def _deactivate_workflow(self) -> None:
         """Deactivate current workflow. Destroys engine, clears state."""

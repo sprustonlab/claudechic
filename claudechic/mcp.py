@@ -695,6 +695,12 @@ async def advance_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
     )
 
     if result.success:
+        # Inject new phase prompt to the active agent
+        main_role = getattr(engine.manifest, "main_role", None)
+        if main_role:
+            _app._inject_phase_prompt_to_main_agent(
+                engine.workflow_id, main_role, next_phase
+            )
         return _text_response(f"Advanced to phase: {next_phase}")
     else:
         return _error_response(f"Advance blocked: {result.reason}")
