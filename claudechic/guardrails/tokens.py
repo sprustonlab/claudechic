@@ -16,17 +16,27 @@ class OverrideToken:
 
     rule_id: str
     tool_name: str
-    tool_input_hash: str
+    command_hash: str  # Hash of the command string (detect_field value)
     enforcement: str = ""  # "warn" or "deny" — prevents cross-level bypass
 
 
-def _hash_tool_input(tool_input: dict) -> str:
-    """Deterministic hash of tool input for token matching."""
-    try:
-        canonical = json.dumps(tool_input, sort_keys=True)
-    except (TypeError, ValueError):
-        canonical = str(sorted(tool_input.items()))
+def _hash_command(rule_id: str, tool_name: str, command: str) -> str:
+    """Deterministic hash of rule_id + tool_name + command string."""
+    canonical = f"{rule_id}:{tool_name}:{command}"
     return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _extract_command(tool_input: dict) -> str:
+    """Extract the command string from tool_input.
+
+    Uses 'command' field for Bash, falls back to sorted JSON of full dict.
+    """
+    if "command" in tool_input:
+        return tool_input["command"]
+    try:
+        return json.dumps(tool_input, sort_keys=True)
+    except (TypeError, ValueError):
+        return str(sorted(tool_input.items()))
 
 
 class OverrideTokenStore:
@@ -34,6 +44,9 @@ class OverrideTokenStore:
 
     Lifecycle: created at app init, lives for app lifetime.
     Independent of workflow engine existence.
+
+    Token matching uses hash(rule_id + tool_name + command) so extra
+    fields in tool_input (description, timeout, etc.) don't break matching.
     """
 
     def __init__(self) -> None:
@@ -57,7 +70,9 @@ class OverrideTokenStore:
             OverrideToken(
                 rule_id=rule_id,
                 tool_name=tool_name,
-                tool_input_hash=_hash_tool_input(tool_input),
+                command_hash=_hash_command(
+                    rule_id, tool_name, _extract_command(tool_input)
+                ),
                 enforcement=enforcement,
             )
         )
@@ -75,12 +90,12 @@ class OverrideTokenStore:
         requesting enforcement level — a warn token cannot satisfy
         a deny rule.
         """
-        input_hash = _hash_tool_input(tool_input)
+        cmd_hash = _hash_command(rule_id, tool_name, _extract_command(tool_input))
         for i, token in enumerate(self._tokens):
             if (
                 token.rule_id == rule_id
                 and token.tool_name == tool_name
-                and token.tool_input_hash == input_hash
+                and token.command_hash == cmd_hash
                 and token.enforcement == enforcement
             ):
                 self._tokens.pop(i)
