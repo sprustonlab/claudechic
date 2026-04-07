@@ -281,6 +281,88 @@ class TestGuardrailRules:
             hit_logger.close()
 
 
+class TestRoleGatedRules:
+    """Role-gated rules only fire for specific agent roles."""
+
+    async def test_role_gated_rule_blocks_matching_role(self, tmp_path):
+        """Rule with roles=['Subagent'] blocks Subagent but allows Coordinator."""
+        rules = [
+            {
+                "id": "no_subagent_push",
+                "trigger": "PreToolUse/Bash",
+                "enforcement": "deny",
+                "detect": {"pattern": r"git\s+push"},
+                "message": "Only Coordinator can push",
+                "roles": ["Subagent"],
+            }
+        ]
+        loader = _setup_rules(tmp_path, rules)
+        hit_logger = HitLogger(tmp_path / ".claude" / "hits.jsonl")
+        token_store = OverrideTokenStore()
+
+        try:
+            # Subagent role → should be blocked
+            hooks_sub = create_guardrail_hooks(
+                loader=loader,
+                hit_logger=hit_logger,
+                agent_role="Subagent",
+                consume_override=token_store.consume,
+            )
+            result = await _call_hook(hooks_sub, "Bash", {"command": "git push origin main"})
+            assert result.get("decision") == "block", "Rule should block Subagent"
+
+            # Coordinator role → should be allowed (role not in roles list)
+            hooks_coord = create_guardrail_hooks(
+                loader=loader,
+                hit_logger=hit_logger,
+                agent_role="Coordinator",
+                consume_override=token_store.consume,
+            )
+            result = await _call_hook(hooks_coord, "Bash", {"command": "git push origin main"})
+            assert result == {}, "Rule should allow Coordinator (not in roles list)"
+        finally:
+            hit_logger.close()
+
+    async def test_exclude_roles_skips_excluded_role(self, tmp_path):
+        """Rule with exclude_roles=['Coordinator'] fires for others, skips Coordinator."""
+        rules = [
+            {
+                "id": "no_force_push",
+                "trigger": "PreToolUse/Bash",
+                "enforcement": "deny",
+                "detect": {"pattern": r"git\s+push\s+--force"},
+                "message": "Force push blocked",
+                "exclude_roles": ["Coordinator"],
+            }
+        ]
+        loader = _setup_rules(tmp_path, rules)
+        hit_logger = HitLogger(tmp_path / ".claude" / "hits.jsonl")
+        token_store = OverrideTokenStore()
+
+        try:
+            # Implementer role → should be blocked
+            hooks_impl = create_guardrail_hooks(
+                loader=loader,
+                hit_logger=hit_logger,
+                agent_role="Implementer",
+                consume_override=token_store.consume,
+            )
+            result = await _call_hook(hooks_impl, "Bash", {"command": "git push --force"})
+            assert result.get("decision") == "block", "Rule should block Implementer"
+
+            # Coordinator role → should be allowed (excluded)
+            hooks_coord = create_guardrail_hooks(
+                loader=loader,
+                hit_logger=hit_logger,
+                agent_role="Coordinator",
+                consume_override=token_store.consume,
+            )
+            result = await _call_hook(hooks_coord, "Bash", {"command": "git push --force"})
+            assert result == {}, "Rule should skip Coordinator (in exclude_roles)"
+        finally:
+            hit_logger.close()
+
+
 class TestTokenEnforcementIsolation:
     """SEC1: Warn-level tokens cannot satisfy deny-level rules."""
 
