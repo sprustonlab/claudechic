@@ -1259,6 +1259,7 @@ class ChatApp(App):
             self.notify(
                 f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
             )
+            self._update_sidebar_workflow_info()
             self._position_right_sidebar()
 
             # Send a short kick-off message so the agent responds.
@@ -1424,6 +1425,7 @@ class ChatApp(App):
         part of the system prompt on the next turn.
         """
         self._write_phase_context(workflow_id, main_role, current_phase)
+        self._update_sidebar_workflow_info()
 
     def _write_phase_context(
         self,
@@ -1471,6 +1473,24 @@ class ChatApp(App):
                 )
         except Exception:
             log.debug("Failed to write phase context", exc_info=True)
+
+    def _update_sidebar_workflow_info(self) -> None:
+        """Update sidebar label with current workflow and phase info."""
+        from claudechic.chicsession_cmd import _update_sidebar_label
+
+        engine = self._workflow_engine
+        if engine:
+            # Strip namespace prefix from phase for display
+            phase = engine.get_current_phase()
+            bare_phase = phase.split(":", 1)[1] if phase and ":" in phase else phase
+            _update_sidebar_label(
+                self,
+                self._chicsession_name,
+                workflow=engine.workflow_id,
+                phase=bare_phase,
+            )
+        else:
+            _update_sidebar_label(self, self._chicsession_name)
 
     def _deactivate_workflow(self) -> None:
         """Deactivate current workflow. Destroys engine, clears state."""

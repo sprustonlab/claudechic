@@ -73,13 +73,20 @@ def _show_usage(app: ChatApp) -> None:
         chat_view.scroll_if_tailing()
 
 
-def _update_sidebar_label(app: ChatApp, name: str | None) -> None:
+def _update_sidebar_label(
+    app: ChatApp,
+    name: str | None,
+    workflow: str | None = None,
+    phase: str | None = None,
+) -> None:
     """Update the ChicsessionLabel in the sidebar."""
     from claudechic.widgets.layout.sidebar import ChicsessionLabel
 
     try:
         label = app.query_one("#chicsession-label", ChicsessionLabel)
         label.name_text = name or ""
+        label.workflow_text = workflow or ""
+        label.phase_text = phase or ""
     except Exception:
         pass  # Widget not mounted yet
 

@@ -482,7 +482,7 @@ class AgentItem(SidebarItem):
 
 
 class ChicsessionLabel(Widget):
-    """Shows the active chicsession name in the sidebar."""
+    """Shows the active chicsession name, workflow, and phase in the sidebar."""
 
     DEFAULT_CSS = """
     ChicsessionLabel {
@@ -501,16 +501,28 @@ class ChicsessionLabel(Widget):
         color: $text-muted;
         padding: 0 0 0 1;
     }
+    ChicsessionLabel .chicsession-workflow {
+        color: $text-muted;
+        padding: 0 0 0 1;
+    }
+    ChicsessionLabel .chicsession-phase {
+        color: $text-muted;
+        padding: 0 0 0 1;
+    }
     """
 
     name_text: reactive[str] = reactive("")
+    workflow_text: reactive[str] = reactive("")
+    phase_text: reactive[str] = reactive("")
 
     def compose(self) -> ComposeResult:
         yield Static("Chicsession", classes="chicsession-title")
         yield Static("", classes="chicsession-value")
+        yield Static("", classes="chicsession-workflow")
+        yield Static("", classes="chicsession-phase")
 
     def watch_name_text(self, value: str) -> None:
-        """Update the displayed value when name changes."""
+        """Update the displayed session name."""
         label = self.query_one_optional(".chicsession-value", Static)
         if label:
             if value:
@@ -520,9 +532,33 @@ class ChicsessionLabel(Widget):
                 label.update(Text("none", style="dim"))
                 label.add_class("chicsession-hint")
 
+    def watch_workflow_text(self, value: str) -> None:
+        """Update the displayed workflow name."""
+        label = self.query_one_optional(".chicsession-workflow", Static)
+        if label:
+            if value:
+                label.update(Text(f"Workflow: {value}"))
+                label.display = True
+            else:
+                label.update(Text(""))
+                label.display = False
+
+    def watch_phase_text(self, value: str) -> None:
+        """Update the displayed phase name."""
+        label = self.query_one_optional(".chicsession-phase", Static)
+        if label:
+            if value:
+                label.update(Text(f"Phase: {value}"))
+                label.display = True
+            else:
+                label.update(Text(""))
+                label.display = False
+
     def on_mount(self) -> None:
         # Trigger initial render
         self.watch_name_text(self.name_text)
+        self.watch_workflow_text(self.workflow_text)
+        self.watch_phase_text(self.phase_text)
 
 
 class AgentSection(SidebarSection):
