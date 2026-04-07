@@ -188,6 +188,34 @@ def _make_spawn_agent(caller_name: str | None = None):
         agent_type = args.get("type")
         requires_answer = args.get("requires_answer", False)
 
+        # BUG #2 fix: When type is provided and a workflow is active,
+        # validate that the role folder exists.  The `type` parameter is
+        # the explicit link to the workflow role system — we never infer
+        # it from the agent name (that's fragile).  If type is not
+        # provided, the agent gets no role wiring (generic agent).
+        if agent_type and _app._workflow_engine:
+            try:
+                from claudechic.workflows.agent_folders import _find_workflow_dir
+
+                wf_dir = _find_workflow_dir(
+                    Path.cwd() / "workflows",
+                    _app._workflow_engine.workflow_id,
+                )
+                if wf_dir and not (wf_dir / agent_type).is_dir():
+                    available = sorted(
+                        d.name
+                        for d in wf_dir.iterdir()
+                        if d.is_dir() and not d.name.startswith(".")
+                    )
+                    roles_list = ", ".join(available) if available else "(none found)"
+                    return _error_response(
+                        f"Role '{agent_type}' not found in workflow "
+                        f"'{_app._workflow_engine.workflow_id}'. "
+                        f"Available roles: {roles_list}"
+                    )
+            except Exception:
+                pass  # Best-effort check, don't block spawn
+
         # Inherit caller's model if not explicitly specified
         caller_model = None
         if caller_name:
