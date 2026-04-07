@@ -534,8 +534,8 @@ class Agent:
     async def interrupt(self) -> None:
         """Interrupt current response.
 
-        Order: SDK interrupt first (breaks the stream), then cancel the task.
-        If the task doesn't finish within 2s, send SIGINT as a last resort.
+        Order: SDK interrupt first (breaks the stream), then wait up to 3s
+        for the task to complete naturally.  Only cancel + SIGINT as last resort.
         """
         log.info("Agent '%s': interrupt() started (state=%s)", self.name, self._response_state)
         self._set_response_state(ResponseState.INTERRUPTED)
@@ -552,17 +552,21 @@ class Agent:
                 self._sigint_fallback()
             except Exception:
                 pass
-        # Now cancel the task (stream already broken, will unblock)
+        # Wait for the response task to finish naturally.  The SDK interrupt
+        # above should break the stream, causing the task to complete on its
+        # own.  Only escalate to cancel + SIGINT if it's truly stuck.
         if self._response.task and not self._response.task.done():
-            self._response.task.cancel()
             try:
                 await asyncio.wait_for(
-                    asyncio.shield(self._response.task), timeout=2.0
+                    asyncio.shield(self._response.task), timeout=3.0
                 )
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                # Task didn't finish in time — SIGINT the CLI subprocess
-                log.warning("Agent '%s': task didn't finish after cancel, sending SIGINT", self.name)
+            except asyncio.TimeoutError:
+                # Task didn't finish after 3s — force cancel + SIGINT
+                log.warning("Agent '%s': task didn't finish after interrupt (3s), sending SIGINT", self.name)
+                self._response.task.cancel()
                 self._sigint_fallback()
+            except asyncio.CancelledError:
+                pass  # Task was cancelled elsewhere, that's fine
 
         self._set_response_state(ResponseState.IDLE)
         self._set_status(AgentStatus.IDLE)
