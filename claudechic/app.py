@@ -1283,6 +1283,7 @@ class ChatApp(App):
             self.notify(
                 f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
             )
+            self._position_right_sidebar()
 
             # Send phase content synchronously to the active agent
             if phase_intro:
@@ -1939,6 +1940,7 @@ class ChatApp(App):
             or self.agent_section._worktrees
             or self.todo_panel.todos
             or (self._review_panel and self._review_panel.review_count)
+            or self._workflow_engine
         )
         width = self.size.width
         main = self.query_one("#main", Horizontal)
