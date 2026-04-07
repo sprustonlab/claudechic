@@ -1260,6 +1260,14 @@ class ChatApp(App):
                 f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
             )
             self._position_right_sidebar()
+
+            # Send a short kick-off message so the agent responds.
+            # Full phase instructions are in .claude/phase_context.md.
+            self._send_to_active_agent(
+                f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}. "
+                "Please read .claude/phase_context.md for your instructions, "
+                "then greet the user and guide them on what to do next."
+            )
         except Exception as e:
             log.warning("Failed to activate workflow '%s': %s", workflow_id, e)
             self.notify(f"Failed to activate workflow: {e}", severity="error")
