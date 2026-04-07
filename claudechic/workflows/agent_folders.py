@@ -120,7 +120,9 @@ def create_post_compact_hook(
         Hook configuration dict for SDK hook registration.
     """
 
-    async def reinject_phase_context() -> str | None:
+    async def reinject_phase_context(
+        hook_input: dict, match: str | None, ctx: object
+    ) -> dict:
         """Re-inject phase context after /compact."""
         current_phase = engine.get_current_phase()
         workflow_id = engine.workflow_id
@@ -134,7 +136,8 @@ def create_post_compact_hook(
                 agent_role,
                 current_phase,
             )
-        return prompt
+            return {"reason": prompt}
+        return {}
 
     return {
         "PostCompact": [HookMatcher(matcher=None, hooks=[reinject_phase_context])],
