@@ -27,7 +27,7 @@ import pytest
 from claudechic.app import ChatApp
 from tests.conftest import wait_for_workers
 
-pytestmark = [pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 
 # ---------------------------------------------------------------------------
 # Locate the template hints source
@@ -50,6 +50,7 @@ def _install_hints(dest: Path) -> None:
 class TestHintsInChatApp:
     """Real ChatApp E2E tests for the hints system."""
 
+    @pytest.mark.filterwarnings("ignore::pytest.PytestWarning")
     def test_hints_source_exists(self):
         """Sanity check: template hints source is available for copying."""
         assert _HINTS_SOURCE.is_dir(), f"Missing: {_HINTS_SOURCE}"
