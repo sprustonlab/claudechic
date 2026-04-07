@@ -1300,7 +1300,7 @@ class ChatApp(App):
         from claudechic.chicsessions import Chicsession, ChicsessionEntry
         from claudechic.widgets.prompts import SelectionPrompt
 
-        mgr = _get_manager()
+        mgr = _get_manager(self)
         existing = mgr.list_chicsessions()
 
         # Build prompt options: existing sessions first, then "New session"
@@ -1506,7 +1506,7 @@ class ChatApp(App):
             try:
                 from claudechic.chicsession_cmd import _get_manager
 
-                mgr = _get_manager()
+                mgr = _get_manager(self)
                 cs = mgr.load(self._chicsession_name)
                 cs.workflow_state = None
                 mgr.save(cs)
@@ -1539,7 +1539,7 @@ class ChatApp(App):
             try:
                 from claudechic.chicsession_cmd import _get_manager
 
-                mgr = _get_manager()
+                mgr = _get_manager(self)
                 cs = mgr.load(self._chicsession_name)
                 cs.workflow_state = state
                 mgr.save(cs)
@@ -1564,7 +1564,7 @@ class ChatApp(App):
         try:
             from claudechic.chicsession_cmd import _get_manager
 
-            mgr = _get_manager()
+            mgr = _get_manager(self)
             cs = mgr.load(self._chicsession_name)
             if not cs.workflow_state:
                 return

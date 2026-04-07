@@ -91,8 +91,11 @@ def _update_sidebar_label(
         pass  # Widget not mounted yet
 
 
-def _get_root() -> Path:
-    """Return git root if in a repo, else PWD."""
+def _get_root(app: ChatApp | None = None) -> Path:
+    """Return project root from app._cwd, git root, or PWD."""
+    # Prefer the app's tracked cwd — it's set at startup from the correct dir
+    if app is not None and hasattr(app, "_cwd"):
+        return app._cwd
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -105,9 +108,9 @@ def _get_root() -> Path:
         return Path.cwd()
 
 
-def _get_manager() -> ChicsessionManager:
-    """Create a ChicsessionManager rooted at git root / cwd."""
-    return ChicsessionManager(_get_root())
+def _get_manager(app: ChatApp | None = None) -> ChicsessionManager:
+    """Create a ChicsessionManager rooted at project root."""
+    return ChicsessionManager(_get_root(app))
 
 
 def _handle_save(app: ChatApp, name: str) -> None:
@@ -140,7 +143,7 @@ def _handle_save(app: ChatApp, name: str) -> None:
     active_name = active.name if active else entries[0].name
 
     cs = Chicsession(name=name, active_agent=active_name, agents=entries)
-    mgr = _get_manager()
+    mgr = _get_manager(app)
     mgr.save(cs)
 
     # Activate auto-save: future agent create/close will update this file
@@ -155,7 +158,7 @@ def _show_restore_picker(app: ChatApp) -> None:
     """Show the chicsession picker screen."""
     from claudechic.screens import ChicsessionScreen
 
-    root = _get_root()
+    root = _get_root(app)
 
     def on_dismiss(name: str | None) -> None:
         if name:
@@ -168,7 +171,7 @@ def _show_restore_picker(app: ChatApp) -> None:
 
 async def _handle_restore(app: ChatApp, name: str) -> None:
     """Load a chicsession and restore all agents."""
-    mgr = _get_manager()
+    mgr = _get_manager(app)
     try:
         cs = mgr.load(name)
     except FileNotFoundError:
@@ -278,7 +281,7 @@ def auto_save_chicsession(app: ChatApp) -> None:
 
     cs = Chicsession(name=name, active_agent=active_name, agents=entries)
     try:
-        _get_manager().save(cs)
+        _get_manager(app).save(cs)
         log.debug("Auto-saved chicsession '%s' (%d agents)", name, len(entries))
     except Exception as exc:
         log.warning("Failed to auto-save chicsession '%s': %s", name, exc)
