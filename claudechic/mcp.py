@@ -361,9 +361,8 @@ def _make_ask_agent(caller_name: str | None = None):
         # follow-up question, not a final answer. The obligation is only
         # fulfilled when the agent uses tell_agent to deliver a result.
 
-        return _text_response(
-            f"Question queued for '{name}'. Delivery is asynchronous - the message may not arrive if the agent is disconnected."
-        )
+        preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
+        return _text_response(f"→ {name}: {preview}")
 
     return ask_agent
 
@@ -394,7 +393,8 @@ def _make_tell_agent(caller_name: str | None = None):
         # Clear pending reply if this agent is replying to its caller
         _clear_pending_reply_if_matched(caller_name, name)
 
-        return _text_response(f"Message queued for '{name}'. Delivery is asynchronous.")
+        preview = message[:80] + "..." if len(message) > 80 else message
+        return _text_response(f"→ {name}: {preview}")
 
     return tell_agent
 
