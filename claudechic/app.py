@@ -1251,43 +1251,15 @@ class ChatApp(App):
             )
             phase = self._workflow_engine.get_current_phase()
 
-            # Build phase prompt content synchronously BEFORE sending,
-            # so the agent gets instructions immediately (not via async
-            # broadcast which arrives late — same fix as advance_phase).
-            phase_intro = ""
+            # Write phase context to .claude/phase_context.md so it becomes
+            # part of the system prompt, rather than injecting into the chat.
             if wf_data.main_role:
-                try:
-                    from claudechic.workflows.agent_folders import (
-                        assemble_phase_prompt,
-                    )
-
-                    prompt = assemble_phase_prompt(
-                        workflows_dir=Path.cwd() / "workflows",
-                        workflow_id=workflow_id,
-                        role_name=wf_data.main_role,
-                        current_phase=phase,
-                    )
-                    if prompt:
-                        phase_intro = (
-                            f"[Workflow '{workflow_id}' activated — phase: "
-                            f"{phase or 'none'}]\n\n{prompt}\n\n"
-                            "Please greet the user, explain what phase "
-                            "they are in, and guide them on what to do next."
-                        )
-                except Exception:
-                    log.debug(
-                        "Failed to assemble phase prompt during activation",
-                        exc_info=True,
-                    )
+                self._write_phase_context(workflow_id, wf_data.main_role, phase)
 
             self.notify(
                 f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
             )
             self._position_right_sidebar()
-
-            # Send phase content synchronously to the active agent
-            if phase_intro:
-                self._send_to_active_agent(phase_intro)
         except Exception as e:
             log.warning("Failed to activate workflow '%s': %s", workflow_id, e)
             self.notify(f"Failed to activate workflow: {e}", severity="error")
@@ -1428,10 +1400,23 @@ class ChatApp(App):
         main_role: str,
         current_phase: str | None,
     ) -> None:
-        """Read phase markdown and broadcast to all agents.
+        """Update phase context file when phase advances.
 
-        Sends the phase prompt to every running agent so they all
-        stay in sync when the workflow activates or advances.
+        Writes phase prompt to .claude/phase_context.md so it becomes
+        part of the system prompt on the next turn.
+        """
+        self._write_phase_context(workflow_id, main_role, current_phase)
+
+    def _write_phase_context(
+        self,
+        workflow_id: str,
+        main_role: str,
+        current_phase: str | None,
+    ) -> None:
+        """Write phase prompt to .claude/phase_context.md.
+
+        This file is read by Claude Code as part of the system prompt,
+        keeping phase instructions out of the chat conversation.
         """
         try:
             from claudechic.workflows.agent_folders import assemble_phase_prompt
@@ -1442,27 +1427,32 @@ class ChatApp(App):
                 role_name=main_role,
                 current_phase=current_phase,
             )
+            claude_dir = Path.cwd() / ".claude"
+            phase_file = claude_dir / "phase_context.md"
+
             if prompt:
-                intro = (
-                    f"[Workflow '{workflow_id}' activated — phase: "
-                    f"{current_phase or 'none'}]\n\n{prompt}\n\n"
-                    "Please greet the user, explain what phase they are in, "
-                    "and guide them on what to do next."
+                claude_dir.mkdir(exist_ok=True)
+                phase_file.write_text(
+                    f"# Active Workflow: {workflow_id}\n"
+                    f"# Phase: {current_phase or 'none'}\n\n"
+                    f"{prompt}\n"
                 )
-                # Broadcast to all agents, not just the active one
-                if self.agent_mgr:
-                    for agent in self.agent_mgr:
-                        self._send_to_agent(agent, intro)
-                else:
-                    self._send_to_active_agent(intro)
-            else:
                 log.debug(
-                    "No phase prompt found for main_role='%s' phase='%s'",
+                    "Wrote phase context to %s (phase: %s)",
+                    phase_file,
+                    current_phase,
+                )
+            else:
+                # No prompt content — remove stale file
+                if phase_file.is_file():
+                    phase_file.unlink()
+                log.debug(
+                    "No phase prompt for role='%s' phase='%s'",
                     main_role,
                     current_phase,
                 )
         except Exception:
-            log.debug("Failed to inject phase prompt to agents", exc_info=True)
+            log.debug("Failed to write phase context", exc_info=True)
 
     def _deactivate_workflow(self) -> None:
         """Deactivate current workflow. Destroys engine, clears state."""
@@ -1491,6 +1481,14 @@ class ChatApp(App):
 
             self._chicsession_name = None
             _update_sidebar_label(self, None)
+
+        # Remove phase context file
+        phase_file = Path.cwd() / ".claude" / "phase_context.md"
+        if phase_file.is_file():
+            try:
+                phase_file.unlink()
+            except OSError:
+                pass
 
         self.notify(f"Workflow '{wf_id}' deactivated")
 
