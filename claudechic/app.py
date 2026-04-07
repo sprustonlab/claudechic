@@ -2135,6 +2135,11 @@ class ChatApp(App):
         If the agent is still idle and still owes a reply when the timer
         fires, a reminder message is sent automatically (up to REPLY_NUDGE_MAX
         times).
+
+        Uses a generation counter to prevent duplicate nudge timers from
+        accumulating across multiple on_complete calls.  Each scheduling
+        increments the generation; the timer callback is a no-op if its
+        captured generation doesn't match the current one.
         """
         caller = agent._pending_reply_to
         if not caller:
@@ -2152,6 +2157,9 @@ class ChatApp(App):
             agent._reply_nudge_count = 0
             return
 
+        # Bump generation so any previously scheduled timer becomes stale
+        agent._nudge_generation += 1
+        generation = agent._nudge_generation
         agent_id = agent.id  # capture for closure
 
         def _fire_nudge() -> None:
@@ -2159,6 +2167,9 @@ class ChatApp(App):
             if not self.agent_mgr or agent_id not in self.agent_mgr.agents:
                 return
             a = self.agent_mgr.agents[agent_id]
+            # Stale timer — a newer nudge was scheduled since this one
+            if a._nudge_generation != generation:
+                return
             # Only nudge if still idle and still owes a reply to the same caller
             if a._pending_reply_to != caller:
                 return

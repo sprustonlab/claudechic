@@ -223,6 +223,7 @@ class Agent:
         self._pending_followup: str | None = None  # Auto-send after current response
         self._pending_reply_to: str | None = None  # Agent name we owe a reply to
         self._reply_nudge_count: int = 0  # How many nudges sent for current obligation
+        self._nudge_generation: int = 0  # Monotonic counter to deduplicate nudge timers
         self.model: str | None = "opus"  # Model override (None = SDK default)
 
         # Worktree finish state (for /worktree finish flow)
@@ -538,7 +539,9 @@ class Agent:
         """
         log.info("Agent '%s': interrupt() started (state=%s)", self.name, self._response_state)
         self._set_response_state(ResponseState.INTERRUPTED)
-        self._pending_messages.clear()  # User cancelled; don't auto-resume queued messages
+        # Preserve queued inter-agent messages — only the current response is
+        # cancelled, not messages that haven't been processed yet.  Queued
+        # messages will be drained after the interrupt completes (see below).
         # Interrupt SDK first — breaks the stream so the task can unblock.
         # 5s timeout prevents hanging if the CLI doesn't acknowledge.
         if self.client:
@@ -572,6 +575,23 @@ class Agent:
             self.observer.on_complete(self, None)
 
         self._drain_stale_on_next_response = True
+
+        # Drain any queued inter-agent messages that were waiting while the
+        # interrupted response was in-flight.  Without this, tell_agent
+        # messages delivered during a busy period are silently lost.
+        if self._pending_messages:
+            log.info(
+                "Agent '%s': draining %d queued message(s) after interrupt",
+                self.name,
+                len(self._pending_messages),
+            )
+
+            async def _yield_then_drain() -> None:
+                await asyncio.sleep(0)  # let on_complete propagate first
+                self._drain_next_message()
+
+            create_safe_task(_yield_then_drain(), name=f"drain-after-interrupt-{self.name}")
+
         log.info("Agent '%s': interrupt() completed", self.name)
 
     def _sigint_fallback(self) -> None:
