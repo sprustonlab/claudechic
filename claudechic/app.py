@@ -1325,7 +1325,10 @@ class ChatApp(App):
                     f"Resume '{name}' (corrupt/empty)",
                 ))
 
-        title = f"Name this session for workflow '{workflow_id}'"
+        if workflow_id == "project-team":
+            title = f"Name this session for workflow '{workflow_id}' (this becomes the .project_team/<name>/specification/ folder name)"
+        else:
+            title = f"Name this session for workflow '{workflow_id}'"
         text_option = ("new", f"New session (default: {workflow_id})")
 
         prompt = SelectionPrompt(title, options, text_option=text_option)
