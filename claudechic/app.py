@@ -552,7 +552,7 @@ class ChatApp(App):
         async def set_mode():
             await agent_mgr.set_global_permission_mode(next_mode)
 
-        self.run_worker(set_mode(), exclusive=False)
+        self.run_worker(set_mode(), exclusive=False, exit_on_error=False)
 
         # Show notification with friendly names
         display = {
@@ -769,8 +769,8 @@ class ChatApp(App):
         # Track app start (and install if new user)
         self._app_start_time = time.time()
         if NEW_INSTALL:
-            self.run_worker(capture("app_installed"))
-        self.run_worker(capture("app_started", resumed=bool(self._resume_on_start)))
+            self.run_worker(capture("app_installed"), exit_on_error=False)
+        self.run_worker(capture("app_started", resumed=bool(self._resume_on_start)), exit_on_error=False)
 
         # Set up notification callback for log messages (warnings and errors)
         set_log_notify_callback(
@@ -1774,7 +1774,8 @@ class ChatApp(App):
 
         # Track message sent
         self.run_worker(
-            capture("message_sent", agent_id=agent.analytics_id if agent else "unknown")
+            capture("message_sent", agent_id=agent.analytics_id if agent else "unknown"),
+            exit_on_error=False,
         )
 
         # If in planSwarm mode, this is the task - spawn agents and send orchestrator prompt
@@ -2141,7 +2142,7 @@ class ChatApp(App):
 
         # Check for plan file and update sidebar
         if agent and agent.session_id:
-            self.run_worker(self._check_for_plan(agent))
+            self.run_worker(self._check_for_plan(agent), exit_on_error=False)
 
     def on_command_output_message(self, event: CommandOutputMessage) -> None:
         """Handle command output (e.g., /context) by displaying in chat."""
@@ -2189,7 +2190,7 @@ class ChatApp(App):
             self.post_message(ResponseComplete(None))
             self.refresh_context()
             # Check for plan file
-            self.run_worker(self._check_for_plan(agent))
+            self.run_worker(self._check_for_plan(agent), exit_on_error=False)
             log.info(f"Resume complete for {session_id}")
         except Exception as e:
             self.show_error("Session resume failed", e)
@@ -2512,7 +2513,7 @@ class ChatApp(App):
                 pending_widget.remove()
                 self.notify("Command cancelled")
 
-        self.run_worker(_run(), exclusive=False)
+        self.run_worker(_run(), exclusive=False, exit_on_error=False)
 
     def _show_session_picker(self) -> None:
         from claudechic.screens import SessionScreen
@@ -2520,7 +2521,7 @@ class ChatApp(App):
         def on_dismiss(session_id: str | None) -> None:
             if session_id:
                 log.info(f"Resuming session: {session_id}")
-                self.run_worker(self._load_and_display_history(session_id))
+                self.run_worker(self._load_and_display_history(session_id), exit_on_error=False)
                 self.notify(f"Resuming {session_id[:8]}...")
                 self.resume_session(session_id)
             self.chat_input.focus()
@@ -2542,14 +2543,14 @@ class ChatApp(App):
         def on_dismiss(result: tuple[int, str] | None) -> None:
             if result:
                 checkpoint_idx, rewind_type = result
-                self.run_worker(self._do_rewind(checkpoint_idx, rewind_type))
+                self.run_worker(self._do_rewind(checkpoint_idx, rewind_type), exit_on_error=False)
             self.chat_input.focus()
 
         self.push_screen(RewindScreen(agent), on_dismiss)
 
     def _rewind_to_checkpoint_direct(self, index: int) -> None:
         """Directly rewind to a checkpoint index (defaults to 'both')."""
-        self.run_worker(self._do_rewind(index, "both"))
+        self.run_worker(self._do_rewind(index, "both"), exit_on_error=False)
 
     async def _do_rewind(self, checkpoint_idx: int, rewind_type: str) -> None:
         """Execute the rewind operation.
@@ -2910,7 +2911,8 @@ class ChatApp(App):
                 from_model=old_model,
                 to_model=model,
                 agent_id=agent.analytics_id,
-            )
+            ),
+            exit_on_error=False,
         )
         self._update_footer_model(model)
         if agent.client:
@@ -3075,7 +3077,7 @@ class ChatApp(App):
             self.refresh_context()
             self.notify("Executing plan in fresh session")
 
-        self.run_worker(clear_and_run())
+        self.run_worker(clear_and_run(), exit_on_error=False)
 
     def _close_agent(self, target: str | None) -> None:
         """Close an agent by name, position, or current if no target."""
@@ -3243,7 +3245,8 @@ class ChatApp(App):
                 "agent_created",
                 same_directory=same_directory,
                 model=agent.model or "default",
-            )
+            ),
+            exit_on_error=False,
         )
 
         # Auto-save chicsession if active
@@ -3404,7 +3407,8 @@ class ChatApp(App):
                 duration_seconds=int(duration),
                 same_directory=same_directory,
                 message_count=message_count,
-            )
+            ),
+            exit_on_error=False,
         )
 
         # Stop review polling only if the closed agent owned the timer
@@ -3475,7 +3479,8 @@ class ChatApp(App):
                 context="response",
                 status_code=status_code,
                 agent_id=agent.analytics_id,
-            )
+            ),
+            exit_on_error=False,
         )
 
     def on_connection_lost(self, agent: Agent) -> None:
@@ -3487,7 +3492,8 @@ class ChatApp(App):
                 error_type="ConnectionLost",
                 context="connection_lost",
                 agent_id=agent.analytics_id,
-            )
+            ),
+            exit_on_error=False,
         )
         self.notify("Reconnecting...", timeout=2)
         self._reconnect_after_interrupt(agent)
@@ -3685,7 +3691,8 @@ class ChatApp(App):
                     tool="AskUserQuestion",
                     choice=choice.value,
                     agent_id=agent.analytics_id,
-                )
+                ),
+                exit_on_error=False,
             )
             if not answers:
                 return PermissionResponse(PermissionChoice.DENY)
@@ -3752,7 +3759,8 @@ class ChatApp(App):
                 choice=result.choice.value,
                 has_alternative=bool(result.alternative_message),
                 agent_id=agent.analytics_id,
-            )
+            ),
+            exit_on_error=False,
         )
 
         return result
@@ -3791,7 +3799,8 @@ class ChatApp(App):
                 tool="ExitPlanMode",
                 choice=choice,
                 agent_id=agent.analytics_id,
-            )
+            ),
+            exit_on_error=False,
         )
 
         # Determine what mode to restore when exiting plan mode.

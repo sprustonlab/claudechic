@@ -1,8 +1,10 @@
 """Entry point for claudechic CLI."""
 
 import argparse
+import logging
 import os
 import sys
+import threading
 from importlib.metadata import version
 
 from claudechic.app import ChatApp
@@ -10,6 +12,34 @@ from claudechic.errors import setup_logging
 
 # Set up file logging to ~/claudechic.log
 setup_logging()
+
+logger = logging.getLogger("claudechic")
+
+
+# --- Global exception hooks: capture ANY unhandled exception to the log ---
+
+def _excepthook(exc_type, exc_value, exc_tb):
+    """Log unhandled exceptions (except KeyboardInterrupt) before the interpreter dies."""
+    if exc_type is KeyboardInterrupt:
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+def _threading_excepthook(args):
+    """Log unhandled exceptions in threads."""
+    if args.exc_type is KeyboardInterrupt:
+        return
+    logger.critical(
+        "Unhandled thread exception in %s",
+        args.thread,
+        exc_info=(args.exc_type, args.exc_value, args.exc_tb),
+    )
+
+
+sys.excepthook = _excepthook
+threading.excepthook = _threading_excepthook
 
 
 def main():
@@ -88,8 +118,14 @@ def main():
             theme_override=args.theme,
         )
         app.run()
-    except (KeyboardInterrupt, SystemExit):
+    except KeyboardInterrupt:
         pass
+    except SystemExit as e:
+        # Let SystemExit propagate so Textual can exit cleanly, but log non-zero
+        # exits to help diagnose silent crashes.
+        if e.code and e.code != 0:
+            logger.warning("SystemExit with code %s", e.code)
+        raise
     except Exception:
         import tempfile
         import traceback
@@ -101,11 +137,23 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     finally:
-        # Windows: suppress stderr during interpreter shutdown to silence asyncio
+        # Windows: redirect stderr during interpreter shutdown to silence asyncio
         # transport __del__ exceptions (ValueError from closed pipes). See issue #31.
-        # This must happen after app.run() returns but before Python garbage collects.
+        # Instead of discarding to devnull, redirect to the log file so real errors
+        # are still captured. Falls back to devnull if no log file is available.
         if sys.platform == "win32":
-            sys.stderr = open(os.devnull, "w")
+            log_file_path = None
+            for handler in logging.getLogger("claudechic").handlers:
+                if isinstance(handler, logging.FileHandler) and handler.stream:
+                    log_file_path = handler.baseFilename
+                    break
+            if log_file_path:
+                try:
+                    sys.stderr = open(log_file_path, "a", encoding="utf-8")
+                except OSError:
+                    sys.stderr = open(os.devnull, "w")
+            else:
+                sys.stderr = open(os.devnull, "w")
 
 
 if __name__ == "__main__":

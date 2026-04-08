@@ -142,7 +142,21 @@ def _handle_save(app: ChatApp, name: str) -> None:
     active = agent_mgr.active
     active_name = active.name if active else entries[0].name
 
-    cs = Chicsession(name=name, active_agent=active_name, agents=entries)
+    # Capture workflow engine state so save doesn't destroy it
+    workflow_state = None
+    engine = getattr(app, "_workflow_engine", None)
+    if engine is not None:
+        try:
+            workflow_state = engine.to_session_state()
+        except Exception:
+            log.debug("Failed to capture workflow state during save", exc_info=True)
+
+    cs = Chicsession(
+        name=name,
+        active_agent=active_name,
+        agents=entries,
+        workflow_state=workflow_state,
+    )
     mgr = _get_manager(app)
     mgr.save(cs)
 
@@ -279,7 +293,21 @@ def auto_save_chicsession(app: ChatApp) -> None:
     active = agent_mgr.active
     active_name = active.name if active else entries[0].name
 
-    cs = Chicsession(name=name, active_agent=active_name, agents=entries)
+    # Capture workflow engine state so auto-save doesn't destroy it
+    workflow_state = None
+    engine = getattr(app, "_workflow_engine", None)
+    if engine is not None:
+        try:
+            workflow_state = engine.to_session_state()
+        except Exception:
+            log.debug("Failed to capture workflow state during auto-save", exc_info=True)
+
+    cs = Chicsession(
+        name=name,
+        active_agent=active_name,
+        agents=entries,
+        workflow_state=workflow_state,
+    )
     try:
         _get_manager(app).save(cs)
         log.debug("Auto-saved chicsession '%s' (%d agents)", name, len(entries))

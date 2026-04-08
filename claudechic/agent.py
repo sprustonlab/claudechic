@@ -9,6 +9,7 @@ import json
 import logging
 import mimetypes
 import re
+import sys
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from claude_agent_sdk import (
     AssistantMessage,
+    CLIConnectionError,
     CLIJSONDecodeError,
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -618,9 +620,23 @@ class Agent:
                 return
             process = getattr(transport, "_process", None)
             if process and process.pid and process.returncode is None:
-                log.info("Sending SIGINT to CLI subprocess (pid=%d)", process.pid)
-                import os
-                os.kill(process.pid, signal.SIGINT)
+                if sys.platform == "win32":
+                    # On Windows, os.kill(pid, SIGINT) sends CTRL_C_EVENT to
+                    # the entire console process group (which kills the TUI)
+                    # or calls TerminateProcess.  Use process.terminate()
+                    # which safely terminates only the subprocess.
+                    log.info(
+                        "Terminating CLI subprocess on Windows (pid=%d)",
+                        process.pid,
+                    )
+                    process.terminate()
+                else:
+                    log.info(
+                        "Sending SIGINT to CLI subprocess (pid=%d)",
+                        process.pid,
+                    )
+                    import os
+                    os.kill(process.pid, signal.SIGINT)
         except (ProcessLookupError, OSError) as e:
             log.debug("SIGINT fallback failed (process likely exited): %s", e)
         except Exception as e:
@@ -678,7 +694,21 @@ class Agent:
             self.name,
             len(self._pending_messages),
         )
-        self._start_response(prompt, display_as=display_as)
+        try:
+            self._start_response(prompt, display_as=display_as)
+        except CLIConnectionError as e:
+            # TOCTOU race: transport was alive at the check above but died
+            # before the actual write.  Re-queue the message and reconnect.
+            self._pending_messages.insert(0, (prompt, display_as))
+            log.warning(
+                "Agent '%s': CLIConnectionError during drain, "
+                "triggering reconnect (%d message(s) re-queued): %s",
+                self.name,
+                len(self._pending_messages),
+                e,
+            )
+            if self.observer:
+                self.observer.on_connection_lost(self)
 
     # -----------------------------------------------------------------------
     # Response processing
@@ -827,6 +857,35 @@ Key Rules:
     # Process liveness check interval (seconds)
     _LIVENESS_CHECK_INTERVAL = 30
 
+    @staticmethod
+    def _is_process_alive(pid: int) -> bool:
+        """Check whether a process with the given PID is still running.
+
+        On Windows, ``os.kill(pid, 0)`` has undefined behaviour — it may
+        terminate the process or raise unexpected errors.  We use the Win32
+        ``OpenProcess`` API instead for a safe, non-destructive check.
+        """
+        if sys.platform == "win32":
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        else:
+            import os
+
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except OSError:
+                return True  # exists but no permission
+
     async def _receive_with_watchdog(
         self, had_tool_use: dict[str | None, bool]
     ) -> None:
@@ -836,8 +895,6 @@ Key Rules:
         still alive.  If the process has died, the stream will never produce a
         ResultMessage, so we raise an error to trigger normal cleanup.
         """
-        import os
-
         process_dead = False
 
         async def _liveness_check() -> None:
@@ -847,9 +904,7 @@ Key Rules:
                 pid = self._claude_pid
                 if pid is None:
                     continue
-                try:
-                    os.kill(pid, 0)  # Signal 0: check existence, don't kill
-                except ProcessLookupError:
+                if not self._is_process_alive(pid):
                     log.error(
                         "Agent '%s': claude subprocess (PID %d) is dead — "
                         "breaking stream",
@@ -861,9 +916,6 @@ Key Rules:
                     if self._response.task and not self._response.task.done():
                         self._response.task.cancel()
                     return
-                except OSError:
-                    # Permission error or similar — process exists
-                    pass
 
         liveness_task = asyncio.create_task(
             _liveness_check(), name="process-liveness"
