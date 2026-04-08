@@ -871,10 +871,16 @@ Key Rules:
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             handle = kernel32.OpenProcess(0x1000, False, pid)
-            if handle:
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    STILL_ACTIVE = 259  # noqa: N806
+                    return exit_code.value == STILL_ACTIVE
+                return False  # couldn't get exit code, assume dead
+            finally:
                 kernel32.CloseHandle(handle)
-                return True
-            return False
         else:
             import os
 
