@@ -1286,60 +1286,43 @@ class ChatApp(App):
     async def _prompt_chicsession_name(self, workflow_id: str) -> str | None:
         """Prompt the user to name or resume a chicsession for workflow activation.
 
-        Shows a TUI prompt with:
-        - Existing chicsessions to resume (if any)
-        - A text input option to create a new session (default: workflow_id)
+        Shows a full-screen picker with:
+        - A "New session" item at the top (uses search text as name, or workflow_id)
+        - Existing chicsessions below (with workflow match labels)
 
         Returns the chosen session name, or None if the user cancelled.
         Sets self._chicsession_name and creates/loads the session on disk.
         """
+        import asyncio
+
         from claudechic.chicsession_cmd import (
             _get_manager,
+            _get_root,
             _update_sidebar_label,
         )
         from claudechic.chicsessions import Chicsession, ChicsessionEntry
-        from claudechic.widgets.prompts import SelectionPrompt
+        from claudechic.screens.chicsession import ChicsessionScreen
 
-        mgr = _get_manager(self)
-        existing = mgr.list_chicsessions()
+        root = _get_root(self)
+        future: asyncio.Future[str | None] = asyncio.get_event_loop().create_future()
 
-        # Build prompt options: existing sessions first, then "New session"
-        options: list[tuple[str, str]] = []
-        for name in existing:
-            try:
-                cs = mgr.load(name)
-                agent_count = len(cs.agents)
-                agent_names = ", ".join(a.name for a in cs.agents[:4])
-                if len(cs.agents) > 4:
-                    agent_names += ", ..."
-                wf_label = ""
-                if cs.workflow_state and cs.workflow_state.get("workflow_id") == workflow_id:
-                    wf_label = " [matching workflow]"
-                options.append((
-                    f"resume:{name}",
-                    f"Resume '{name}' ({agent_count} agent{'s' if agent_count != 1 else ''}: {agent_names}){wf_label}",
-                ))
-            except (ValueError, FileNotFoundError):
-                options.append((
-                    f"resume:{name}",
-                    f"Resume '{name}' (corrupt/empty)",
-                ))
+        def on_dismiss(result: str | None) -> None:
+            if not future.done():
+                future.set_result(result)
+            if hasattr(self, "chat_input") and self.chat_input:
+                self.chat_input.focus()
 
-        title = f"Name this session for workflow '{workflow_id}'"
-        text_option = ("new", f"New session (default: {workflow_id})")
+        self.push_screen(
+            ChicsessionScreen(root, workflow_id=workflow_id), on_dismiss
+        )
 
-        prompt = SelectionPrompt(title, options, text_option=text_option)
-
-        try:
-            async with self._show_prompt(prompt):
-                result = await prompt.wait()
-        except Exception as e:
-            log.warning("Chicsession prompt failed: %s", e)
-            return None
+        result = await future
 
         if not result:
             # User cancelled (pressed Escape)
             return None
+
+        mgr = _get_manager(self)
 
         if result.startswith("resume:"):
             # Resume existing session
@@ -1361,11 +1344,9 @@ class ChatApp(App):
                 )
                 return None
 
-        # New session — extract name from text input or use default
+        # New session — extract name from "new:<name>" result
         if result.startswith("new:"):
             session_name = result[len("new:"):].strip()
-        elif result == "new":
-            session_name = ""
         else:
             session_name = ""
 

@@ -1,4 +1,4 @@
-"""Chicsession picker screen for /chicsession restore."""
+"""Chicsession picker screen for /chicsession restore and workflow activation."""
 
 from pathlib import Path
 
@@ -11,6 +11,27 @@ from textual.widgets import Label, ListItem, ListView, Input, Static
 from claudechic.chicsessions import ChicsessionManager
 
 
+class NewSessionItem(ListItem):
+    """Special list item for creating a new chicsession."""
+
+    DEFAULT_CSS = """
+    NewSessionItem {
+        pointer: pointer;
+    }
+    """
+
+    def __init__(self, default_name: str) -> None:
+        super().__init__()
+        self.default_name = default_name
+
+    def compose(self) -> ComposeResult:
+        yield Label("New session", classes="chicsession-title")
+        yield Label(
+            f"Type a name in the search bar, or use default: {self.default_name}",
+            classes="chicsession-meta",
+        )
+
+
 class ChicsessionItem(ListItem):
     """A chicsession entry in the picker list."""
 
@@ -20,19 +41,21 @@ class ChicsessionItem(ListItem):
     }
     """
 
-    def __init__(self, name: str, agent_count: int, agent_names: list[str]) -> None:
+    def __init__(self, name: str, agent_count: int, agent_names: list[str],
+                 *, workflow_match: bool = False) -> None:
         super().__init__()
         self.chicsession_name = name
         self.agent_count = agent_count
         self.agent_names = agent_names
+        self.workflow_match = workflow_match
 
     def compose(self) -> ComposeResult:
         yield Label(self.chicsession_name, classes="chicsession-title")
-        agents_str = ", ".join(self.agent_names) if self.agent_names else "—"
-        yield Label(
-            f"{self.agent_count} agent{'s' if self.agent_count != 1 else ''} · {agents_str}",
-            classes="chicsession-meta",
-        )
+        agents_str = ", ".join(self.agent_names) if self.agent_names else "\u2014"
+        meta = f"{self.agent_count} agent{'s' if self.agent_count != 1 else ''} \u00b7 {agents_str}"
+        if self.workflow_match:
+            meta += " [matching workflow]"
+        yield Label(meta, classes="chicsession-meta")
 
 
 class ChicsessionScreen(Screen[str | None]):
@@ -40,11 +63,15 @@ class ChicsessionScreen(Screen[str | None]):
 
     Args:
         root_dir: Root directory for .chicsessions/ storage.
+        workflow_id: If set, enables workflow-activation mode with a
+            "New session" item at the top and returns "new:<name>"
+            for new sessions or the chicsession name for existing ones.
     """
 
-    def __init__(self, root_dir: Path) -> None:
+    def __init__(self, root_dir: Path, workflow_id: str | None = None) -> None:
         super().__init__()
         self._root_dir = root_dir
+        self._workflow_id = workflow_id
 
     BINDINGS = [
         Binding("escape", "go_back", "Back"),
@@ -80,15 +107,15 @@ class ChicsessionScreen(Screen[str | None]):
         background: transparent;
     }
 
-    ChicsessionScreen #chicsession-list > ChicsessionItem {
+    ChicsessionScreen #chicsession-list > ListItem {
         padding: 0 0 0 1;
         height: auto;
         margin: 0 0 1 0;
         border-left: tall $panel;
     }
 
-    ChicsessionScreen #chicsession-list > ChicsessionItem:hover,
-    ChicsessionScreen #chicsession-list > ChicsessionItem.-highlight {
+    ChicsessionScreen #chicsession-list > ListItem:hover,
+    ChicsessionScreen #chicsession-list > ListItem.-highlight {
         background: $surface-darken-1;
         border-left: tall $primary;
     }
@@ -100,8 +127,14 @@ class ChicsessionScreen(Screen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="chicsession-container"):
-            yield Static("Restore Chicsession", id="chicsession-title")
-            yield Input(placeholder="Search chicsessions...", id="chicsession-search")
+            if self._workflow_id:
+                title_text = f"Session for workflow '{self._workflow_id}'"
+                placeholder = f"Search or type new session name (default: {self._workflow_id})..."
+            else:
+                title_text = "Restore Chicsession"
+                placeholder = "Search chicsessions..."
+            yield Static(title_text, id="chicsession-title")
+            yield Input(placeholder=placeholder, id="chicsession-search")
             yield ListView(id="chicsession-list")
 
     def on_mount(self) -> None:
@@ -134,23 +167,41 @@ class ChicsessionScreen(Screen[str | None]):
 
         title = self.query_one("#chicsession-title", Static)
 
-        if not names:
-            title.update("No chicsessions found")
-            return
+        # In workflow mode, add the "New session" item at the top
+        if self._workflow_id:
+            new_name = search.strip() if search.strip() else self._workflow_id
+            list_view.append(NewSessionItem(new_name))
 
-        title.update(f"Restore Chicsession ({len(names)})")
+            count_label = f" + {len(names)} existing" if names else ""
+            title.update(
+                f"Session for workflow '{self._workflow_id}' (new{count_label})"
+            )
+        else:
+            if not names:
+                title.update("No chicsessions found")
+                return
+            title.update(f"Restore Chicsession ({len(names)})")
 
         for cs_name in names:
             try:
                 cs = mgr.load(cs_name)
                 agent_names = [a.name for a in cs.agents]
+                workflow_match = bool(
+                    self._workflow_id
+                    and cs.workflow_state
+                    and cs.workflow_state.get("workflow_id") == self._workflow_id
+                )
                 list_view.append(
-                    ChicsessionItem(cs_name, len(cs.agents), agent_names)
+                    ChicsessionItem(
+                        cs_name, len(cs.agents), agent_names,
+                        workflow_match=workflow_match,
+                    )
                 )
             except (ValueError, FileNotFoundError):
                 list_view.append(ChicsessionItem(cs_name, 0, []))
 
-        if names:
+        # Select first item
+        if list_view.children:
             list_view.index = 0
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -167,5 +218,15 @@ class ChicsessionScreen(Screen[str | None]):
                 )
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if isinstance(event.item, ChicsessionItem):
-            self.dismiss(event.item.chicsession_name)
+        if isinstance(event.item, NewSessionItem):
+            # Return "new:<name>" — caller parses the prefix
+            search = self.query_one("#chicsession-search", Input).value.strip()
+            name = search if search else event.item.default_name
+            self.dismiss(f"new:{name}")
+        elif isinstance(event.item, ChicsessionItem):
+            if self._workflow_id:
+                # In workflow mode, return "resume:<name>" for existing sessions
+                self.dismiss(f"resume:{event.item.chicsession_name}")
+            else:
+                # In restore mode, return the name directly (backward compat)
+                self.dismiss(event.item.chicsession_name)
