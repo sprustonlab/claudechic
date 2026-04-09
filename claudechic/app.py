@@ -1060,18 +1060,29 @@ class ChatApp(App):
 
             # Collect hints from load result (manifest-declared hints)
             hint_specs = []
+            active_wf = (
+                self._workflow_engine.workflow_id
+                if self._workflow_engine
+                else None
+            )
             if self._load_result:
                 from claudechic.hints.types import (
                     AlwaysTrue,
                     HintSpec,
+                    ShowEverySession,
                     ShowOnce,
                     ShowUntilResolved,
                 )
 
                 for decl in self._load_result.hints:
-                    lifecycle = ShowOnce()
-                    if decl.lifecycle == "show-until-resolved":
+                    if decl.namespace != "global" and decl.namespace != active_wf:
+                        continue
+                    if decl.lifecycle == "show-every-session":
+                        lifecycle = ShowEverySession()
+                    elif decl.lifecycle == "show-until-resolved":
                         lifecycle = ShowUntilResolved()
+                    else:
+                        lifecycle = ShowOnce()
                     hint_specs.append(
                         HintSpec(
                             id=decl.id,
@@ -1279,6 +1290,7 @@ class ChatApp(App):
                 "Read .claude/phase_context.md for your full phase instructions, "
                 "then greet the user and guide them on what to do in this phase."
             )
+            create_safe_task(self._run_hints(is_startup=False, budget=2), name="hints-workflow-start")
         except Exception as e:
             log.warning("Failed to activate workflow '%s': %s", workflow_id, e)
             self.notify(f"Failed to activate workflow: {e}", severity="error")
@@ -1510,6 +1522,7 @@ class ChatApp(App):
                 pass
 
         self.notify(f"Workflow '{wf_id}' deactivated")
+        create_safe_task(self._run_hints(is_startup=False, budget=1), name="hints-workflow-stop")
 
     def _make_persist_fn(self):
         """Create callback for engine to persist workflow state via chicsession."""
