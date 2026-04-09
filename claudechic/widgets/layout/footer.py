@@ -127,7 +127,7 @@ class StatusFooter(Static):
             )
             yield Static("·", classes="footer-sep")
             yield DiagnosticsLabel(
-                "ao_diagnostics", id="diagnostics-label", classes="footer-label"
+                "session_info", id="diagnostics-label", classes="footer-label"
             )
             yield Static("", id="footer-spacer")
             yield ProcessIndicator(id="process-indicator", classes="hidden")
