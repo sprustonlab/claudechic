@@ -1,16 +1,15 @@
 """Welcome screen widget for onboarding checklist.
 
 Renders a checklist of setup facets with live status. Configured items show
-a checkmark; unconfigured items are selectable and activate the corresponding
-facet workflow.
+a checkmark; unconfigured items are numbered and clickable to activate the
+corresponding facet workflow. Follows the SelectionPrompt / BasePrompt
+pattern from widgets/prompts.py.
 """
 
 from __future__ import annotations
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.containers import Vertical
 from textual.message import Message
 from textual.widgets import Static
 
@@ -18,28 +17,24 @@ from claudechic.onboarding import FacetStatus
 
 
 class WelcomeScreen(Static):
-    """Onboarding checklist shown at session start when setup is incomplete."""
+    """Onboarding checklist shown at session start when setup is incomplete.
+
+    Unconfigured facets are numbered options (clickable, keyboard-navigable).
+    Skip and Dismiss are visible buttons at the bottom.
+    """
 
     can_focus = True
 
     DEFAULT_CSS = """
     WelcomeScreen {
-        dock: top;
+        height: auto;
         width: 100%;
-        padding: 1 2;
-        margin: 0 0 1 0;
-        border: solid $accent;
+        max-width: 90;
+        background: $surface;
+        border-left: tall $primary;
+        padding: 1 2 1 1;
     }
     """
-
-    BINDINGS = [
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
-        Binding("enter", "select", "Select", show=False),
-        Binding("s", "skip", "Skip", show=False),
-        Binding("d", "dismiss", "Don't show again", show=False),
-        Binding("escape", "skip", "Skip", show=False),
-    ]
 
     # --- Messages posted to the app ---
 
@@ -60,116 +55,140 @@ class WelcomeScreen(Static):
         super().__init__()
         self.facets = facets
         self._steal_focus = steal_focus
-        # Build list of selectable (unconfigured) indices
+        # Build ordered list of selectable (unconfigured) facet indices
         self._selectable_indices = [
             i for i, f in enumerate(facets) if not f.configured
         ]
-        self._cursor = 0  # Index into _selectable_indices
+        # Options: unconfigured facets + Skip + Dismiss
+        self._num_options = len(self._selectable_indices) + 2
+        self._skip_idx = len(self._selectable_indices)
+        self._dismiss_idx = len(self._selectable_indices) + 1
+        self.selected_idx = 0
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="welcome-panel"):
+        yield Static(
+            Text("Your project is ready! A few things to finish setting up:\n", style="bold"),
+            classes="prompt-title",
+        )
+        # Configured items (not selectable, just status)
+        for i, facet in enumerate(self.facets):
+            if facet.configured:
+                yield _ConfiguredItem(facet)
+
+        # Unconfigured items as numbered options
+        opt_num = 0
+        for facet_idx in self._selectable_indices:
+            facet = self.facets[facet_idx]
+            classes = "prompt-option selected" if opt_num == 0 else "prompt-option"
             yield Static(
-                Text("Your project is ready! A few things to finish setting up:\n", style="bold"),
-                id="welcome-title",
+                f"{opt_num + 1}. {facet.label}  — {facet.detail}",
+                classes=classes,
+                id=f"opt-{opt_num}",
             )
-            for i, facet in enumerate(self.facets):
-                yield _FacetItem(facet, index=i)
-            yield Static("")  # spacer
-            yield Static(
-                Text.from_markup(
-                    "Select an unconfigured item to set it up,\n"
-                    "or press [bold]s[/bold] to skip, "
-                    "[bold]d[/bold] to dismiss permanently."
-                ),
-                id="welcome-instructions",
-            )
+            opt_num += 1
+
+        # Spacer
+        yield Static("")
+
+        # Skip and Dismiss as numbered options
+        skip_classes = "prompt-option"
+        yield Static(
+            f"{opt_num + 1}. Skip (show again next session)",
+            classes=skip_classes,
+            id=f"opt-{self._skip_idx}",
+        )
+        dismiss_classes = "prompt-option"
+        yield Static(
+            f"{opt_num + 2}. Dismiss permanently",
+            classes=dismiss_classes,
+            id=f"opt-{self._dismiss_idx}",
+        )
 
     def on_mount(self) -> None:
-        """Focus self and highlight first selectable item.
-
-        Respects steal_focus: if False (user already typing), don't grab focus
-        — the user can click or tab into the welcome screen instead.
-        """
+        """Focus self to capture keyboard input."""
         if self._steal_focus:
             self.focus()
-        self._update_highlight()
 
-    def _update_highlight(self) -> None:
-        """Update visual highlight on the currently selected facet item."""
-        for child in self.query(_FacetItem):
-            child.remove_class("welcome-highlighted")
-        if self._selectable_indices and 0 <= self._cursor < len(self._selectable_indices):
-            idx = self._selectable_indices[self._cursor]
-            items = list(self.query(_FacetItem))
-            if idx < len(items):
-                items[idx].add_class("welcome-highlighted")
+    def _update_selection(self) -> None:
+        """Update visual selection state across all options."""
+        for i in range(self._num_options):
+            opt = self.query_one_optional(f"#opt-{i}", Static)
+            if opt is not None:
+                if i == self.selected_idx:
+                    opt.add_class("selected")
+                else:
+                    opt.remove_class("selected")
 
-    def action_cursor_up(self) -> None:
-        if self._selectable_indices and self._cursor > 0:
-            self._cursor -= 1
-            self._update_highlight()
-
-    def action_cursor_down(self) -> None:
-        if self._selectable_indices and self._cursor < len(self._selectable_indices) - 1:
-            self._cursor += 1
-            self._update_highlight()
-
-    def action_select(self) -> None:
-        if self._selectable_indices:
-            idx = self._selectable_indices[self._cursor]
-            self.post_message(self.Selected(self.facets[idx].workflow_id))
+    def _select_option(self, idx: int) -> None:
+        """Handle selection of option at index."""
+        if idx == self._skip_idx:
+            self.post_message(self.Skipped())
+            self.remove()
+        elif idx == self._dismiss_idx:
+            self.post_message(self.Dismissed())
+            self.remove()
+        elif 0 <= idx < len(self._selectable_indices):
+            facet_idx = self._selectable_indices[idx]
+            self.post_message(self.Selected(self.facets[facet_idx].workflow_id))
             self.remove()
 
-    def action_skip(self) -> None:
-        self.post_message(self.Skipped())
-        self.remove()
+    def on_click(self, event) -> None:
+        """Handle clicks on option items."""
+        for i in range(self._num_options):
+            opt = self.query_one_optional(f"#opt-{i}", Static)
+            if opt is not None and opt is event.widget:
+                self._select_option(i)
+                return
 
-    def action_dismiss(self) -> None:
-        self.post_message(self.Dismissed())
-        self.remove()
+    def on_key(self, event) -> None:
+        """Handle keyboard navigation — same pattern as SelectionPrompt."""
+        if event.key == "up":
+            self.selected_idx = (self.selected_idx - 1) % self._num_options
+            self._update_selection()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "down":
+            self.selected_idx = (self.selected_idx + 1) % self._num_options
+            self._update_selection()
+            event.prevent_default()
+            event.stop()
+        elif event.key == "enter":
+            self._select_option(self.selected_idx)
+            event.prevent_default()
+            event.stop()
+        elif event.key == "escape":
+            self.post_message(self.Skipped())
+            self.remove()
+            event.prevent_default()
+            event.stop()
+        elif event.key.isdigit():
+            idx = int(event.key) - 1
+            if 0 <= idx < self._num_options:
+                self._select_option(idx)
+                event.prevent_default()
+                event.stop()
 
 
-class _FacetItem(Static):
-    """Single facet row in the welcome screen checklist."""
+class _ConfiguredItem(Static):
+    """Non-selectable row showing a configured facet with checkmark."""
 
     can_focus = False
 
     DEFAULT_CSS = """
-    _FacetItem {
+    _ConfiguredItem {
         height: 1;
-        padding: 0 1;
-    }
-    _FacetItem.welcome-highlighted {
-        background: $accent 20%;
-    }
-    _FacetItem:hover {
-        background: $surface-lighten-1;
+        padding: 0 0 0 1;
+        color: $text-muted;
     }
     """
 
-    def __init__(self, facet: FacetStatus, index: int) -> None:
+    def __init__(self, facet: FacetStatus) -> None:
         super().__init__()
         self.facet = facet
-        self._index = index
 
     def render(self) -> Text:
         result = Text()
-        if self.facet.configured:
-            result.append("  ✔ ", style="green bold")
-            result.append(self.facet.label, style="green")
-            result.append(f"  — {self.facet.detail}", style="dim")
-        else:
-            result.append("  ○ ", style="yellow")
-            result.append(self.facet.label, style="yellow bold")
-            result.append(f"  — {self.facet.detail}", style="dim")
+        result.append("✔ ", style="green bold")
+        result.append(self.facet.label, style="green")
+        result.append(f"  — {self.facet.detail}", style="dim")
         return result
-
-    def on_click(self) -> None:
-        """Allow clicking unconfigured items to select them."""
-        if not self.facet.configured:
-            parent = self.ancestors_with_self
-            for ancestor in parent:
-                if isinstance(ancestor, WelcomeScreen):
-                    ancestor.post_message(WelcomeScreen.Selected(self.facet.workflow_id))
-                    ancestor.remove()
-                    break

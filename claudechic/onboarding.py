@@ -192,6 +192,16 @@ def _codebase_detail(project_root: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Workflow existence check
+# ---------------------------------------------------------------------------
+
+
+def _workflow_exists(workflows_dir: Path, dir_name: str) -> bool:
+    """Check if a workflow manifest exists (e.g., workflows/git_setup/git_setup.yaml)."""
+    return (workflows_dir / dir_name / f"{dir_name}.yaml").is_file()
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -214,19 +224,24 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
         # No .copier-answers.yml or empty — not a template project
         return None
 
+    # Map of (workflow_id, directory_name) — only show facets whose
+    # workflow manifest actually exists in the project.
+    workflows_dir = project_root / "workflows"
+
     facets: list[FacetStatus] = []
 
-    if answers.get("use_cluster"):
+    if answers.get("use_cluster") and _workflow_exists(workflows_dir, "cluster_setup"):
         configured = _cluster_configured(project_root)
         detail = _cluster_detail(project_root) if configured else "not configured"
         facets.append(FacetStatus("cluster-setup", "Cluster access", configured, detail))
 
-    # Git is always relevant
-    configured = _git_configured(project_root)
-    detail = _git_detail(project_root) if configured else "no remote set"
-    facets.append(FacetStatus("git-setup", "Git remote", configured, detail))
+    # Git is always relevant (if the workflow exists)
+    if _workflow_exists(workflows_dir, "git_setup"):
+        configured = _git_configured(project_root)
+        detail = _git_detail(project_root) if configured else "no remote set"
+        facets.append(FacetStatus("git-setup", "Git remote", configured, detail))
 
-    if answers.get("use_existing_codebase"):
+    if answers.get("use_existing_codebase") and _workflow_exists(workflows_dir, "codebase_setup"):
         configured = _codebase_configured(project_root)
         detail = _codebase_detail(project_root) if configured else "not integrated"
         facets.append(FacetStatus("codebase-setup", "Codebase integration", configured, detail))
