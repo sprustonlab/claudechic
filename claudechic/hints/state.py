@@ -251,13 +251,16 @@ class HintStateStore:
         else:
             self._lifecycle = {}
 
-        # Load activation section
+        # Load activation section (preserve extra keys for extensibility,
+        # e.g. onboarding_dismissed written by onboarding.write_dismiss_marker)
         activation_raw = raw.get("activation", {})
         if isinstance(activation_raw, dict):
-            self._activation = {
-                "enabled": activation_raw.get("enabled", True),
-                "disabled_hints": list(activation_raw.get("disabled_hints", [])),
-            }
+            self._activation = dict(activation_raw)
+            # Ensure required keys have defaults
+            self._activation.setdefault("enabled", True)
+            self._activation.setdefault("disabled_hints", [])
+            # Normalize disabled_hints to a list
+            self._activation["disabled_hints"] = list(self._activation["disabled_hints"])
         else:
             self._activation = {"enabled": True, "disabled_hints": []}
 
@@ -391,13 +394,15 @@ class ActivationConfig:
         self._disabled_hints: set[str] = set(data.get("disabled_hints", []))
 
     def _sync_to_store(self) -> None:
-        """Push current state back to the store (not yet persisted to disk)."""
-        self._store.set_activation_data(
-            {
-                "enabled": self._enabled,
-                "disabled_hints": sorted(self._disabled_hints),
-            }
-        )
+        """Push current state back to the store (not yet persisted to disk).
+
+        Merges into existing activation data to preserve extra keys
+        (e.g. onboarding_dismissed) written by other subsystems.
+        """
+        data = self._store.get_activation_data()
+        data["enabled"] = self._enabled
+        data["disabled_hints"] = sorted(self._disabled_hints)
+        self._store.set_activation_data(data)
 
     def is_active(self, hint_id: str) -> bool:
         """Return True if this hint should enter the pipeline."""

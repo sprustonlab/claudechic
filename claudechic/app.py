@@ -874,9 +874,67 @@ class ChatApp(App):
         # Connect SDK in background - UI renders while this happens
         self._connect_initial_client()
 
+        # Onboarding welcome screen — check if setup is incomplete
+        self._check_onboarding()
+
         # Hints system startup — fire-and-forget background task
         from claudechic.tasks import create_safe_task
         create_safe_task(self._run_hints(is_startup=True, budget=2), name="hints-startup")
+
+    def _check_onboarding(self) -> None:
+        """Launch non-blocking onboarding check in a background worker."""
+        self.run_worker(self._check_onboarding_worker(), exit_on_error=False)
+
+    async def _check_onboarding_worker(self) -> None:
+        """Run health checks off the event loop, then mount welcome screen."""
+        import asyncio
+
+        try:
+            from claudechic.onboarding import check_onboarding
+
+            # Health checks (SSH etc.) run in a thread to avoid blocking UI
+            facets = await asyncio.to_thread(check_onboarding, self._cwd)
+            if facets is None:
+                return
+
+            # Don't steal focus if user has already started typing
+            chat_input = getattr(self, "chat_input", None)
+            user_active = chat_input is not None and bool(chat_input.text.strip())
+
+            from claudechic.widgets.welcome import WelcomeScreen
+
+            welcome = WelcomeScreen(facets, steal_focus=not user_active)
+            # Mount at the top of #chat-column so it's visible above the chat
+            chat_column = self.screen.query_one("#chat-column")
+            chat_column.mount(welcome, before=0)
+            log.info("Onboarding welcome screen shown with %d facets", len(facets))
+        except Exception:
+            log.debug("Onboarding check failed", exc_info=True)
+
+    def on_welcome_screen_selected(self, event: "WelcomeScreen.Selected") -> None:
+        """Handle user selecting a facet from the welcome screen."""
+        from claudechic.tasks import create_safe_task
+
+        create_safe_task(
+            self._activate_workflow(event.workflow_id, auto_name=event.workflow_id),
+            name=f"onboarding-{event.workflow_id}",
+        )
+
+    def on_welcome_screen_skipped(self, event: "WelcomeScreen.Skipped") -> None:
+        """Handle user skipping the welcome screen for this session."""
+        log.info("Onboarding welcome screen skipped")
+
+    def on_welcome_screen_dismissed(self, event: "WelcomeScreen.Dismissed") -> None:
+        """Handle user permanently dismissing the welcome screen."""
+        try:
+            from claudechic.onboarding import write_dismiss_marker
+            from claudechic.hints.state import HintStateStore
+
+            store = HintStateStore(self._cwd)
+            write_dismiss_marker(store)
+            log.info("Onboarding permanently dismissed")
+        except Exception:
+            log.debug("Failed to write dismiss marker", exc_info=True)
 
     def watch_theme(self, theme: str) -> None:
         """Save theme preference when changed (skip if overridden by CLI flag)."""
@@ -1205,8 +1263,17 @@ class ChatApp(App):
         except Exception:
             log.debug("Workflow discovery failed", exc_info=True)
 
-    async def _activate_workflow(self, workflow_id: str) -> None:
-        """Activate a workflow — create engine, start first phase."""
+    async def _activate_workflow(
+        self, workflow_id: str, auto_name: str | None = None
+    ) -> None:
+        """Activate a workflow — create engine, start first phase.
+
+        Args:
+            workflow_id: The workflow to activate.
+            auto_name: If provided, skip the interactive chicsession naming
+                prompt and use this name directly. Used by the welcome screen
+                to avoid interrupting the onboarding flow.
+        """
         if workflow_id not in self._workflow_registry:
             self.notify(f"Unknown workflow: {workflow_id}", severity="error")
             return
@@ -1246,7 +1313,11 @@ class ChatApp(App):
             # the engine's persist_fn checks self._chicsession_name and
             # exits early if it is None.
             if not self._chicsession_name:
-                session_name = await self._prompt_chicsession_name(workflow_id)
+                if auto_name:
+                    # Welcome screen activation — skip interactive prompt
+                    session_name = await self._auto_create_chicsession(auto_name)
+                else:
+                    session_name = await self._prompt_chicsession_name(workflow_id)
                 if session_name is None:
                     # User cancelled the prompt — abort workflow activation
                     self.notify(
@@ -1404,6 +1475,54 @@ class ChatApp(App):
                 session_name,
                 exc_info=True,
             )
+            return None
+
+    async def _auto_create_chicsession(self, name: str) -> str | None:
+        """Create a chicsession with a given name, skipping interactive prompt.
+
+        Used by the welcome screen to auto-name sessions after the workflow ID.
+        """
+        from claudechic.chicsession_cmd import (
+            _get_manager,
+            _get_root,
+            _update_sidebar_label,
+        )
+        from claudechic.chicsessions import Chicsession, ChicsessionEntry
+
+        root = _get_root(self)
+        mgr = _get_manager(self)
+
+        entries: list[ChicsessionEntry] = []
+        active_name = "main"
+        if self.agent_mgr:
+            for agent in self.agent_mgr.agents.values():
+                if agent.session_id:
+                    entries.append(
+                        ChicsessionEntry(
+                            name=agent.name,
+                            session_id=agent.session_id,
+                            cwd=str(agent.cwd),
+                        )
+                    )
+            active = self.agent_mgr.active
+            if active:
+                active_name = active.name
+            elif entries:
+                active_name = entries[0].name
+
+        cs = Chicsession(
+            name=name,
+            active_agent=active_name,
+            agents=entries,
+        )
+        try:
+            mgr.save(cs)
+            self._chicsession_name = name
+            _update_sidebar_label(self, name)
+            log.info("Auto-created chicsession '%s' for onboarding", name)
+            return name
+        except Exception:
+            log.warning("Failed to auto-create chicsession '%s'", name, exc_info=True)
             return None
 
     def _inject_phase_prompt_to_main_agent(

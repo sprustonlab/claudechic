@@ -27,7 +27,7 @@ import pytest
 from claudechic.app import ChatApp
 from tests.conftest import wait_for_workers
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.timeout(30)]
 
 # ---------------------------------------------------------------------------
 # Locate the template hints source
