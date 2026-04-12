@@ -12,7 +12,7 @@ from claudechic.agent import Agent
 async def empty_async_gen():
     """Empty async generator for mocking receive_response."""
     return
-    yield  # noqa: unreachable - makes this an async generator
+    yield  # unreachable - makes this an async generator
 
 
 @pytest.fixture
