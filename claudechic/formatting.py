@@ -276,7 +276,7 @@ def _render_word_diff(old_line: str, new_line: str, result: Text) -> None:
 
     # Build old line - use color only, no background
     result.append("- ", style="red")
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    for tag, i1, i2, _j1, _j2 in sm.get_opcodes():
         chunk = "".join(old_tokens[i1:i2])
         if tag == "equal":
             result.append(chunk, style="red dim")
@@ -286,7 +286,7 @@ def _render_word_diff(old_line: str, new_line: str, result: Text) -> None:
 
     # Build new line - use color only, no background
     result.append("+ ", style="green")
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    for tag, _i1, _i2, j1, j2 in sm.get_opcodes():
         chunk = "".join(new_tokens[j1:j2])
         if tag == "equal":
             result.append(chunk, style="green dim")

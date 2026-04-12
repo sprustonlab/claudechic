@@ -74,7 +74,7 @@ class TestDefaultPermissionModeValue:
         # (Look for the fresh install block, not existing config handling)
         lines = source_code.split("\n")
         in_fresh_install_block = False
-        for i, line in enumerate(lines):
+        for _i, line in enumerate(lines):
             if "New install" in line or "new_install = True" in line:
                 in_fresh_install_block = True
             if in_fresh_install_block and "default_permission_mode" in line:

@@ -223,7 +223,7 @@ class SelectionPrompt(BasePrompt):
         self.styles.min_height = min_h
 
         yield Static(self.title, classes="prompt-title", markup=False)
-        for i, (value, label) in enumerate(self.options):
+        for i, (_value, label) in enumerate(self.options):
             classes = "prompt-option selected" if i == 0 else "prompt-option"
             yield Static(
                 f"{i + 1}. {label}", classes=classes, id=f"opt-{i}", markup=False
@@ -456,7 +456,7 @@ class WorktreePrompt(BasePrompt):
 
     def compose(self) -> ComposeResult:
         yield Static("Worktrees", classes="prompt-title")
-        for i, (path, branch) in enumerate(self.worktrees):
+        for i, (_path, branch) in enumerate(self.worktrees):
             classes = "prompt-option selected" if i == 0 else "prompt-option"
             yield Static(
                 f"{i + 1}. {branch}", classes=classes, id=f"opt-{i}", markup=False

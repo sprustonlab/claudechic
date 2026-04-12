@@ -72,7 +72,7 @@ class WelcomeScreen(Static):
             classes="prompt-title",
         )
         # Configured items (not selectable, just status)
-        for i, facet in enumerate(self.facets):
+        for _i, facet in enumerate(self.facets):
             if facet.configured:
                 yield _ConfiguredItem(facet)
 
