@@ -286,7 +286,7 @@ class AgentManager:
             *(self.close(aid, skip_switch=True, soft=False) for aid in agent_ids),
             return_exceptions=True,
         )
-        for aid, result in zip(agent_ids, results):
+        for aid, result in zip(agent_ids, results, strict=True):
             if isinstance(result, Exception):
                 log.warning(f"Failed to close agent {aid}: {result}")
 
