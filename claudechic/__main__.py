@@ -151,11 +151,11 @@ def main():
                     break
             if log_file_path:
                 try:
-                    sys.stderr = open(log_file_path, "a", encoding="utf-8")
+                    sys.stderr = open(log_file_path, "a", encoding="utf-8")  # noqa: SIM115
                 except OSError:
-                    sys.stderr = open(os.devnull, "w")
+                    sys.stderr = open(os.devnull, "w")  # noqa: SIM115
             else:
-                sys.stderr = open(os.devnull, "w")
+                sys.stderr = open(os.devnull, "w")  # noqa: SIM115
 
 
 if __name__ == "__main__":

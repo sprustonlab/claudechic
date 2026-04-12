@@ -49,7 +49,7 @@ def get_terminal_program() -> str:
         return "gnome-terminal"
     if os.environ.get("WT_SESSION"):
         return "windows-terminal"
-    if os.environ.get("ConEmuPID"):
+    if os.environ.get("ConEmuPID"):  # noqa: SIM112 - actual env var name
         return "conemu"
     # Fallback to generic TERM
     return os.environ.get("TERM", "unknown")

@@ -1439,10 +1439,9 @@ class ChatApp(App):
                 return None
 
         # New session — extract name from "new:<name>" result
-        if result.startswith("new:"):
-            session_name = result[len("new:") :].strip()
-        else:
-            session_name = ""
+        session_name = (
+            result[len("new:") :].strip() if result.startswith("new:") else ""
+        )
 
         if not session_name:
             session_name = workflow_id
@@ -2582,7 +2581,7 @@ class ChatApp(App):
         # Suppress SDK stderr noise during exit (stream closed errors on all platforms)
         # Note: Windows transport __del__ exceptions need additional stderr redirect
         # in __main__.py's finally block (after Textual exits). See issue #31.
-        sys.stderr = open(os.devnull, "w")
+        sys.stderr = open(os.devnull, "w")  # noqa: SIM115
         self.exit()
 
     def run_shell_command(
