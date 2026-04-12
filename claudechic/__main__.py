@@ -104,6 +104,7 @@ def main():
 
     # Set terminal window title (before Textual takes over stdout)
     from pathlib import Path
+
     from rich.console import Console
     from rich.control import Control
 

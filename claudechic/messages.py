@@ -1,13 +1,14 @@
 """Custom Textual messages for SDK event communication."""
 
-from textual.message import Message
-
 from claude_agent_sdk import (
-    ToolUseBlock,
-    ToolResultBlock,
     ResultMessage,
+    ToolResultBlock,
+    ToolUseBlock,
+)
+from claude_agent_sdk import (
     SystemMessage as SDKSystemMessage,
 )
+from textual.message import Message
 
 
 class ResponseComplete(Message):

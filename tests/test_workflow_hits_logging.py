@@ -6,16 +6,14 @@ Intent: "When a rule fires, is it logged to the JSONL audit trail?"
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml
-
 from claudechic.guardrails.hits import HitLogger
-from claudechic.guardrails.tokens import OverrideTokenStore
 from claudechic.guardrails.hooks import create_guardrail_hooks
-from claudechic.workflows.loader import ManifestLoader
+from claudechic.guardrails.tokens import OverrideTokenStore
 from claudechic.workflows import register_default_parsers
+from claudechic.workflows.loader import ManifestLoader
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 

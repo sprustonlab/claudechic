@@ -6,11 +6,10 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from textual.containers import Center
 from textual import work
+from textual.containers import Center
 
 from claudechic.analytics import capture
-
 from claudechic.features.worktree.git import (
     FinishInfo,
     FinishPhase,
@@ -39,8 +38,8 @@ from claudechic.widgets.prompts import (
 )
 
 if TYPE_CHECKING:
-    from claudechic.app import ChatApp
     from claudechic.agent import Agent
+    from claudechic.app import ChatApp
 
 # Max retries for worktree cleanup before giving up
 MAX_CLEANUP_ATTEMPTS = 3
@@ -392,7 +391,7 @@ async def _run_discard_prompt(
     app: "ChatApp", info: FinishInfo, status: WorktreeStatus
 ) -> None:
     """Prompt user to confirm discarding a worktree with commits/changes."""
-    from claudechic.widgets import SelectionPrompt, ChatInput
+    from claudechic.widgets import ChatInput, SelectionPrompt
 
     warnings = []
     if status.commits_ahead > 0 and not status.is_merged:
@@ -460,7 +459,7 @@ async def _run_cleanup_prompt(
     app: "ChatApp", needs_confirm: list[tuple[str, str]]
 ) -> None:
     """Show prompt for confirming worktree removal."""
-    from claudechic.widgets import SelectionPrompt, ChatInput
+    from claudechic.widgets import ChatInput, SelectionPrompt
 
     branches_to_confirm = [b for b, _ in needs_confirm]
     options = [("all", f"Remove all ({len(needs_confirm)})")]

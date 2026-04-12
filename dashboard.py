@@ -6,11 +6,12 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
-    import marimo as mo
-    import altair as alt
-    import httpx
     import os
     from datetime import datetime
+
+    import altair as alt
+    import httpx
+    import marimo as mo
 
     # Color palette: teal/blue with good contrast
     COLORS = {

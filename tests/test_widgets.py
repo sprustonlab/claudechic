@@ -1,27 +1,26 @@
 """Pure widget tests - no SDK needed."""
 
 import pytest
-from textual.app import App, ComposeResult
-from textual.widgets import Static
-
+from claudechic.enums import AgentStatus
 from claudechic.widgets import (
+    AgentSection,
+    BackgroundProcess,
     ChatInput,
     ChatMessage,
-    ThinkingIndicator,
-    SelectionPrompt,
-    QuestionPrompt,
-    AgentSection,
-    PlanSection,
-    TodoPanel,
-    ProcessPanel,
-    BackgroundProcess,
-    ModelPrompt,
-    StatusFooter,
     ContextBar,
+    ModelPrompt,
+    PlanSection,
+    ProcessPanel,
+    QuestionPrompt,
+    SelectionPrompt,
+    StatusFooter,
+    ThinkingIndicator,
+    TodoPanel,
 )
 from claudechic.widgets.content.todo import TodoItem
 from claudechic.widgets.layout.processes import ProcessItem
-from claudechic.enums import AgentStatus
+from textual.app import App, ComposeResult
+from textual.widgets import Static
 
 
 class WidgetTestApp(App):
@@ -451,8 +450,9 @@ async def test_thinking_indicator_animates():
 @pytest.mark.asyncio
 async def test_history_search_filters():
     """HistorySearch filters history and cycles through matches."""
-    from claudechic.widgets.input.history_search import HistorySearch
     from unittest.mock import patch
+
+    from claudechic.widgets.input.history_search import HistorySearch
 
     class TestApp(App):
         def compose(self):
@@ -542,8 +542,8 @@ async def test_process_panel_updates():
 
 def test_snap_to_tokens_expands_partial_spans():
     """Word-diff spans that cut through tokens get expanded to token boundaries."""
-    from textual.content import Content, Span
     from claudechic.widgets.content.diff import _snap_to_tokens
+    from textual.content import Content, Span
 
     # Simulate syntax-highlighted "activeInsertionOrders:" with tokens:
     # [0-21] identifier, [21-22] punctuation
@@ -562,8 +562,8 @@ def test_snap_to_tokens_expands_partial_spans():
 
 def test_snap_to_tokens_preserves_aligned_spans():
     """Spans already aligned with token boundaries stay unchanged."""
-    from textual.content import Content, Span
     from claudechic.widgets.content.diff import _snap_to_tokens
+    from textual.content import Content, Span
 
     content = Content(
         "foo bar",
@@ -578,8 +578,8 @@ def test_snap_to_tokens_preserves_aligned_spans():
 
 def test_snap_to_tokens_empty_spans():
     """Empty span list returns empty."""
-    from textual.content import Content
     from claudechic.widgets.content.diff import _snap_to_tokens
+    from textual.content import Content
 
     content = Content("hello")
     assert _snap_to_tokens([], content) == []
@@ -588,9 +588,9 @@ def test_snap_to_tokens_empty_spans():
 def test_word_diff_with_go_syntax():
     """Integration test: word diff + snapping with real Go syntax highlighting."""
     from claudechic.widgets.content.diff import (
-        _word_diff_spans,
-        _snap_to_tokens,
         _highlight_lines,
+        _snap_to_tokens,
+        _word_diff_spans,
     )
 
     old_line = 'activeOrders: getValue("active",'
@@ -715,7 +715,6 @@ async def test_quiet_collapsible_context_manager_still_works():
 async def test_tool_use_widget_edit_lazy_diff():
     """ToolUseWidget with Edit tool uses lazy DiffWidget when collapsed."""
     from claude_agent_sdk import ToolUseBlock
-
     from claudechic.widgets.content.diff import DiffWidget
     from claudechic.widgets.content.tools import ToolUseWidget
     from claudechic.widgets.primitives.collapsible import QuietCollapsible

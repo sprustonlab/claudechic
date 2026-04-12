@@ -3,15 +3,15 @@
 import asyncio
 
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.message import Message
 from textual.reactive import reactive
-from textual.containers import Horizontal
 from textual.widgets import Static
 
-from claudechic.widgets.base.clickable import ClickableLabel
-from claudechic.widgets.layout.indicators import CPUBar, ContextBar, ProcessIndicator
 from claudechic.processes import BackgroundProcess
+from claudechic.widgets.base.clickable import ClickableLabel
 from claudechic.widgets.input.vi_mode import ViMode
+from claudechic.widgets.layout.indicators import ContextBar, CPUBar, ProcessIndicator
 
 
 class DiagnosticsLabel(ClickableLabel):

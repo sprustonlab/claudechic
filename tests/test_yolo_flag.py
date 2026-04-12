@@ -8,12 +8,11 @@ These tests verify:
 
 from __future__ import annotations
 
-
 import pytest
-
 from claudechic.app import ChatApp
 from claudechic.widgets import StatusFooter
-from tests.conftest import wait_for_workers, submit_command
+
+from tests.conftest import submit_command, wait_for_workers
 
 
 class TestYoloFlagSetsGlobalPermissionMode:

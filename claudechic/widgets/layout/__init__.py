@@ -1,38 +1,38 @@
 """Layout widgets - chat view, sidebar, footer."""
 
 from claudechic.widgets.layout.chat_view import ChatView
+from claudechic.widgets.layout.footer import (
+    ModelLabel,
+    PermissionModeLabel,
+    StatusFooter,
+)
+from claudechic.widgets.layout.indicators import (
+    ContextBar,
+    CPUBar,
+    IndicatorWidget,
+    ProcessIndicator,
+)
+from claudechic.widgets.layout.processes import (
+    ProcessItem,
+    ProcessPanel,
+)
+from claudechic.widgets.layout.reviews import (
+    ReviewItem,
+    ReviewPanel,
+)
 from claudechic.widgets.layout.sidebar import (
     AgentItem,
     AgentSection,
     ChicsessionLabel,
-    WorktreeItem,
-    PlanItem,
-    PlanSection,
     FileItem,
     FilesSection,
-    SidebarSection,
-    SidebarItem,
     HamburgerButton,
+    PlanItem,
+    PlanSection,
     SessionItem,
-)
-from claudechic.widgets.layout.footer import (
-    PermissionModeLabel,
-    ModelLabel,
-    StatusFooter,
-)
-from claudechic.widgets.layout.indicators import (
-    IndicatorWidget,
-    CPUBar,
-    ContextBar,
-    ProcessIndicator,
-)
-from claudechic.widgets.layout.processes import (
-    ProcessPanel,
-    ProcessItem,
-)
-from claudechic.widgets.layout.reviews import (
-    ReviewPanel,
-    ReviewItem,
+    SidebarItem,
+    SidebarSection,
+    WorktreeItem,
 )
 
 __all__ = [

@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from operator import itemgetter
 
+from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
 from textual.content import Content
@@ -15,8 +16,6 @@ from textual.widget import Widget
 from textual.widgets import OptionList, TextArea
 from textual.widgets.option_list import Option
 from textual_autocomplete.fuzzy_search import FuzzySearch
-
-from rich.text import Text
 
 from claudechic.file_index import search_files
 from claudechic.shell_complete import (

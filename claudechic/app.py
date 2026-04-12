@@ -1,109 +1,113 @@
+# ruff: noqa: I001  — import order matters: worktree must load before agent (circular import)
 """Claude Code Textual UI - Main application."""
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 import logging
 import os
 import re
 import sys
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from claude_agent_sdk.types import HookEvent
-    from claudechic.screens.chat import ChatScreen
     from textual.timer import Timer
 
-from textual.app import App
-from textual.screen import Screen
-
-from claudechic.theme import CHIC_THEME, CHIC_LIGHT_THEME, load_custom_themes
-from textual.binding import Binding
-from textual.containers import Vertical, Horizontal
-from textual.events import MouseUp
-from textual import work
+    from claudechic.screens.chat import ChatScreen
 
 from claude_agent_sdk import (
-    CLIConnectionError,
-    ClaudeSDKClient,
     ClaudeAgentOptions,
+    ClaudeSDKClient,
+    CLIConnectionError,
     PermissionMode,
+    ResultMessage,
     SystemMessage,
     ToolUseBlock,
-    ResultMessage,
 )
 from claude_agent_sdk.types import HookMatcher
+from textual import work
+from textual.app import App
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.events import MouseUp
+from textual.screen import Screen
+
+# Worktree must load before agent to avoid circular import through widgets.
+from claudechic.features.worktree import list_worktrees
+from claudechic.features.worktree.commands import on_response_complete_finish
+from claudechic.agent import Agent, ImageAttachment, ToolUse
+
+from claudechic.agent_manager import AgentManager
+from claudechic.analytics import capture
+from claudechic.commands import BARE_WORDS, handle_command
+from claudechic.config import CONFIG, NEW_INSTALL
+from claudechic.config import save as save_config
+from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
+from claudechic.errors import set_notify_callback as set_log_notify_callback
+from claudechic.errors import setup_logging  # noqa: F401 - used at startup
+from claudechic.features.diff import EditFileRequested
+from claudechic.file_index import FileIndex
+from claudechic.history import append_to_history
+from claudechic.mcp import create_chic_server, set_app
 from claudechic.messages import (
+    CommandOutputMessage,
+    PromptSentMessage,
     ResponseComplete,
     SystemNotification,
-    ToolUseMessage,
-    ToolResultMessage,
-    CommandOutputMessage,
     TextChunkMessage,
-    PromptSentMessage,
+    ToolResultMessage,
+    ToolUseMessage,
 )
+from claudechic.permissions import PermissionRequest, PermissionResponse
+from claudechic.profiling import profile
+from claudechic.sampling import get_sampler, start_sampler
 from claudechic.sessions import (
     find_session_by_prefix,
     get_context_from_session,
     get_plan_path_for_session,
     get_recent_sessions,
 )
-from claudechic.features.diff import EditFileRequested
-from claudechic.features.worktree import list_worktrees
-from claudechic.commands import BARE_WORDS, handle_command
-from claudechic.features.worktree.commands import on_response_complete_finish
-from claudechic.permissions import PermissionRequest, PermissionResponse
-from claudechic.agent import Agent, ImageAttachment, ToolUse
-from claudechic.agent_manager import AgentManager
-from claudechic.analytics import capture
-from claudechic.config import CONFIG, NEW_INSTALL, save as save_config
-from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
-from claudechic.mcp import set_app, create_chic_server
-from claudechic.file_index import FileIndex
-from claudechic.history import append_to_history
+from claudechic.tasks import create_safe_task
+from claudechic.theme import CHIC_LIGHT_THEME, CHIC_THEME, load_custom_themes
 from claudechic.widgets import (
-    ContextBar,
-    ChatMessage,
-    ChatInput,
-    ConnectingIndicator,
-    ImageAttachments,
-    ErrorMessage,
-    AgentToolWidget,
-    TodoWidget,
-    TodoPanel,
-    ProcessPanel,
-    ReviewPanel,
-    SelectionPrompt,
-    QuestionPrompt,
-    TextAreaAutoComplete,
-    HistorySearch,
-    AgentSection,
     AgentItem,
-    WorktreeItem,
+    AgentSection,
+    AgentToolWidget,
+    ChatInput,
+    ChatMessage,
     ChatView,
-    PlanItem,
-    PlanSection,
+    ConnectingIndicator,
+    ContextBar,
+    EditPlanRequested,
+    ErrorMessage,
     FileItem,
     FilesSection,
     HamburgerButton,
-    EditPlanRequested,
+    HistorySearch,
+    ImageAttachments,
     PendingShellWidget,
+    PlanItem,
+    PlanSection,
+    ProcessPanel,
+    QuestionPrompt,
+    ReviewPanel,
+    SelectionPrompt,
+    TextAreaAutoComplete,
+    TodoPanel,
+    TodoWidget,
+    WorktreeItem,
 )
 from claudechic.widgets.layout.footer import (
     DiagnosticsLabel,
-    PermissionModeLabel,
     ModelLabel,
+    PermissionModeLabel,
     StatusFooter,
 )
 from claudechic.widgets.prompts import ModelPrompt
-from claudechic.errors import setup_logging  # noqa: F401 - used at startup
-from claudechic.errors import set_notify_callback as set_log_notify_callback
-from claudechic.profiling import profile
-from claudechic.tasks import create_safe_task
-from claudechic.sampling import start_sampler, get_sampler
 
 log = logging.getLogger(__name__)
 
@@ -933,8 +937,8 @@ class ChatApp(App):
     def on_welcome_screen_dismissed(self, event: "WelcomeScreen.Dismissed") -> None:
         """Handle user permanently dismissing the welcome screen."""
         try:
-            from claudechic.onboarding import write_dismiss_marker
             from claudechic.hints.state import HintStateStore
+            from claudechic.onboarding import write_dismiss_marker
 
             store = HintStateStore(self._cwd)
             write_dismiss_marker(store)

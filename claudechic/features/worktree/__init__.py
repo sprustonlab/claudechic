@@ -1,3 +1,4 @@
+# ruff: noqa: I001  — git must load before commands to avoid circular import via widgets
 """Git worktree management feature.
 
 Provides isolated feature development via git worktrees.

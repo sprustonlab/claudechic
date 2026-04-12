@@ -7,19 +7,15 @@ the right enforcement response?"
 from __future__ import annotations
 
 import json
-from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-
-from claudechic.app import ChatApp
 from claudechic.guardrails.hits import HitLogger
-from claudechic.guardrails.tokens import OverrideTokenStore
-from claudechic.workflows.loader import ManifestLoader
-from claudechic.workflows import register_default_parsers
 from claudechic.guardrails.hooks import create_guardrail_hooks
+from claudechic.guardrails.tokens import OverrideTokenStore
+from claudechic.workflows import register_default_parsers
+from claudechic.workflows.loader import ManifestLoader
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 

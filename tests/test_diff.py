@@ -1,10 +1,10 @@
 """Tests for git diff feature."""
 
 from claudechic.features.diff.git import (
-    _parse_name_status,
-    _parse_hunks,
-    _merge_diff_content,
     FileChange,
+    _merge_diff_content,
+    _parse_hunks,
+    _parse_name_status,
 )
 
 

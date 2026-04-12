@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 from dataclasses import dataclass, field
-
+from pathlib import Path
 
 # Patterns to exclude when not using git
 EXCLUDE_DIRS = {

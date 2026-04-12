@@ -17,15 +17,12 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import sys
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 from claudechic.app import ChatApp
-from tests.conftest import wait_for_workers
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.integration, pytest.mark.timeout(30)]
 

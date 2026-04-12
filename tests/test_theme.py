@@ -2,8 +2,7 @@
 
 from unittest.mock import patch
 
-
-from claudechic.theme import CHIC_THEME, CHIC_LIGHT_THEME, load_custom_themes
+from claudechic.theme import CHIC_LIGHT_THEME, CHIC_THEME, load_custom_themes
 
 
 def test_chic_theme_is_dark():

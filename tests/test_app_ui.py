@@ -3,22 +3,22 @@
 from unittest.mock import MagicMock
 
 import pytest
-
+from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 from claudechic.app import ChatApp
-from claudechic.widgets import (
-    ChatInput,
-    ChatMessage,
-    AgentSection,
-    TodoPanel,
-    StatusFooter,
-)
 from claudechic.messages import (
     ResponseComplete,
-    ToolUseMessage,
     ToolResultMessage,
+    ToolUseMessage,
 )
-from claude_agent_sdk import ToolUseBlock, ToolResultBlock
-from tests.conftest import wait_for_workers, submit_command
+from claudechic.widgets import (
+    AgentSection,
+    ChatInput,
+    ChatMessage,
+    StatusFooter,
+    TodoPanel,
+)
+
+from tests.conftest import submit_command, wait_for_workers
 
 
 @pytest.mark.asyncio
@@ -445,9 +445,9 @@ async def test_context_report_displays(mock_sdk):
 @pytest.mark.asyncio
 async def test_system_notification_shows_in_chat(mock_sdk):
     """SystemNotification creates SystemInfo widget in chat."""
+    from claude_agent_sdk import SystemMessage
     from claudechic.messages import SystemNotification
     from claudechic.widgets import SystemInfo
-    from claude_agent_sdk import SystemMessage
 
     app = ChatApp()
     async with app.run_test() as pilot:
@@ -473,9 +473,9 @@ async def test_system_notification_shows_in_chat(mock_sdk):
 @pytest.mark.asyncio
 async def test_system_notification_api_error(mock_sdk):
     """API error notification displays correctly."""
+    from claude_agent_sdk import SystemMessage
     from claudechic.messages import SystemNotification
     from claudechic.widgets import SystemInfo
-    from claude_agent_sdk import SystemMessage
 
     app = ChatApp()
     async with app.run_test() as pilot:
@@ -505,9 +505,9 @@ async def test_system_notification_api_error(mock_sdk):
 @pytest.mark.asyncio
 async def test_system_notification_compact_boundary(mock_sdk):
     """Compact boundary notification displays."""
+    from claude_agent_sdk import SystemMessage
     from claudechic.messages import SystemNotification
     from claudechic.widgets import SystemInfo
-    from claude_agent_sdk import SystemMessage
 
     app = ChatApp()
     async with app.run_test() as pilot:
@@ -530,9 +530,9 @@ async def test_system_notification_compact_boundary(mock_sdk):
 @pytest.mark.asyncio
 async def test_system_notification_ignored_subtypes(mock_sdk):
     """Certain subtypes are silently ignored."""
+    from claude_agent_sdk import SystemMessage
     from claudechic.messages import SystemNotification
     from claudechic.widgets import SystemInfo
-    from claude_agent_sdk import SystemMessage
 
     app = ChatApp()
     async with app.run_test() as pilot:
