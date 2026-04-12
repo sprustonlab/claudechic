@@ -371,9 +371,10 @@ class ChatMessage(Static):
 
     def _get_stream(self):
         """Get or create the MarkdownStream for this message."""
-        if self._stream is None:
-            if md := self.query_one_optional("#content", Markdown):
-                self._stream = Markdown.get_stream(md)
+        if self._stream is None and (
+            md := self.query_one_optional("#content", Markdown)
+        ):
+            self._stream = Markdown.get_stream(md)
         return self._stream
 
     def append_content(self, text: str) -> None:
@@ -652,11 +653,12 @@ class ChatInput(TextArea):
             vi_mode = self._vi_handler.state.mode
             # In INSERT mode, only Escape is handled by vi-mode
             # In NORMAL/VISUAL mode, all keys go through vi-mode first
-            if vi_mode != ViMode.INSERT or event.key == "escape":
-                if self._vi_handler.handle_key(event.key, event.character):
-                    event.prevent_default()
-                    event.stop()
-                    return
+            if (
+                vi_mode != ViMode.INSERT or event.key == "escape"
+            ) and self._vi_handler.handle_key(event.key, event.character):
+                event.prevent_default()
+                event.stop()
+                return
 
         await super()._on_key(event)
 
@@ -716,11 +718,14 @@ class ChatInput(TextArea):
         if images:
             # Deduplicate - terminals sometimes fire paste twice
             now = time.time()
-            if self._last_image_paste and self._last_image_paste[0] == event.text:
-                if now - self._last_image_paste[1] < 0.5:  # Within 500ms = duplicate
-                    event.prevent_default()
-                    event.stop()
-                    return
+            if (
+                self._last_image_paste
+                and self._last_image_paste[0] == event.text
+                and now - self._last_image_paste[1] < 0.5  # Within 500ms = duplicate
+            ):
+                event.prevent_default()
+                event.stop()
+                return
             self._last_image_paste = (event.text, now)
 
             # Attach images
@@ -745,10 +750,9 @@ class ChatInput(TextArea):
             self._autocomplete.handle_key("enter")
             return
         text = self.text.strip()
-        if text:
+        if text and (not self._history or self._history[-1] != text):
             # Add to history (avoid duplicates of last entry)
-            if not self._history or self._history[-1] != text:
-                self._history.append(text)
+            self._history.append(text)
         self._history_index = -1
         self.post_message(self.Submitted(self.text))
 

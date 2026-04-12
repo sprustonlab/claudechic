@@ -653,13 +653,17 @@ class ChatView(AutoHideScroll):
 
     def _restore_busy_state(self) -> None:
         """Restore thinking indicator if agent is busy with no pending tool spinners."""
-        if self._agent and self._agent.status == AgentStatus.BUSY:
+        if (
+            self._agent
+            and self._agent.status == AgentStatus.BUSY
             # Only show ThinkingIndicator if there are no pending tools
             # (pending tools have their own inline spinners)
-            if not self._pending_tool_widgets and self._thinking_indicator is None:
-                self._thinking_indicator = ThinkingIndicator()
-                self.mount(self._thinking_indicator)
-                self.scroll_end(animate=False)
+            and not self._pending_tool_widgets
+            and self._thinking_indicator is None
+        ):
+            self._thinking_indicator = ThinkingIndicator()
+            self.mount(self._thinking_indicator)
+            self.scroll_end(animate=False)
 
     def clear_to_recent(self, keep: int = 10) -> None:
         """Remove all but the most recent N widgets.

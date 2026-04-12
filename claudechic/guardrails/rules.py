@@ -180,14 +180,12 @@ def should_skip_for_role(rule: Rule | Injection, agent_role: str | None) -> bool
     - roles: rule only fires for these roles (skip if role not in list)
     - exclude_roles: rule never fires for these roles (skip if role in list)
     """
-    if rule.roles:
+    if rule.roles and (agent_role is None or agent_role not in rule.roles):
         # Rule only applies to specific roles
-        if agent_role is None or agent_role not in rule.roles:
-            return True
-    if rule.exclude_roles:
+        return True
+    if rule.exclude_roles and agent_role and agent_role in rule.exclude_roles:
         # Rule is skipped for excluded roles
-        if agent_role and agent_role in rule.exclude_roles:
-            return True
+        return True
     return False
 
 

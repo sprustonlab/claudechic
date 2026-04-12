@@ -361,11 +361,14 @@ class Agent:
             from anyio._backends._asyncio import CancelScope
 
             for obj in gc.get_objects():
-                if isinstance(obj, CancelScope) and obj._cancel_called:
-                    if hasattr(obj, "_tasks"):
-                        done = [t for t in obj._tasks if t.done()]
-                        for t in done:
-                            obj._tasks.discard(t)
+                if (
+                    isinstance(obj, CancelScope)
+                    and obj._cancel_called
+                    and hasattr(obj, "_tasks")
+                ):
+                    done = [t for t in obj._tasks if t.done()]
+                    for t in done:
+                        obj._tasks.discard(t)
         except Exception:
             pass  # Best effort cleanup
 
@@ -997,9 +1000,13 @@ Key Rules:
 
         elif isinstance(message, SystemMessage):
             # Capture session_id from init message (earlier than ResultMessage)
-            if message.subtype == "init" and not self.session_id:
-                if isinstance(message.data, dict) and "session_id" in message.data:
-                    self.session_id = message.data["session_id"]
+            if (
+                message.subtype == "init"
+                and not self.session_id
+                and isinstance(message.data, dict)
+                and "session_id" in message.data
+            ):
+                self.session_id = message.data["session_id"]
             if self.observer:
                 self.observer.on_system_message(self, message)
 

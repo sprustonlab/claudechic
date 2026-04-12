@@ -2450,10 +2450,11 @@ class ChatApp(App):
 
     def action_quit(self) -> None:  # type: ignore[override]
         # If history search is visible, cancel it
-        if hs := self.query_one_optional("#history-search", HistorySearch):
-            if hs.styles.display != "none":
-                hs.action_cancel()
-                return
+        if (
+            hs := self.query_one_optional("#history-search", HistorySearch)
+        ) and hs.styles.display != "none":
+            hs.action_cancel()
+            return
 
         # If shell command is running, kill it
         if self._shell_process is not None:
@@ -2468,10 +2469,11 @@ class ChatApp(App):
             return
 
         # If input has text, clear it first
-        if chat_input := self.query_one_optional("ChatInput", ChatInput):
-            if chat_input.text:
-                chat_input.text = ""
-                return
+        if (
+            chat_input := self.query_one_optional("ChatInput", ChatInput)
+        ) and chat_input.text:
+            chat_input.text = ""
+            return
 
         now = time.time()
         if hasattr(self, "_last_quit_time") and now - self._last_quit_time < 1.0:
