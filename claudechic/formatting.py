@@ -343,13 +343,7 @@ def format_tool_input(name: str, input: dict, cwd: Path | None = None) -> str:
         return path
     elif name == ToolName.BASH:
         return input.get("command", "?")
-    elif name == ToolName.GLOB:
-        pattern = input.get("pattern", "?")
-        path = input.get("path")
-        if path and path != ".":
-            return f"{pattern} in {path}"
-        return pattern
-    elif name == ToolName.GREP:
+    elif name == ToolName.GLOB or name == ToolName.GREP:
         pattern = input.get("pattern", "?")
         path = input.get("path")
         if path and path != ".":

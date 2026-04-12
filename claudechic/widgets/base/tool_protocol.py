@@ -25,6 +25,6 @@ class ToolWidget(Protocol):
         """Collapse this widget to save visual space."""
         ...
 
-    def set_result(self, result: "ToolResultBlock") -> None:
+    def set_result(self, result: ToolResultBlock) -> None:
         """Update the widget with the tool's result."""
         ...

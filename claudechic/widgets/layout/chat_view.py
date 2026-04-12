@@ -524,7 +524,7 @@ class ChatView(AutoHideScroll):
         self.scroll_if_tailing()
 
     def append_tool_use(
-        self, tool: ToolUse, block: "ToolUseBlock", parent_tool_id: str | None
+        self, tool: ToolUse, block: ToolUseBlock, parent_tool_id: str | None
     ) -> None:
         """Append a tool use widget to the view.
 
@@ -576,7 +576,7 @@ class ChatView(AutoHideScroll):
         self.scroll_if_tailing()
 
     def update_tool_result(
-        self, tool_id: str, block: "ToolResultBlock", parent_tool_id: str | None
+        self, tool_id: str, block: ToolResultBlock, parent_tool_id: str | None
     ) -> None:
         """Update a tool widget with its result.
 

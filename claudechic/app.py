@@ -609,7 +609,7 @@ class ChatApp(App):
             return
         self._show_system_info(message, "warning", None)
 
-    def _plan_mode_hooks(self) -> "dict[HookEvent, list[HookMatcher]]":
+    def _plan_mode_hooks(self) -> dict[HookEvent, list[HookMatcher]]:
         """Create hooks for plan mode enforcement."""
         # Tools that should be blocked in plan mode (except plan file writes)
         blocked_tools = {"Edit", "Write", "Bash", "NotebookEdit"}
@@ -646,7 +646,7 @@ class ChatApp(App):
 
     def _guardrail_hooks(
         self, agent_role: str | None = None
-    ) -> "dict[HookEvent, list[HookMatcher]]":
+    ) -> dict[HookEvent, list[HookMatcher]]:
         """Create PreToolUse hooks that evaluate rules from manifests.
 
         Delegates to create_guardrail_hooks() in guardrails/hooks.py.
@@ -699,7 +699,7 @@ class ChatApp(App):
 
     def _merged_hooks(
         self, agent_type: str | None = None
-    ) -> "dict[HookEvent, list[HookMatcher]]":
+    ) -> dict[HookEvent, list[HookMatcher]]:
         """Merge plan-mode hooks, guardrail hooks, and PostCompact hook."""
         hooks = self._plan_mode_hooks()
 
@@ -929,7 +929,7 @@ class ChatApp(App):
         except Exception:
             log.debug("Onboarding check failed", exc_info=True)
 
-    def on_welcome_screen_selected(self, event: "WelcomeScreen.Selected") -> None:
+    def on_welcome_screen_selected(self, event: WelcomeScreen.Selected) -> None:
         """Handle user selecting a facet from the welcome screen."""
         from claudechic.tasks import create_safe_task
 
@@ -938,11 +938,11 @@ class ChatApp(App):
             name=f"onboarding-{event.workflow_id}",
         )
 
-    def on_welcome_screen_skipped(self, event: "WelcomeScreen.Skipped") -> None:
+    def on_welcome_screen_skipped(self, event: WelcomeScreen.Skipped) -> None:
         """Handle user skipping the welcome screen for this session."""
         log.info("Onboarding welcome screen skipped")
 
-    def on_welcome_screen_dismissed(self, event: "WelcomeScreen.Dismissed") -> None:
+    def on_welcome_screen_dismissed(self, event: WelcomeScreen.Dismissed) -> None:
         """Handle user permanently dismissing the welcome screen."""
         try:
             from claudechic.hints.state import HintStateStore
@@ -1948,7 +1948,7 @@ class ChatApp(App):
         self._send_to_agent(self.agent_mgr.active, prompt, display_as=display_as)
 
     def _send_to_agent(
-        self, agent: "Agent", prompt: str, *, display_as: str | None = None
+        self, agent: Agent, prompt: str, *, display_as: str | None = None
     ) -> None:
         """Send prompt to a specific agent.
 
@@ -2390,7 +2390,7 @@ class ChatApp(App):
         self.chat_input.focus()
 
     def on_pending_shell_widget_cancelled(
-        self, event: "PendingShellWidget.Cancelled"
+        self, event: PendingShellWidget.Cancelled
     ) -> None:
         """Handle shell command cancellation from widget."""
         handler = self._pending_shell_cancels.get(id(event.widget))
@@ -2838,7 +2838,7 @@ class ChatApp(App):
         except Exception as e:
             self.show_error("SDK reconnect failed", e)
 
-    async def _check_for_plan(self, agent: "Agent") -> None:
+    async def _check_for_plan(self, agent: Agent) -> None:
         """Check if a plan file exists for this agent's session and cache it."""
         if not agent.session_id:
             return
@@ -3009,7 +3009,7 @@ class ChatApp(App):
             return
         self._do_close_agent(event.agent_id)
 
-    async def _reconnect_agent(self, agent: "Agent", session_id: str) -> None:
+    async def _reconnect_agent(self, agent: Agent, session_id: str) -> None:
         """Disconnect and reconnect an agent to reload its session."""
         await agent.disconnect()
         options = self._make_options(

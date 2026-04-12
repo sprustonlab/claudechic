@@ -12,8 +12,9 @@ LEAF MODULE: stdlib only. No imports from workflows/, checks/, or guardrails/.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from claudechic.hints.state import HintStateStore, ProjectState

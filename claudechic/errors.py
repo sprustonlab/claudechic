@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 import sys
 import traceback
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 from claudechic.config import CONFIG
 

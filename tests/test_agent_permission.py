@@ -58,7 +58,7 @@ class TestPermissionModes:
     def test_all_expected_modes_present(self):
         """Verify all expected permission modes are present."""
         expected = {"default", "acceptEdits", "plan", "planSwarm", "bypassPermissions"}
-        assert Agent.PERMISSION_MODES == expected
+        assert expected == Agent.PERMISSION_MODES
 
     def test_permission_modes_is_set(self):
         """Verify PERMISSION_MODES is a set (not list/tuple)."""

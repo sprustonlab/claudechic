@@ -30,7 +30,7 @@ class Checkpoint:
     tool_count: int
 
 
-def get_checkpoints(agent: "Agent") -> list[Checkpoint]:
+def get_checkpoints(agent: Agent) -> list[Checkpoint]:
     """Extract checkpoints from agent's message history.
 
     Each user message corresponds to a checkpoint. The UUID comes from
@@ -59,7 +59,7 @@ def get_checkpoints(agent: "Agent") -> list[Checkpoint]:
                 tool_count = 0
 
             # Extract preview text from user message
-            content: "UserContent" = item.content  # type: ignore
+            content: UserContent = item.content  # type: ignore
             preview = _get_preview(content.text)
 
             # Get UUID if available
@@ -81,7 +81,7 @@ def get_checkpoints(agent: "Agent") -> list[Checkpoint]:
             # Count tool uses in assistant response
             from claudechic.agent import ToolUse
 
-            assistant_content: "AssistantContent" = item.content  # type: ignore
+            assistant_content: AssistantContent = item.content  # type: ignore
             for block in assistant_content.blocks:
                 if isinstance(block, ToolUse):
                     tool_count += 1

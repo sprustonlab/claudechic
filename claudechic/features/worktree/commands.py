@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 MAX_CLEANUP_ATTEMPTS = 3
 
 
-def handle_worktree_command(app: "ChatApp", command: str) -> None:
+def handle_worktree_command(app: ChatApp, command: str) -> None:
     """Handle /worktree commands.
 
     Args:
@@ -82,7 +82,7 @@ def handle_worktree_command(app: "ChatApp", command: str) -> None:
 
 
 @work(group="finish_start", exclusive=True, exit_on_error=False)
-async def _handle_finish(app: "ChatApp") -> None:
+async def _handle_finish(app: ChatApp) -> None:
     """Handle /worktree finish command.
 
     Phase-based approach:
@@ -118,7 +118,7 @@ async def _handle_finish(app: "ChatApp") -> None:
     _run_resolution(app, agent)
 
 
-def _show_finish_status(app: "ChatApp", status: WorktreeStatus) -> None:
+def _show_finish_status(app: ChatApp, status: WorktreeStatus) -> None:
     """Show pre-flight status to user."""
     parts = []
     if status.commits_ahead == 0:
@@ -138,7 +138,7 @@ def _show_finish_status(app: "ChatApp", status: WorktreeStatus) -> None:
 
 
 @work(group="finish", exclusive=True, exit_on_error=False)
-async def _run_resolution(app: "ChatApp", agent: "Agent") -> None:
+async def _run_resolution(app: ChatApp, agent: Agent) -> None:
     """Run Phase 2: Resolution. May invoke Claude or prompt user."""
     from claudechic.widgets import ChatInput
 
@@ -236,7 +236,7 @@ async def _run_resolution(app: "ChatApp", agent: "Agent") -> None:
 
 
 @work(group="cleanup", exclusive=True, exit_on_error=False)
-async def _run_cleanup(app: "ChatApp", agent: "Agent") -> None:
+async def _run_cleanup(app: ChatApp, agent: Agent) -> None:
     """Run Phase 3: Cleanup. Bash only, Claude if it fails."""
 
     state = agent.finish_state
@@ -268,7 +268,7 @@ async def _run_cleanup(app: "ChatApp", agent: "Agent") -> None:
     )
 
 
-def _finish_complete(app: "ChatApp", agent: "Agent", warning: str = "") -> None:
+def _finish_complete(app: ChatApp, agent: Agent, warning: str = "") -> None:
     """Handle successful finish completion."""
     state = agent.finish_state
     if not state:
@@ -286,7 +286,7 @@ def _finish_complete(app: "ChatApp", agent: "Agent", warning: str = "") -> None:
 
 
 @work(group="finish_continue", exclusive=True, exit_on_error=False)
-async def on_response_complete_finish(app: "ChatApp", agent: "Agent") -> None:
+async def on_response_complete_finish(app: ChatApp, agent: Agent) -> None:
     """Called from on_response_complete when finish_state is set.
 
     Continues the finish process after Claude completes a task.
@@ -314,7 +314,7 @@ async def on_response_complete_finish(app: "ChatApp", agent: "Agent") -> None:
         _run_cleanup(app, agent)
 
 
-def _switch_or_create_worktree(app: "ChatApp", feature_name: str) -> None:
+def _switch_or_create_worktree(app: ChatApp, feature_name: str) -> None:
     """Switch to existing worktree agent or create new one."""
     # Check if we already have an agent for this worktree
     for agent in app.agents.values():
@@ -342,7 +342,7 @@ def _switch_or_create_worktree(app: "ChatApp", feature_name: str) -> None:
             app.notify(message, severity="error")
 
 
-def _close_agents_for_branches(app: "ChatApp", branches: list[str]) -> None:
+def _close_agents_for_branches(app: ChatApp, branches: list[str]) -> None:
     """Close agents associated with removed worktree branches."""
     for branch in branches:
         agent = next((a for a in app.agents.values() if a.worktree == branch), None)
@@ -356,7 +356,7 @@ def _close_agents_for_branches(app: "ChatApp", branches: list[str]) -> None:
             app._do_close_agent(agent.id)
 
 
-def _handle_discard(app: "ChatApp") -> None:
+def _handle_discard(app: ChatApp) -> None:
     """Handle /worktree discard command - discard current worktree entirely."""
     success, message, info = get_finish_info(app.sdk_cwd)
     if not success or info is None:
@@ -375,7 +375,7 @@ def _handle_discard(app: "ChatApp") -> None:
         _do_discard(app, info)
 
 
-def _do_discard(app: "ChatApp", info: FinishInfo) -> None:
+def _do_discard(app: ChatApp, info: FinishInfo) -> None:
     """Force remove worktree and branch."""
     wt = WorktreeInfo(path=info.worktree_dir, branch=info.branch_name, is_main=False)
     success, msg = remove_worktree(wt, force=True)
@@ -388,7 +388,7 @@ def _do_discard(app: "ChatApp", info: FinishInfo) -> None:
 
 @work(group="discard_prompt", exclusive=True, exit_on_error=False)
 async def _run_discard_prompt(
-    app: "ChatApp", info: FinishInfo, status: WorktreeStatus
+    app: ChatApp, info: FinishInfo, status: WorktreeStatus
 ) -> None:
     """Prompt user to confirm discarding a worktree with commits/changes."""
     from claudechic.widgets import ChatInput, SelectionPrompt
@@ -421,7 +421,7 @@ async def _run_discard_prompt(
         app.notify("Discard cancelled")
 
 
-def _handle_cleanup(app: "ChatApp", branches: list[str] | None) -> None:
+def _handle_cleanup(app: ChatApp, branches: list[str] | None) -> None:
     """Handle /worktree cleanup command."""
     results = cleanup_worktrees(branches)
 
@@ -456,7 +456,7 @@ def _handle_cleanup(app: "ChatApp", branches: list[str] | None) -> None:
 
 @work(group="cleanup_prompt", exclusive=True, exit_on_error=False)
 async def _run_cleanup_prompt(
-    app: "ChatApp", needs_confirm: list[tuple[str, str]]
+    app: ChatApp, needs_confirm: list[tuple[str, str]]
 ) -> None:
     """Show prompt for confirming worktree removal."""
     from claudechic.widgets import ChatInput, SelectionPrompt
@@ -496,7 +496,7 @@ async def _run_cleanup_prompt(
     app.query_one("#input", ChatInput).focus()
 
 
-def _show_worktree_modal(app: "ChatApp") -> None:
+def _show_worktree_modal(app: ChatApp) -> None:
     """Show worktree selection modal."""
     worktrees = [(str(wt.path), wt.branch) for wt in list_worktrees() if not wt.is_main]
     prompt = WorktreePrompt(worktrees)
@@ -507,7 +507,7 @@ def _show_worktree_modal(app: "ChatApp") -> None:
 
 @work(group="worktree", exclusive=True, exit_on_error=False)
 async def _wait_for_worktree_selection(
-    app: "ChatApp", prompt: WorktreePrompt, container: Center
+    app: ChatApp, prompt: WorktreePrompt, container: Center
 ) -> None:
     """Wait for worktree modal selection and act on it."""
     try:

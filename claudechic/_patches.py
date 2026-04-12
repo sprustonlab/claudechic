@@ -65,7 +65,7 @@ def _patch_textarea_undo_crash() -> None:
 
     # The actual fix: for each method, we replace it with a version
     # that calls edit.after() before _refresh_size().
-    from typing import Sequence
+    from collections.abc import Sequence
 
     _orig_undo = TextArea._undo_batch
     _orig_redo = TextArea._redo_batch

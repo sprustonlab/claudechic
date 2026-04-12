@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Callable, Iterator
 
 from claude_agent_sdk import ClaudeAgentOptions
 
@@ -298,7 +298,7 @@ class AgentManager:
         """
         return self.closed_agents.get(name)
 
-    async def reopen(self, name: str) -> "Agent":
+    async def reopen(self, name: str) -> Agent:
         """Reopen a previously closed agent.
 
         Removes the entry from closed_agents and creates a new Agent via

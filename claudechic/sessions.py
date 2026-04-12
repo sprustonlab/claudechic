@@ -144,7 +144,7 @@ def _extract_session_info(filepath: Path) -> tuple[str, int, float]:
                             pass
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
-    except (IOError, OSError):
+    except OSError:
         pass
 
     # Prefer summary over first message
@@ -271,7 +271,7 @@ async def load_session_messages(session_id: str, cwd: Path | None = None) -> lis
                                         "id": block.get("id", ""),
                                     }
                                 )
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         pass
 
     return messages
@@ -309,7 +309,7 @@ async def get_plan_path_for_session(
             except (json.JSONDecodeError, UnicodeDecodeError):
                 # Skip lines that fail to parse (partial line at chunk boundary)
                 continue
-    except (IOError, OSError):
+    except OSError:
         return None
 
     if not slug:
@@ -363,7 +363,7 @@ async def get_context_from_session(
                 # Skip lines that fail to parse - expected for partial lines
                 # when reading from middle of file (chunk may split UTF-8 chars)
                 continue
-    except (IOError, OSError):
+    except OSError:
         return None
 
     return None

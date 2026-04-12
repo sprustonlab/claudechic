@@ -24,7 +24,7 @@ class CheckpointItem(ListItem):
     }
     """
 
-    def __init__(self, checkpoint: "Checkpoint") -> None:
+    def __init__(self, checkpoint: Checkpoint) -> None:
         super().__init__()
         self.checkpoint = checkpoint
 
@@ -67,7 +67,7 @@ class RewindScreen(Screen[tuple[int, str] | None]):
     rewind_type is one of: "conversation", "code", "both"
     """
 
-    def __init__(self, agent: "Agent") -> None:
+    def __init__(self, agent: Agent) -> None:
         super().__init__()
         self._agent = agent
         self._selected_checkpoint: int | None = None

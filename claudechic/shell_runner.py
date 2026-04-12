@@ -9,7 +9,8 @@ import os
 import signal
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 # PTY support is Unix-only
 UNIX_PTY_SUPPORT = sys.platform != "win32"

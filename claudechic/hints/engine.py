@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from claudechic.hints.state import ActivationConfig, HintStateStore, ProjectState
 from claudechic.hints.types import HintSpec

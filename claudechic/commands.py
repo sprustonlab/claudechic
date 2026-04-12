@@ -163,7 +163,7 @@ def get_help_commands() -> list[tuple[str, str]]:
     return result
 
 
-def _track_command(app: "ChatApp", command: str) -> None:
+def _track_command(app: ChatApp, command: str) -> None:
     """Track command usage for analytics."""
     agent = app._agent
     app.run_worker(
@@ -175,7 +175,7 @@ def _track_command(app: "ChatApp", command: str) -> None:
     )
 
 
-def handle_command(app: "ChatApp", prompt: str) -> bool:
+def handle_command(app: ChatApp, prompt: str) -> bool:
     """Route slash commands. Returns True if handled, False to send to Claude."""
     cmd = prompt.strip()
 
@@ -409,7 +409,7 @@ SDK_PASSTHROUGH_COMMANDS = frozenset(
 )
 
 
-def _handle_resume(app: "ChatApp", command: str) -> bool:
+def _handle_resume(app: ChatApp, command: str) -> bool:
     """Handle /resume [session_id_or_prefix] command."""
     from claudechic.sessions import find_session_by_prefix
 
@@ -430,7 +430,7 @@ def _handle_resume(app: "ChatApp", command: str) -> bool:
     return True
 
 
-def _handle_rewind(app: "ChatApp", command: str) -> bool:
+def _handle_rewind(app: ChatApp, command: str) -> bool:
     """Handle /rewind [checkpoint_index] command.
 
     Without argument: shows checkpoint picker UI
@@ -451,7 +451,7 @@ def _handle_rewind(app: "ChatApp", command: str) -> bool:
     return True
 
 
-def _handle_agent(app: "ChatApp", command: str) -> bool:
+def _handle_agent(app: ChatApp, command: str) -> bool:
     """Handle /agent commands: list, create, close."""
     from claudechic.widgets import ChatMessage
 
@@ -550,7 +550,7 @@ def _handle_agent(app: "ChatApp", command: str) -> bool:
     return True
 
 
-def _handle_shell(app: "ChatApp", command: str) -> bool:
+def _handle_shell(app: ChatApp, command: str) -> bool:
     """Run shell command inline, or interactive shell if no command or -i flag.
 
     NOTE: On Windows, only interactive mode is supported (no PTY capture).
@@ -652,14 +652,14 @@ def _wait_for_keypress() -> None:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def _handle_bang(app: "ChatApp", command: str) -> bool:
+def _handle_bang(app: ChatApp, command: str) -> bool:
     """Alias for /shell <command>. Empty command opens interactive shell."""
     if not command:
         return _handle_shell(app, "/shell")
     return _handle_shell(app, f"/shell {command}")
 
 
-def _handle_welcome(app: "ChatApp") -> bool:
+def _handle_welcome(app: ChatApp) -> bool:
     """Send welcome message to Claude to present to user."""
     welcome_prompt = """\
 Welcome the user to Claude Chic. Present this message exactly:
@@ -690,7 +690,7 @@ Repeat this message verbatim. Help them if they have questions.
     return True
 
 
-def _handle_review(app: "ChatApp", context: str | None) -> bool:
+def _handle_review(app: ChatApp, context: str | None) -> bool:
     """Inject review skill instructions into current agent."""
     agent = app._agent
     if not agent:
@@ -717,7 +717,7 @@ def _handle_review(app: "ChatApp", context: str | None) -> bool:
     return True
 
 
-def _handle_compactish(app: "ChatApp", command: str) -> bool:
+def _handle_compactish(app: ChatApp, command: str) -> bool:
     """Handle /compactish command - compact the current session.
 
     Flags:
@@ -768,7 +768,7 @@ def _handle_compactish(app: "ChatApp", command: str) -> bool:
     return True
 
 
-async def _handle_help(app: "ChatApp") -> None:
+async def _handle_help(app: ChatApp) -> None:
     """Display help information."""
     from claudechic.help_data import format_help
     from claudechic.widgets import ChatMessage
@@ -784,7 +784,7 @@ async def _handle_help(app: "ChatApp") -> None:
         chat_view.scroll_if_tailing()
 
 
-def _handle_processes(app: "ChatApp") -> None:
+def _handle_processes(app: ChatApp) -> None:
     """Show process modal with current background processes."""
     from claudechic.widgets.modals.process_modal import ProcessModal
 
@@ -796,7 +796,7 @@ def _handle_processes(app: "ChatApp") -> None:
     app.push_screen(ProcessModal(processes))
 
 
-def _handle_clearui(app: "ChatApp", command: str) -> bool:
+def _handle_clearui(app: ChatApp, command: str) -> bool:
     """Clear UI for all agents, keeping last N widgets each."""
     parts = command.split(maxsplit=1)
     keep = 10
@@ -810,7 +810,7 @@ def _handle_clearui(app: "ChatApp", command: str) -> bool:
     return True
 
 
-def _handle_reviews(app: "ChatApp", job_id: str | None) -> None:
+def _handle_reviews(app: ChatApp, job_id: str | None) -> None:
     """Show roborev reviews: list all or show detail for a specific job."""
 
     agent = app._agent
@@ -834,7 +834,7 @@ def _format_verdict(verdict: object) -> str:
     return _VERDICT_MAP.get(str(verdict or "").lower(), "…")
 
 
-async def _list_reviews_in_chat(app: "ChatApp") -> None:
+async def _list_reviews_in_chat(app: ChatApp) -> None:
     """List reviews as a markdown table in the chat."""
     import asyncio
 
@@ -890,7 +890,7 @@ async def _list_reviews_in_chat(app: "ChatApp") -> None:
     chat_view.scroll_if_tailing()
 
 
-async def _show_review_detail(app: "ChatApp", job_id: str) -> None:
+async def _show_review_detail(app: ChatApp, job_id: str) -> None:
     """Show detail for a specific review job."""
     import asyncio
 
@@ -937,7 +937,7 @@ async def _show_review_detail(app: "ChatApp", job_id: str) -> None:
     chat_view.scroll_if_tailing()
 
 
-def _handle_vim(app: "ChatApp") -> bool:
+def _handle_vim(app: ChatApp) -> bool:
     """Toggle vim mode for input."""
     from claudechic.config import CONFIG, save
 
@@ -954,7 +954,7 @@ def _handle_vim(app: "ChatApp") -> bool:
     return True
 
 
-def _handle_analytics(app: "ChatApp", command: str) -> bool:
+def _handle_analytics(app: ChatApp, command: str) -> bool:
     """Handle /analytics commands: opt-in, opt-out."""
     from claudechic.config import CONFIG, save
 
@@ -1102,7 +1102,7 @@ def _build_perspective_prompt(
     )
 
 
-def _handle_plan_swarm(app: "ChatApp") -> bool:
+def _handle_plan_swarm(app: ChatApp) -> bool:
     """Enter plan-swarm mode. Next user message will spawn perspective agents."""
     agent = app._agent
     if not agent:
@@ -1117,7 +1117,7 @@ def _handle_plan_swarm(app: "ChatApp") -> bool:
     return True
 
 
-def start_plan_swarm(app: "ChatApp", task: str) -> None:
+def start_plan_swarm(app: ChatApp, task: str) -> None:
     """Spawn perspective agents and send orchestrator prompt. Called when user sends first message in planSwarm mode."""
     agent = app._agent
     if not agent:

@@ -117,7 +117,7 @@ def discover_skills() -> list[tuple[str, str]]:
     return skills
 
 
-async def get_sdk_commands(agent: "Agent | None") -> list[tuple[str, str]]:
+async def get_sdk_commands(agent: Agent | None) -> list[tuple[str, str]]:
     """Get commands from SDK server info."""
     if not agent or not agent.client:
         return []
@@ -135,7 +135,7 @@ async def get_sdk_commands(agent: "Agent | None") -> list[tuple[str, str]]:
         return []
 
 
-async def format_help(agent: "Agent | None") -> str:
+async def format_help(agent: Agent | None) -> str:
     """Format complete help text as markdown."""
     lines = ["# Help\n"]
 
