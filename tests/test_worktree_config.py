@@ -1,9 +1,15 @@
 """Tests for worktree path template expansion."""
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+_unix_only = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Test uses Unix-style /tmp/ paths which are not absolute on Windows",
+)
 
 from claudechic.features.worktree.git import _expand_worktree_path, start_worktree
 
@@ -31,8 +37,16 @@ class TestWorktreePathTemplate:
     @pytest.mark.parametrize(
         "template,expected",
         [
-            ("/tmp/worktrees/${repo_name}", Path("/tmp/worktrees/my-repo")),
-            ("/tmp/worktrees/${branch_name}", Path("/tmp/worktrees/test-feature")),
+            pytest.param(
+                "/tmp/worktrees/${repo_name}",
+                Path("/tmp/worktrees/my-repo"),
+                marks=_unix_only,
+            ),
+            pytest.param(
+                "/tmp/worktrees/${branch_name}",
+                Path("/tmp/worktrees/test-feature"),
+                marks=_unix_only,
+            ),
             ("$HOME/worktrees/test", Path.home() / "worktrees" / "test"),
             ("~/worktrees/test", Path.home() / "worktrees" / "test"),
         ],
@@ -52,6 +66,7 @@ class TestWorktreePathTemplate:
         expected = Path.home() / "code" / "worktrees" / "my-repo" / "test-feature"
         assert result == expected
 
+    @_unix_only
     def test_expand_template_with_spaces_in_names(self):
         """Test handling of spaces in repo/branch names."""
         result = _expand_worktree_path(

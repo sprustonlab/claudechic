@@ -605,6 +605,7 @@ async def test_bang_command_inline_shell(mock_sdk):
         input_widget = app.query_one("#input", ChatInput)
         input_widget.text = "!echo hello"
         await pilot.press("enter")
+        await wait_for_workers(app)
         await pilot.pause()
 
         # Should create a ShellOutputWidget
@@ -627,6 +628,7 @@ async def test_bang_command_captures_stderr(mock_sdk):
         input_widget = app.query_one("#input", ChatInput)
         input_widget.text = "!echo error >&2"
         await pilot.press("enter")
+        await wait_for_workers(app)
         await pilot.pause()
 
         widgets = list(chat_view.query(ShellOutputWidget))
@@ -648,6 +650,7 @@ async def test_bang_command_shows_exit_code(mock_sdk):
         input_widget = app.query_one("#input", ChatInput)
         input_widget.text = "!exit 42"
         await pilot.press("enter")
+        await wait_for_workers(app)
         await pilot.pause()
 
         widgets = list(chat_view.query(ShellOutputWidget))

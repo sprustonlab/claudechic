@@ -131,7 +131,8 @@ class TestSetGlobalPermissionMode:
     @pytest.mark.asyncio
     async def test_updates_global_permission_mode(self, options_factory):
         """Verify set_global_permission_mode() updates self.global_permission_mode."""
-        manager = AgentManager(options_factory)
+        with patch.dict("claudechic.agent_manager.CONFIG", {}, clear=True):
+            manager = AgentManager(options_factory)
         # Default is now 'default' for fresh install (safe mode)
         assert manager.global_permission_mode == "default"
 

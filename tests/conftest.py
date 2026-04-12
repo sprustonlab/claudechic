@@ -72,6 +72,12 @@ def mock_sdk():
 
     # Use ExitStack to avoid deep nesting
     with ExitStack() as stack:
+        # Clear local config first so tests get fresh-install defaults
+        # (prevents developer's ~/.claude/.claudechic.yaml from leaking in).
+        # Must come before the analytics patch since they share the same dict.
+        stack.enter_context(
+            patch.dict("claudechic.agent_manager.CONFIG", {}, clear=True)
+        )
         # Disable analytics to avoid httpx AsyncClient connection leaks
         stack.enter_context(
             patch.dict("claudechic.analytics.CONFIG", {"analytics": {"enabled": False}})
