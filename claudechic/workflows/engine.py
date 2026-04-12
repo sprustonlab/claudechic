@@ -25,19 +25,6 @@ from claudechic.workflows.phases import Phase
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class WorkflowManifest:
-    """Parsed representation of a workflow's YAML manifest.
-
-    Passed to WorkflowEngine at construction. Immutable snapshot
-    of the manifest as parsed by the loader.
-    """
-
-    workflow_id: str
-    phases: list[Phase] = field(default_factory=list)
-    main_role: str | None = None  # Role folder for the main agent
-
-
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------

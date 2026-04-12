@@ -929,7 +929,7 @@ class ChatApp(App):
         except Exception:
             log.debug("Onboarding check failed", exc_info=True)
 
-    def on_welcome_screen_selected(self, event: WelcomeScreen.Selected) -> None:
+    def on_welcome_screen_selected(self, event: "WelcomeScreen.Selected") -> None:  # noqa: F821
         """Handle user selecting a facet from the welcome screen."""
         from claudechic.tasks import create_safe_task
 
@@ -938,11 +938,11 @@ class ChatApp(App):
             name=f"onboarding-{event.workflow_id}",
         )
 
-    def on_welcome_screen_skipped(self, event: WelcomeScreen.Skipped) -> None:
+    def on_welcome_screen_skipped(self, event: "WelcomeScreen.Skipped") -> None:  # noqa: F821
         """Handle user skipping the welcome screen for this session."""
         log.info("Onboarding welcome screen skipped")
 
-    def on_welcome_screen_dismissed(self, event: WelcomeScreen.Dismissed) -> None:
+    def on_welcome_screen_dismissed(self, event: "WelcomeScreen.Dismissed") -> None:  # noqa: F821
         """Handle user permanently dismissing the welcome screen."""
         try:
             from claudechic.hints.state import HintStateStore
@@ -1509,7 +1509,7 @@ class ChatApp(App):
         )
         from claudechic.chicsessions import Chicsession, ChicsessionEntry
 
-        root = _get_root(self)
+        _get_root(self)  # validates root exists
         mgr = _get_manager(self)
 
         entries: list[ChicsessionEntry] = []
