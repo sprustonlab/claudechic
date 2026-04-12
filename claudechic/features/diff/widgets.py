@@ -546,10 +546,7 @@ class DiffView(VerticalScroll):
 
     def is_editing(self) -> bool:
         """Return True if any hunk is in editing mode."""
-        for hunk_widget in self.query(HunkWidget):
-            if hunk_widget.editing:
-                return True
-        return False
+        return any(hunk_widget.editing for hunk_widget in self.query(HunkWidget))
 
 
 def _sanitize_id(path: str) -> str:

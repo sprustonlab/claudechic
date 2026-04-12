@@ -14,7 +14,4 @@ FILTERED_PATTERNS: list[re.Pattern[str]] = [
 
 def should_filter_message(message: str) -> bool:
     """Return True if the message should be filtered out."""
-    for pattern in FILTERED_PATTERNS:
-        if pattern.search(message):
-            return True
-    return False
+    return any(pattern.search(message) for pattern in FILTERED_PATTERNS)
