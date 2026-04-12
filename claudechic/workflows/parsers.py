@@ -67,9 +67,7 @@ class PhasesParser:
                     entry, namespace=namespace, source_path=source_path, idx=idx
                 )
             except _SkipItem as exc:
-                logger.warning(
-                    "%s: phases[%d]: %s — skipping", source_path, idx, exc
-                )
+                logger.warning("%s: phases[%d]: %s — skipping", source_path, idx, exc)
                 continue
 
             results.append(phase)

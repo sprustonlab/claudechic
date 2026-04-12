@@ -102,7 +102,9 @@ class MessageMetadataHeader(Static):
         if self.cache_read_tokens:
             cache_parts.append(f"{self._fmt_tokens(self.cache_read_tokens)} cached")
         if self.cache_creation_tokens:
-            cache_parts.append(f"{self._fmt_tokens(self.cache_creation_tokens)} new cache")
+            cache_parts.append(
+                f"{self._fmt_tokens(self.cache_creation_tokens)} new cache"
+            )
 
         if tokens_str and cache_parts:
             return f"{tokens_str} ({', '.join(cache_parts)})"
@@ -337,12 +339,14 @@ class ChatMessage(Static):
         from claudechic.config import CONFIG
 
         show_metadata = CONFIG.get("show_message_metadata", True)
-        has_metadata = any([
-            self._timestamp,
-            self._model,
-            self._input_tokens is not None,
-            self._output_tokens is not None,
-        ])
+        has_metadata = any(
+            [
+                self._timestamp,
+                self._model,
+                self._input_tokens is not None,
+                self._output_tokens is not None,
+            ]
+        )
 
         if has_metadata and show_metadata:
             yield MessageMetadataHeader(

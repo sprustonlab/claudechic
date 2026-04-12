@@ -154,7 +154,9 @@ async def run_pipeline(
         await asyncio.sleep(delay)
         try:
             textual_severity = _TEXTUAL_SEVERITY.get(hint.severity, "information")
-            send_notification(display_message, severity=textual_severity, timeout=timeout)
+            send_notification(
+                display_message, severity=textual_severity, timeout=timeout
+            )
         except Exception:
             logger.warning(
                 "send_notification failed for hint %r -- continuing",

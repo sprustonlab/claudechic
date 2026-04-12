@@ -30,7 +30,9 @@ if TYPE_CHECKING:
 # Type aliases for callback signatures
 GetPhaseCallback = Callable[[], str | None]
 GetActiveWfCallback = Callable[[], str | None]
-OverrideTokenConsumer = Callable[[str, str, dict, str], bool]  # (rule_id, tool_name, tool_input, enforcement) -> consumed
+OverrideTokenConsumer = Callable[
+    [str, str, dict, str], bool
+]  # (rule_id, tool_name, tool_input, enforcement) -> consumed
 
 
 def create_guardrail_hooks(
@@ -126,7 +128,9 @@ def create_guardrail_hooks(
                 continue  # Log doesn't block — check next rule
 
             elif rule.enforcement == "warn":
-                if consume_override and consume_override(rule.id, tool_name, tool_input, "warn"):
+                if consume_override and consume_override(
+                    rule.id, tool_name, tool_input, "warn"
+                ):
                     hit_logger.record(dataclasses.replace(hit, outcome="ack"))
                     continue  # Token consumed — allow, check next rule
                 else:
@@ -141,7 +145,9 @@ def create_guardrail_hooks(
                     }
 
             elif rule.enforcement == "deny":
-                if consume_override and consume_override(rule.id, tool_name, tool_input, "deny"):
+                if consume_override and consume_override(
+                    rule.id, tool_name, tool_input, "deny"
+                ):
                     hit_logger.record(dataclasses.replace(hit, outcome="overridden"))
                     continue  # Token consumed — allow, check next rule
                 else:

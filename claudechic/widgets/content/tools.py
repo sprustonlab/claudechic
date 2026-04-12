@@ -644,7 +644,9 @@ class AgentToolWidget(BaseToolWidget):
         elif tool_short.startswith("cluster_") and result.content:
             content = _extract_text_content(result.content)
             content = SYSTEM_REMINDER_PATTERN.sub("", content)
-            summary = self._cluster_result_summary(tool_short, content, result.is_error or False)
+            summary = self._cluster_result_summary(
+                tool_short, content, result.is_error or False
+            )
             if summary:
                 try:
                     collapsible = self.query_one(QuietCollapsible)
@@ -675,7 +677,9 @@ class AgentToolWidget(BaseToolWidget):
             except Exception:
                 pass
 
-    def _cluster_result_summary(self, tool_short: str, content: str, is_error: bool) -> str:
+    def _cluster_result_summary(
+        self, tool_short: str, content: str, is_error: bool
+    ) -> str:
         """Extract a short summary from cluster tool results."""
         if is_error:
             return "(error)"

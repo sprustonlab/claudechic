@@ -65,7 +65,9 @@ def _assemble_agent_prompt(
     phase_content = ""
     if current_phase:
         # Strip namespace prefix — qualified ID "project-team:specification" → bare "specification"
-        bare_phase = current_phase.split(":", 1)[1] if ":" in current_phase else current_phase
+        bare_phase = (
+            current_phase.split(":", 1)[1] if ":" in current_phase else current_phase
+        )
         phase_path = role_dir / f"{bare_phase}.md"
         if phase_path.is_file():
             phase_content = phase_path.read_text()

@@ -259,7 +259,9 @@ class HintStateStore:
             self._activation.setdefault("enabled", True)
             self._activation.setdefault("disabled_hints", [])
             # Normalize disabled_hints to a list
-            self._activation["disabled_hints"] = list(self._activation["disabled_hints"])
+            self._activation["disabled_hints"] = list(
+                self._activation["disabled_hints"]
+            )
         else:
             self._activation = {"enabled": True, "disabled_hints": []}
 

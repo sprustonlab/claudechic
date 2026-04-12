@@ -106,7 +106,10 @@ class TestWorkflowHitsLogging:
             matchers = hooks["PreToolUse"]
             hook_fn = matchers[0].hooks[0]
             result = await hook_fn(
-                {"tool_name": "Write", "tool_input": {"file_path": "/tmp/x.py", "content": "hi"}},
+                {
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "/tmp/x.py", "content": "hi"},
+                },
                 None,
                 None,
             )

@@ -73,7 +73,9 @@ class TestWorkflowPhases:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:
@@ -95,8 +97,7 @@ class TestWorkflowPhases:
 
                 # Activation notification should appear
                 activation_notifs = [
-                    n for n in app._notifications
-                    if "activated" in n.message.lower()
+                    n for n in app._notifications if "activated" in n.message.lower()
                 ]
                 assert len(activation_notifs) > 0, (
                     f"Expected activation toast, got: {[n.message for n in app._notifications]}"
@@ -115,7 +116,9 @@ class TestWorkflowPhases:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:
@@ -154,7 +157,9 @@ class TestWorkflowPhases:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:
@@ -194,7 +199,9 @@ class TestWorkflowPhases:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:

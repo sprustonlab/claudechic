@@ -54,14 +54,20 @@ class CommandOutputCheck:
 
             match = self.compiled_pattern.search(stdout)
             if match:
-                return CheckResult(passed=True, evidence=f"Pattern matched: {match.group(0)[:200]}")
+                return CheckResult(
+                    passed=True, evidence=f"Pattern matched: {match.group(0)[:200]}"
+                )
             excerpt = "\n".join(stdout.strip().splitlines()[:3])
             return CheckResult(
                 passed=False,
-                evidence=f"Pattern '{self.compiled_pattern.pattern}' not found in output: {excerpt}"[:300],
+                evidence=f"Pattern '{self.compiled_pattern.pattern}' not found in output: {excerpt}"[
+                    :300
+                ],
             )
         except asyncio.TimeoutError:
-            return CheckResult(passed=False, evidence=f"Command timed out after 30s: {self.command}")
+            return CheckResult(
+                passed=False, evidence=f"Command timed out after 30s: {self.command}"
+            )
         except OSError as e:
             return CheckResult(passed=False, evidence=f"Command failed: {e}")
 
@@ -95,7 +101,9 @@ class FileContentCheck:
 
         for i, line in enumerate(content.splitlines(), 1):
             if self.compiled_pattern.search(line):
-                return CheckResult(passed=True, evidence=f"Line {i}: {line.strip()}"[:200])
+                return CheckResult(
+                    passed=True, evidence=f"Line {i}: {line.strip()}"[:200]
+                )
 
         return CheckResult(
             passed=False,

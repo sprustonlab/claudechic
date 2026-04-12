@@ -644,7 +644,9 @@ class ChatApp(App):
             "PreToolUse": [HookMatcher(matcher=None, hooks=[block_mutating_tools])],  # type: ignore[arg-type]
         }
 
-    def _guardrail_hooks(self, agent_role: str | None = None) -> "dict[HookEvent, list[HookMatcher]]":
+    def _guardrail_hooks(
+        self, agent_role: str | None = None
+    ) -> "dict[HookEvent, list[HookMatcher]]":
         """Create PreToolUse hooks that evaluate rules from manifests.
 
         Delegates to create_guardrail_hooks() in guardrails/hooks.py.
@@ -665,9 +667,7 @@ class ChatApp(App):
                 else None
             ),
             get_active_wf=lambda: (
-                self._workflow_engine.workflow_id
-                if self._workflow_engine
-                else None
+                self._workflow_engine.workflow_id if self._workflow_engine else None
             ),
             consume_override=self._token_store.consume,
         )
@@ -697,7 +697,9 @@ class ChatApp(App):
             log.warning("Override prompt error for %s: %s", rule_id, e)
             return False  # Deny on error
 
-    def _merged_hooks(self, agent_type: str | None = None) -> "dict[HookEvent, list[HookMatcher]]":
+    def _merged_hooks(
+        self, agent_type: str | None = None
+    ) -> "dict[HookEvent, list[HookMatcher]]":
         """Merge plan-mode hooks, guardrail hooks, and PostCompact hook."""
         hooks = self._plan_mode_hooks()
 
@@ -776,7 +778,10 @@ class ChatApp(App):
         self._app_start_time = time.time()
         if NEW_INSTALL:
             self.run_worker(capture("app_installed"), exit_on_error=False)
-        self.run_worker(capture("app_started", resumed=bool(self._resume_on_start)), exit_on_error=False)
+        self.run_worker(
+            capture("app_started", resumed=bool(self._resume_on_start)),
+            exit_on_error=False,
+        )
 
         # Set up notification callback for log messages (warnings and errors)
         set_log_notify_callback(
@@ -885,7 +890,10 @@ class ChatApp(App):
 
         # Hints system startup — fire-and-forget background task
         from claudechic.tasks import create_safe_task
-        create_safe_task(self._run_hints(is_startup=True, budget=2), name="hints-startup")
+
+        create_safe_task(
+            self._run_hints(is_startup=True, budget=2), name="hints-startup"
+        )
 
     def _check_onboarding(self) -> None:
         """Launch non-blocking onboarding check in a background worker."""
@@ -1125,16 +1133,12 @@ class ChatApp(App):
                 if self._workflow_engine
                 else None
             )
-            project_state = ProjectState.build(
-                self._cwd, current_phase=current_phase
-            )
+            project_state = ProjectState.build(self._cwd, current_phase=current_phase)
 
             # Collect hints from load result (manifest-declared hints)
             hint_specs = []
             active_wf = (
-                self._workflow_engine.workflow_id
-                if self._workflow_engine
-                else None
+                self._workflow_engine.workflow_id if self._workflow_engine else None
             )
             if self._load_result:
                 from claudechic.hints.types import (
@@ -1208,7 +1212,10 @@ class ChatApp(App):
     def _periodic_hints(self) -> None:
         """Trigger periodic hints evaluation (1 toast max, non-startup delays)."""
         from claudechic.tasks import create_safe_task
-        create_safe_task(self._run_hints(is_startup=False, budget=1), name="hints-periodic")
+
+        create_safe_task(
+            self._run_hints(is_startup=False, budget=1), name="hints-periodic"
+        )
 
     # --- Workflow guidance system ---
 
@@ -1374,7 +1381,9 @@ class ChatApp(App):
                 "Read .claude/phase_context.md for your full phase instructions, "
                 "then greet the user and guide them on what to do in this phase."
             )
-            create_safe_task(self._run_hints(is_startup=False, budget=2), name="hints-workflow-start")
+            create_safe_task(
+                self._run_hints(is_startup=False, budget=2), name="hints-workflow-start"
+            )
         except Exception as e:
             log.warning("Failed to activate workflow '%s': %s", workflow_id, e)
             self.notify(f"Failed to activate workflow: {e}", severity="error")
@@ -1408,9 +1417,7 @@ class ChatApp(App):
             if hasattr(self, "chat_input") and self.chat_input:
                 self.chat_input.focus()
 
-        self.push_screen(
-            ChicsessionScreen(root, workflow_id=workflow_id), on_dismiss
-        )
+        self.push_screen(ChicsessionScreen(root, workflow_id=workflow_id), on_dismiss)
 
         result = await future
 
@@ -1422,7 +1429,7 @@ class ChatApp(App):
 
         if result.startswith("resume:"):
             # Resume existing session
-            session_name = result[len("resume:"):]
+            session_name = result[len("resume:") :]
             try:
                 mgr.load(session_name)  # Validate it loads
                 self._chicsession_name = session_name
@@ -1442,7 +1449,7 @@ class ChatApp(App):
 
         # New session — extract name from "new:<name>" result
         if result.startswith("new:"):
-            session_name = result[len("new:"):].strip()
+            session_name = result[len("new:") :].strip()
         else:
             session_name = ""
 
@@ -1636,7 +1643,9 @@ class ChatApp(App):
                 cs.workflow_state = None
                 mgr.save(cs)
             except Exception:
-                log.debug("Failed to clear workflow state from chicsession", exc_info=True)
+                log.debug(
+                    "Failed to clear workflow state from chicsession", exc_info=True
+                )
 
             # Clear the session name so that activating a different workflow
             # won't persist its state to the old workflow's session file.
@@ -1654,7 +1663,9 @@ class ChatApp(App):
                 pass
 
         self.notify(f"Workflow '{wf_id}' deactivated")
-        create_safe_task(self._run_hints(is_startup=False, budget=1), name="hints-workflow-stop")
+        create_safe_task(
+            self._run_hints(is_startup=False, budget=1), name="hints-workflow-stop"
+        )
 
     def _make_persist_fn(self):
         """Create callback for engine to persist workflow state via chicsession."""
@@ -1710,9 +1721,7 @@ class ChatApp(App):
             from claudechic.workflows.engine import WorkflowEngine, WorkflowManifest
 
             # Construct manifest from LoadResult phases filtered by namespace
-            wf_phases = [
-                p for p in self._load_result.phases if p.namespace == wf_id
-            ]
+            wf_phases = [p for p in self._load_result.phases if p.namespace == wf_id]
             manifest = WorkflowManifest(
                 workflow_id=wf_id,
                 phases=wf_phases,
@@ -1736,10 +1745,14 @@ class ChatApp(App):
         if cmd == "/workflow" and args.strip() == "list":
             lines = ["Discovered workflows:"]
             for wf_id, wf_path in sorted(self._workflow_registry.items()):
-                status = "active" if (
-                    self._workflow_engine
-                    and self._workflow_engine.workflow_id == wf_id
-                ) else "available"
+                status = (
+                    "active"
+                    if (
+                        self._workflow_engine
+                        and self._workflow_engine.workflow_id == wf_id
+                    )
+                    else "available"
+                )
                 lines.append(f"  {wf_id} [{status}] — {wf_path}")
             if not self._workflow_registry:
                 lines.append("  (none)")
@@ -1902,7 +1915,9 @@ class ChatApp(App):
 
         # Track message sent
         self.run_worker(
-            capture("message_sent", agent_id=agent.analytics_id if agent else "unknown"),
+            capture(
+                "message_sent", agent_id=agent.analytics_id if agent else "unknown"
+            ),
             exit_on_error=False,
         )
 
@@ -2617,7 +2632,11 @@ class ChatApp(App):
 
                 tip_task = create_safe_task(show_tip_after_delay(), name="tip-delay")
 
-                run_fn = run_in_pty_cancellable if UNIX_PTY_SUPPORT else run_in_subprocess_cancellable
+                run_fn = (
+                    run_in_pty_cancellable
+                    if UNIX_PTY_SUPPORT
+                    else run_in_subprocess_cancellable
+                )
                 output, returncode, was_cancelled = await run_fn(
                     cmd, shell, cwd, env, cancel_event
                 )
@@ -2654,7 +2673,9 @@ class ChatApp(App):
         def on_dismiss(session_id: str | None) -> None:
             if session_id:
                 log.info(f"Resuming session: {session_id}")
-                self.run_worker(self._load_and_display_history(session_id), exit_on_error=False)
+                self.run_worker(
+                    self._load_and_display_history(session_id), exit_on_error=False
+                )
                 self.notify(f"Resuming {session_id[:8]}...")
                 self.resume_session(session_id)
             self.chat_input.focus()
@@ -2662,7 +2683,6 @@ class ChatApp(App):
         # Use current agent's cwd so sessions are filtered by the agent's project
         cwd = self._agent.cwd if self._agent else None
         self.push_screen(SessionScreen(cwd=cwd), on_dismiss)
-
 
     def _show_rewind_picker(self) -> None:
         """Show the rewind checkpoint picker screen."""
@@ -2676,7 +2696,9 @@ class ChatApp(App):
         def on_dismiss(result: tuple[int, str] | None) -> None:
             if result:
                 checkpoint_idx, rewind_type = result
-                self.run_worker(self._do_rewind(checkpoint_idx, rewind_type), exit_on_error=False)
+                self.run_worker(
+                    self._do_rewind(checkpoint_idx, rewind_type), exit_on_error=False
+                )
             self.chat_input.focus()
 
         self.push_screen(RewindScreen(agent), on_dismiss)

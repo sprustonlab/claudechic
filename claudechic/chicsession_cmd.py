@@ -248,9 +248,7 @@ async def _handle_restore(app: ChatApp, name: str) -> None:
                 resume=entry.session_id,
                 switch_to=False,
             )
-            await app._load_and_display_history(
-                entry.session_id, cwd=cwd, agent=agent
-            )
+            await app._load_and_display_history(entry.session_id, cwd=cwd, agent=agent)
             restored += 1
             log.info("Restored agent '%s' from chicsession", entry.name)
         except Exception as exc:
@@ -316,7 +314,9 @@ def auto_save_chicsession(app: ChatApp) -> None:
         try:
             workflow_state = engine.to_session_state()
         except Exception:
-            log.debug("Failed to capture workflow state during auto-save", exc_info=True)
+            log.debug(
+                "Failed to capture workflow state during auto-save", exc_info=True
+            )
 
     # If engine is None but a saved chicsession exists, preserve its
     # workflow_state instead of overwriting with None.  This handles the

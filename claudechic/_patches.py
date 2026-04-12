@@ -131,7 +131,9 @@ def _patch_textarea_undo_crash() -> None:
             self.wrapped_document.wrap(self.wrap_width, self.indent_width)
         else:
             self.wrapped_document.wrap_range(
-                minimum_top, maximum_old_bottom, maximum_new_bottom,
+                minimum_top,
+                maximum_old_bottom,
+                maximum_new_bottom,
             )
 
         # FIX: edit.after() BEFORE _refresh_size()

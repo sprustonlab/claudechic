@@ -126,14 +126,23 @@ class TestHintsInChatApp:
 
                 # Filter: only check for hint-related notifications
                 hint_keywords = [
-                    "git repo", "guardrails", "project_team", "pattern miner",
-                    "mcp_tools", "cluster", "/diff", "/resume", "/worktree",
-                    "/compact", "/model", "/shell", "/hints off",
+                    "git repo",
+                    "guardrails",
+                    "project_team",
+                    "pattern miner",
+                    "mcp_tools",
+                    "cluster",
+                    "/diff",
+                    "/resume",
+                    "/worktree",
+                    "/compact",
+                    "/model",
+                    "/shell",
+                    "/hints off",
                 ]
                 messages = [n.message for n in app._notifications]
                 hint_msgs = [
-                    m for m in messages
-                    if any(kw in m.lower() for kw in hint_keywords)
+                    m for m in messages if any(kw in m.lower() for kw in hint_keywords)
                 ]
                 assert len(hint_msgs) == 0, (
                     f"Unexpected hint notifications without hints/ folder: {hint_msgs}"
@@ -147,11 +156,13 @@ class TestHintsInChatApp:
         state_dir = tmp_path / ".claude"
         state_dir.mkdir()
         (state_dir / "hints_state.json").write_text(
-            json.dumps({
-                "version": 1,
-                "activation": {"enabled": False, "disabled_hints": []},
-                "lifecycle": {},
-            })
+            json.dumps(
+                {
+                    "version": 1,
+                    "activation": {"enabled": False, "disabled_hints": []},
+                    "lifecycle": {},
+                }
+            )
         )
 
         app = ChatApp()
@@ -181,14 +192,22 @@ class TestHintsInChatApp:
 
                 # No hint notifications should appear
                 hint_keywords = [
-                    "git repo", "guardrails", "project_team", "pattern miner",
-                    "mcp_tools", "cluster", "/diff", "/resume", "/worktree",
-                    "/compact", "/model", "/shell",
+                    "git repo",
+                    "guardrails",
+                    "project_team",
+                    "pattern miner",
+                    "mcp_tools",
+                    "cluster",
+                    "/diff",
+                    "/resume",
+                    "/worktree",
+                    "/compact",
+                    "/model",
+                    "/shell",
                 ]
                 messages = [n.message for n in app._notifications]
                 hint_msgs = [
-                    m for m in messages
-                    if any(kw in m.lower() for kw in hint_keywords)
+                    m for m in messages if any(kw in m.lower() for kw in hint_keywords)
                 ]
                 assert len(hint_msgs) == 0, (
                     f"Hints should be disabled but got: {hint_msgs}"

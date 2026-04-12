@@ -54,7 +54,9 @@ class TestWorkflowActivation:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:
@@ -88,7 +90,9 @@ class TestWorkflowActivation:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:
@@ -112,8 +116,7 @@ class TestWorkflowActivation:
 
                 # Verify deactivation notification
                 deactivate_notifs = [
-                    n for n in app._notifications
-                    if "deactivated" in n.message.lower()
+                    n for n in app._notifications if "deactivated" in n.message.lower()
                 ]
                 assert len(deactivate_notifs) > 0
 
@@ -144,7 +147,8 @@ class TestWorkflowActivation:
                 await pilot.pause()
 
                 error_notifs = [
-                    n for n in app._notifications
+                    n
+                    for n in app._notifications
                     if "unknown" in n.message.lower() or n.severity == "error"
                 ]
                 assert len(error_notifs) > 0, (
@@ -164,7 +168,9 @@ class TestWorkflowActivation:
                 patch("claudechic.sessions.count_sessions", return_value=1)
             )
             stack.enter_context(
-                patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
+                patch.object(
+                    ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name
+                )
             )
 
             async with app.run_test(size=(120, 40), notifications=True) as pilot:
@@ -185,7 +191,6 @@ class TestWorkflowActivation:
 
                 # Should warn about deactivating first
                 warn_notifs = [
-                    n for n in app._notifications
-                    if "deactivate" in n.message.lower()
+                    n for n in app._notifications if "deactivate" in n.message.lower()
                 ]
                 assert len(warn_notifs) > 0

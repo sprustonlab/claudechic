@@ -73,7 +73,8 @@ class TestWorkflowLoading:
 
                 # No error toasts — check notifications for "Manifest" errors
                 error_notifs = [
-                    n for n in app._notifications
+                    n
+                    for n in app._notifications
                     if "manifest" in n.message.lower() and n.severity == "warning"
                 ]
                 assert len(error_notifs) == 0, (
@@ -110,9 +111,9 @@ class TestWorkflowLoading:
                 assert len(app._load_result.errors) > 0, (
                     "Expected manifest parse error in load result"
                 )
-                assert any(
-                    "rules.yaml" in e.source for e in app._load_result.errors
-                ), f"Expected error from rules.yaml, got: {app._load_result.errors}"
+                assert any("rules.yaml" in e.source for e in app._load_result.errors), (
+                    f"Expected error from rules.yaml, got: {app._load_result.errors}"
+                )
 
                 # No rules should have been loaded from the broken file
                 assert len(app._load_result.rules) == 0

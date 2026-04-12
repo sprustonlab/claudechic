@@ -152,7 +152,10 @@ class AgentManager:
 
         # Create options and connect
         options = self._options_factory(
-            cwd=cwd, resume=resume, agent_name=agent.name, model=model,
+            cwd=cwd,
+            resume=resume,
+            agent_name=agent.name,
+            model=model,
             agent_type=agent_type,
         )
         await agent.connect(options, resume=resume)

@@ -20,7 +20,9 @@ from claudechic.workflows.loader import ManifestLoader
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 
 
-def _setup_rules(root: Path, rules: list[dict], injections: list[dict] | None = None) -> ManifestLoader:
+def _setup_rules(
+    root: Path, rules: list[dict], injections: list[dict] | None = None
+) -> ManifestLoader:
     """Create global/rules.yaml (and optionally injections.yaml), return loader."""
     global_dir = root / "global"
     global_dir.mkdir(parents=True, exist_ok=True)
@@ -75,10 +77,14 @@ class TestGuardrailRules:
             result = await _call_hook(hooks, "Bash", {"command": "rm -rf /"})
 
             assert result.get("decision") == "block"
-            assert "rm -rf" in result.get("reason", "").lower() or "Dangerous" in result.get("reason", "")
+            assert "rm -rf" in result.get(
+                "reason", ""
+            ).lower() or "Dangerous" in result.get("reason", "")
 
             # Verify hit logged
-            lines = (tmp_path / ".claude" / "hits.jsonl").read_text().strip().split("\n")
+            lines = (
+                (tmp_path / ".claude" / "hits.jsonl").read_text().strip().split("\n")
+            )
             assert len(lines) >= 1
             record = json.loads(lines[0])
             assert record["rule_id"] == "global:no_rm_rf"
@@ -109,7 +115,9 @@ class TestGuardrailRules:
                 consume_override=token_store.consume,
             )
 
-            result = await _call_hook(hooks, "Bash", {"command": "pip install requests"})
+            result = await _call_hook(
+                hooks, "Bash", {"command": "pip install requests"}
+            )
             assert result.get("decision") == "block"
             assert "acknowledge_warning" in result.get("reason", "")
         finally:
@@ -167,7 +175,9 @@ class TestGuardrailRules:
                 consume_override=token_store.consume,
             )
             result = await _call_hook(hooks_impl, "Bash", {"command": "make build"})
-            assert result.get("decision") != "block", "Rule should NOT fire in implement phase"
+            assert result.get("decision") != "block", (
+                "Rule should NOT fire in implement phase"
+            )
         finally:
             hit_logger.close()
 
@@ -261,7 +271,9 @@ class TestGuardrailRules:
 
         try:
             # Patch _discover to raise OSError (simulates unreadable dir)
-            with patch.object(loader, "_discover", side_effect=OSError("Permission denied")):
+            with patch.object(
+                loader, "_discover", side_effect=OSError("Permission denied")
+            ):
                 hooks = create_guardrail_hooks(
                     loader=loader,
                     hit_logger=hit_logger,
@@ -304,7 +316,9 @@ class TestRoleGatedRules:
                 agent_role="Subagent",
                 consume_override=token_store.consume,
             )
-            result = await _call_hook(hooks_sub, "Bash", {"command": "git push origin main"})
+            result = await _call_hook(
+                hooks_sub, "Bash", {"command": "git push origin main"}
+            )
             assert result.get("decision") == "block", "Rule should block Subagent"
 
             # Coordinator role → should be allowed (role not in roles list)
@@ -314,7 +328,9 @@ class TestRoleGatedRules:
                 agent_role="Coordinator",
                 consume_override=token_store.consume,
             )
-            result = await _call_hook(hooks_coord, "Bash", {"command": "git push origin main"})
+            result = await _call_hook(
+                hooks_coord, "Bash", {"command": "git push origin main"}
+            )
             assert result == {}, "Rule should allow Coordinator (not in roles list)"
         finally:
             hit_logger.close()
@@ -343,7 +359,9 @@ class TestRoleGatedRules:
                 agent_role="Implementer",
                 consume_override=token_store.consume,
             )
-            result = await _call_hook(hooks_impl, "Bash", {"command": "git push --force"})
+            result = await _call_hook(
+                hooks_impl, "Bash", {"command": "git push --force"}
+            )
             assert result.get("decision") == "block", "Rule should block Implementer"
 
             # Coordinator role → should be allowed (excluded)
@@ -353,7 +371,9 @@ class TestRoleGatedRules:
                 agent_role="Coordinator",
                 consume_override=token_store.consume,
             )
-            result = await _call_hook(hooks_coord, "Bash", {"command": "git push --force"})
+            result = await _call_hook(
+                hooks_coord, "Bash", {"command": "git push --force"}
+            )
             assert result == {}, "Rule should skip Coordinator (in exclude_roles)"
         finally:
             hit_logger.close()

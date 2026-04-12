@@ -166,8 +166,14 @@ def _make_spawn_agent(caller_name: str | None = None):
                 "name": {"type": "string"},
                 "path": {"type": "string"},
                 "prompt": {"type": "string"},
-                "model": {"type": "string", "description": "Model to use (inherits caller's model if not specified)"},
-                "type": {"type": "string", "description": "Agent type for guardrail env vars"},
+                "model": {
+                    "type": "string",
+                    "description": "Model to use (inherits caller's model if not specified)",
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Agent type for guardrail env vars",
+                },
                 "requires_answer": {
                     "type": "boolean",
                     "description": "If true, the spawned agent is expected to reply back to the caller using tell_agent. It will be nudged if idle without replying.",
@@ -241,7 +247,10 @@ def _make_spawn_agent(caller_name: str | None = None):
         try:
             # Create agent via AgentManager (handles SDK connection)
             agent = await _app.agent_mgr.create(
-                name=name, cwd=path, switch_to=False, model=model,
+                name=name,
+                cwd=path,
+                switch_to=False,
+                model=model,
                 agent_type=agent_type,
             )
         except Exception as e:
@@ -651,7 +660,9 @@ def discover_mcp_tools(mcp_tools_dir: Path, **kwargs) -> list:
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
         except Exception:
-            log.warning("mcp_tools: failed to load helper %s", py_file.name, exc_info=True)
+            log.warning(
+                "mcp_tools: failed to load helper %s", py_file.name, exc_info=True
+            )
 
     for py_file in sorted(mcp_tools_dir.glob("*.py")):
         if py_file.name.startswith("_"):
@@ -675,10 +686,14 @@ def discover_mcp_tools(mcp_tools_dir: Path, **kwargs) -> list:
 
             file_tools = get_tools_fn(**kwargs)
             tools.extend(file_tools)
-            log.info("mcp_tools: loaded %d tool(s) from %s", len(file_tools), py_file.name)
+            log.info(
+                "mcp_tools: loaded %d tool(s) from %s", len(file_tools), py_file.name
+            )
 
         except Exception:
-            log.warning("mcp_tools: failed to load %s, skipping", py_file.name, exc_info=True)
+            log.warning(
+                "mcp_tools: failed to load %s, skipping", py_file.name, exc_info=True
+            )
             continue
 
     return tools
@@ -735,14 +750,20 @@ async def advance_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
             try:
                 from claudechic.workflows.agent_folders import assemble_phase_prompt
 
-                phase_content = assemble_phase_prompt(
-                    workflows_dir=Path.cwd() / "workflows",
-                    workflow_id=engine.workflow_id,
-                    role_name=main_role,
-                    current_phase=next_phase,
-                ) or ""
+                phase_content = (
+                    assemble_phase_prompt(
+                        workflows_dir=Path.cwd() / "workflows",
+                        workflow_id=engine.workflow_id,
+                        role_name=main_role,
+                        current_phase=next_phase,
+                    )
+                    or ""
+                )
             except Exception:
-                log.debug("Failed to assemble phase prompt for advance_phase response", exc_info=True)
+                log.debug(
+                    "Failed to assemble phase prompt for advance_phase response",
+                    exc_info=True,
+                )
 
             # Still broadcast to OTHER agents asynchronously so they get
             # the phase update too (the caller already has it inline).
@@ -785,8 +806,14 @@ async def get_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
         if next_phase:
             lines.append(f"Next phase: {next_phase}")
         if phase_order:
-            idx = phase_order.index(current) + 1 if current and current in phase_order else 0
-            lines.append(f"Progress: {idx}/{len(phase_order)} ({', '.join(phase_order)})")
+            idx = (
+                phase_order.index(current) + 1
+                if current and current in phase_order
+                else 0
+            )
+            lines.append(
+                f"Progress: {idx}/{len(phase_order)} ({', '.join(phase_order)})"
+            )
 
     # Manifest loader state
     loader = getattr(_app, "_manifest_loader", None)
@@ -933,17 +960,19 @@ def create_chic_server(caller_name: str | None = None):
             cluster_submit,
         )
 
-        tools.extend([
-            cluster_jobs,
-            cluster_status,
-            cluster_submit,
-            cluster_kill,
-            _make_cluster_watch(
-                caller_name=caller_name,
-                send_notification=_send_prompt_fire_and_forget,
-                find_agent=_find_agent_by_name,
-            ),
-        ])
+        tools.extend(
+            [
+                cluster_jobs,
+                cluster_status,
+                cluster_submit,
+                cluster_kill,
+                _make_cluster_watch(
+                    caller_name=caller_name,
+                    send_notification=_send_prompt_fire_and_forget,
+                    find_agent=_find_agent_by_name,
+                ),
+            ]
+        )
     except ImportError:
         log.debug("Cluster tools not available (missing dependencies)")
 

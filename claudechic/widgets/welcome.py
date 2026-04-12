@@ -56,9 +56,7 @@ class WelcomeScreen(Static):
         self.facets = facets
         self._steal_focus = steal_focus
         # Build ordered list of selectable (unconfigured) facet indices
-        self._selectable_indices = [
-            i for i, f in enumerate(facets) if not f.configured
-        ]
+        self._selectable_indices = [i for i, f in enumerate(facets) if not f.configured]
         # Options: unconfigured facets + Skip + Dismiss
         self._num_options = len(self._selectable_indices) + 2
         self._skip_idx = len(self._selectable_indices)
@@ -67,7 +65,10 @@ class WelcomeScreen(Static):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            Text("Your project is ready! A few things to finish setting up:\n", style="bold"),
+            Text(
+                "Your project is ready! A few things to finish setting up:\n",
+                style="bold",
+            ),
             classes="prompt-title",
         )
         # Configured items (not selectable, just status)

@@ -120,9 +120,7 @@ class CooldownPeriod:
 
     def __post_init__(self) -> None:
         if self.seconds <= 0:
-            raise ValueError(
-                f"CooldownPeriod requires seconds > 0, got {self.seconds}"
-            )
+            raise ValueError(f"CooldownPeriod requires seconds > 0, got {self.seconds}")
 
     def should_show(self, hint_id: str, state: HintStateStore) -> bool:
         last_shown = state.get_last_shown_timestamp(hint_id)

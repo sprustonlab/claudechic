@@ -41,8 +41,14 @@ class ChicsessionItem(ListItem):
     }
     """
 
-    def __init__(self, name: str, agent_count: int, agent_names: list[str],
-                 *, workflow_match: bool = False) -> None:
+    def __init__(
+        self,
+        name: str,
+        agent_count: int,
+        agent_names: list[str],
+        *,
+        workflow_match: bool = False,
+    ) -> None:
         super().__init__()
         self.chicsession_name = name
         self.agent_count = agent_count
@@ -129,7 +135,9 @@ class ChicsessionScreen(Screen[str | None]):
         with Vertical(id="chicsession-container"):
             if self._workflow_id:
                 title_text = f"Session for workflow '{self._workflow_id}'"
-                placeholder = f"Search or type new session name (default: {self._workflow_id})..."
+                placeholder = (
+                    f"Search or type new session name (default: {self._workflow_id})..."
+                )
             else:
                 title_text = "Restore Chicsession"
                 placeholder = "Search chicsessions..."
@@ -193,7 +201,9 @@ class ChicsessionScreen(Screen[str | None]):
                 )
                 list_view.append(
                     ChicsessionItem(
-                        cs_name, len(cs.agents), agent_names,
+                        cs_name,
+                        len(cs.agents),
+                        agent_names,
                         workflow_match=workflow_match,
                     )
                 )

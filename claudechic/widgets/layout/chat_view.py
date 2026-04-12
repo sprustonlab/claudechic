@@ -140,6 +140,7 @@ class ChatView(AutoHideScroll):
 
         # Group messages into turns (user + assistant pairs) with metadata
         from claudechic.agent import MessageMetadata
+
         turns: list[
             tuple[
                 UserContent | None,
@@ -188,9 +189,12 @@ class ChatView(AutoHideScroll):
         # Build widgets
         widgets: list[Widget] = []
 
-        for turn_idx, (user_content, assistant_content, user_metadata, assistant_metadata) in enumerate(
-            turns
-        ):
+        for turn_idx, (
+            user_content,
+            assistant_content,
+            user_metadata,
+            assistant_metadata,
+        ) in enumerate(turns):
             if turn_idx < collapse_before and user_content and assistant_content:
                 # Old turn: collapse into single widget with lazy expansion
                 widgets.append(
@@ -242,7 +246,9 @@ class ChatView(AutoHideScroll):
                     text,
                     user_content.images,
                     is_agent,
-                    timestamp=user_content.metadata.timestamp if user_content.metadata else None,
+                    timestamp=user_content.metadata.timestamp
+                    if user_content.metadata
+                    else None,
                 )
             )
             # Assistant response (collapse all tools, ignore returned tool_index)
