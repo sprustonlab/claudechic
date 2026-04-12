@@ -94,9 +94,13 @@ class QuietCollapsible(Collapsible):
     def _watch_collapsed(self, collapsed: bool) -> None:
         """Update collapsed state without auto-scrolling."""
         # Lazy mount: on first expand, call factory and mount content
-        if not collapsed and self._content_factory and not self._content_mounted:
-            if self.is_mounted:
-                self._mount_lazy_content()
+        if (
+            not collapsed
+            and self._content_factory
+            and not self._content_mounted
+            and self.is_mounted
+        ):
+            self._mount_lazy_content()
 
         self._update_collapsed(collapsed)
         # Add -expanded class for CSS targeting (Textual only has -collapsed)

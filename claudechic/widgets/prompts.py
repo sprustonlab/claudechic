@@ -160,11 +160,10 @@ class BasePrompt(Static):
             return
 
         # Text mode takes priority
-        if self._in_text_mode:
-            if self._handle_text_mode_key(event):
-                event.prevent_default()
-                event.stop()
-                return
+        if self._in_text_mode and self._handle_text_mode_key(event):
+            event.prevent_default()
+            event.stop()
+            return
             # Fall through for up/down navigation
 
         # Start typing to enter text mode (if text option exists)

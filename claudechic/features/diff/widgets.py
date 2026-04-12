@@ -181,11 +181,12 @@ class DiffSidebar(Vertical):
 
     def set_active(self, path: str) -> None:
         """Highlight the active file in the sidebar."""
-        if self._active_path:
-            if old_item := self.query_one_optional(
+        if self._active_path and (
+            old_item := self.query_one_optional(
                 f"#sidebar-{_sanitize_id(self._active_path)}", DiffFileItem
-            ):
-                old_item.remove_class("active")
+            )
+        ):
+            old_item.remove_class("active")
         self._active_path = path
         if new_item := self.query_one_optional(
             f"#sidebar-{_sanitize_id(path)}", DiffFileItem
