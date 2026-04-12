@@ -1,5 +1,6 @@
 """Configuration management for claudechic via ~/.claude/.claudechic.yaml."""
 
+import contextlib
 import os
 import tempfile
 import uuid
@@ -65,10 +66,8 @@ def _save(config: dict) -> None:
             yaml.dump(config, f, default_flow_style=False)
         os.replace(tmp_path, CONFIG_PATH)
     except Exception:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 

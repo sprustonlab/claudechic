@@ -12,6 +12,7 @@ LEAF MODULE: stdlib only. No imports from workflows/, checks/, or guardrails/.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -365,10 +366,8 @@ class HintStateStore:
                     f.write("\n")
                 os.replace(tmp_name, str(self._path))
             except BaseException:
-                try:
+                with contextlib.suppress(OSError):
                     Path(tmp_name).unlink(missing_ok=True)
-                except OSError:
-                    pass
                 raise
         except OSError:
             # Filesystem issue -- state remains in memory; next save will retry.
