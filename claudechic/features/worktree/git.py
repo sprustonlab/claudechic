@@ -277,10 +277,7 @@ def start_worktree(feature_name: str) -> tuple[bool, str, Path | None]:
                 return False, str(e), None
         else:
             main_wt = get_main_worktree()
-            if main_wt:
-                parent_dir = main_wt[0].parent
-            else:
-                parent_dir = Path.cwd().parent
+            parent_dir = main_wt[0].parent if main_wt else Path.cwd().parent
             worktree_dir = parent_dir / f"{repo_name}-{feature_name}"
 
         if worktree_dir.exists():
