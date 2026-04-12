@@ -111,10 +111,8 @@ class BasePrompt(Static):
         """Handle keys in text mode. Returns True if handled."""
         if event.key in ("escape", "up", "down"):
             self._exit_text_mode()
-            if event.key in ("up", "down"):
-                # Let navigation happen after exiting text mode
-                return False
-            return True
+            # Let navigation happen after exiting text mode
+            return event.key not in ("up", "down")
         elif event.key == "enter":
             if self._text_buffer.strip():
                 self._submit_text(self._text_buffer.strip())

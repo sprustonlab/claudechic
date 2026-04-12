@@ -108,9 +108,7 @@ def _is_absolute_path(partial: str) -> bool:
     if partial.startswith("/"):
         return True
     # Windows drive letter (e.g., C:, D:\)
-    if len(partial) >= 2 and partial[1] == ":" and partial[0].isalpha():
-        return True
-    return False
+    return len(partial) >= 2 and partial[1] == ":" and partial[0].isalpha()
 
 
 def _split_path(partial: str) -> tuple[str, str]:
