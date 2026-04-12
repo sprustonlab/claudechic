@@ -6,6 +6,7 @@ A chicsession is a named snapshot of agents persisted at
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -93,10 +94,8 @@ class ChicsessionManager:
                 f.write(content)
             os.replace(tmp_path, target)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     def load(self, name: str) -> Chicsession:

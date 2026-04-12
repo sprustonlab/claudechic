@@ -1,5 +1,6 @@
 """Single process detail modal with kill and metrics."""
 
+import contextlib
 import os
 import signal
 from datetime import datetime
@@ -191,17 +192,13 @@ class ProcessDetailModal(ModalScreen):
             proc = psutil.Process(self.process.pid)
             # Kill children first
             for child in proc.children(recursive=True):
-                try:
+                with contextlib.suppress(psutil.NoSuchProcess):
                     child.terminate()
-                except psutil.NoSuchProcess:
-                    pass
             # Then kill the process itself
             proc.terminate()
         except psutil.NoSuchProcess:
             pass  # Already dead
         except psutil.AccessDenied:
             # Try SIGKILL as fallback
-            try:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
                 os.kill(self.process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass

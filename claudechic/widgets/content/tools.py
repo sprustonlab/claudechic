@@ -1,5 +1,6 @@
 """Tool display widgets - ToolUseWidget and TaskWidget."""
 
+import contextlib
 import json
 import logging
 import re
@@ -159,10 +160,8 @@ class ToolUseWidget(BaseToolWidget):
         if self.result is not None:
             return
         self.result = True
-        try:
+        with contextlib.suppress(Exception):
             self.query_one(Spinner).remove()
-        except Exception:
-            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if "edit-plan-btn" in event.button.classes:
@@ -211,10 +210,8 @@ class ToolUseWidget(BaseToolWidget):
             f"Tool result for {self.block.name}: {len(str(result.content or ''))} chars"
         )
         # Remove spinner
-        try:
+        with contextlib.suppress(Exception):
             self.query_one(Spinner).remove()
-        except Exception:
-            pass
         try:
             collapsible = self.query_one(QuietCollapsible)
             if result.is_error:
@@ -627,19 +624,15 @@ class AgentToolWidget(BaseToolWidget):
     def set_result(self, result: ToolResultBlock) -> None:
         """Update with tool result."""
         self.result = result
-        try:
+        with contextlib.suppress(Exception):
             self.query_one(Spinner).remove()
-        except Exception:
-            pass
         tool_short = self.block.name.replace("mcp__chic__", "")
         # For list_agents, render as formatted agent list
         if tool_short == "list_agents" and result.content:
             content = _extract_text_content(result.content)
             content = SYSTEM_REMINDER_PATTERN.sub("", content)
-            try:
+            with contextlib.suppress(Exception):
                 self.mount(AgentListWidget(content, cwd=self._cwd))
-            except Exception:
-                pass
         # For cluster tools, update title with result summary
         elif tool_short.startswith("cluster_") and result.content:
             content = _extract_text_content(result.content)

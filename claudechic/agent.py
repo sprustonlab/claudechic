@@ -329,18 +329,14 @@ class Agent:
         self._pending_messages.clear()
         if self._response.task and not self._response.task.done():
             self._response.task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._response.task
-            except asyncio.CancelledError:
-                pass
         self._set_response_state(ResponseState.IDLE)
 
         if self.client:
-            try:
+            with contextlib.suppress(Exception):
                 # disconnect() terminates gracefully and waits for session flush
                 await self.client.disconnect()
-            except Exception:
-                pass
             self.client = None
         self._claude_pid = None
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -329,10 +330,8 @@ class ChatApp(App):
         cwd = Path(agent.cwd)
         rel_path = Path(make_relative(str(file_path), cwd))
 
-        try:
+        with contextlib.suppress(Exception):
             self.files_section.add_file(rel_path, additions, deletions)
-        except Exception:
-            pass  # Widget may not exist yet
 
     # Cached widget accessors (lazy init on first access)
     @property
@@ -373,10 +372,8 @@ class ChatApp(App):
                 section.add_class("hidden")
         except Exception:
             # Hide on error (not a git repo, etc)
-            try:
+            with contextlib.suppress(Exception):
                 self.files_section.add_class("hidden")
-            except Exception:
-                pass
 
     @property
     def todo_panel(self) -> TodoPanel:
@@ -440,10 +437,8 @@ class ChatApp(App):
         if not agent:
             return
         agent.status = status
-        try:
+        with contextlib.suppress(Exception):
             self.agent_section.update_status(agent.id, status)
-        except Exception:
-            pass  # Sidebar not mounted yet
 
     def show_error(self, message: str, exception: Exception | None = None) -> None:
         """Display an error message in the chat view and log to file.
@@ -470,10 +465,8 @@ class ChatApp(App):
         old = self.client
         self.client = None
         if old:
-            try:
+            with contextlib.suppress(asyncio.TimeoutError, Exception):
                 await asyncio.wait_for(old.interrupt(), timeout=5.0)
-            except (asyncio.TimeoutError, Exception):
-                pass
             # Skip disconnect() - it causes race conditions with SDK cleanup.
             # interrupt() is sufficient to stop the subprocess.
         new_client = ClaudeSDKClient(options)
@@ -525,10 +518,8 @@ class ChatApp(App):
         finally:
             if agent:
                 self._active_prompts.pop(agent.id, None)
-            try:
+            with contextlib.suppress(Exception):
                 prompt.remove()
-            except Exception:
-                pass  # Prompt may already be removed
             # Restore input if this agent is now active (user may have switched)
             if agent is None or agent.id == self.active_agent_id:
                 self.input_container.remove_class("hidden")
@@ -929,7 +920,7 @@ class ChatApp(App):
         except Exception:
             log.debug("Onboarding check failed", exc_info=True)
 
-    def on_welcome_screen_selected(self, event: "WelcomeScreen.Selected") -> None:  # noqa: F821
+    def on_welcome_screen_selected(self, event: WelcomeScreen.Selected) -> None:  # noqa: F821
         """Handle user selecting a facet from the welcome screen."""
         from claudechic.tasks import create_safe_task
 
@@ -938,11 +929,11 @@ class ChatApp(App):
             name=f"onboarding-{event.workflow_id}",
         )
 
-    def on_welcome_screen_skipped(self, event: "WelcomeScreen.Skipped") -> None:  # noqa: F821
+    def on_welcome_screen_skipped(self, event: WelcomeScreen.Skipped) -> None:  # noqa: F821
         """Handle user skipping the welcome screen for this session."""
         log.info("Onboarding welcome screen skipped")
 
-    def on_welcome_screen_dismissed(self, event: "WelcomeScreen.Dismissed") -> None:  # noqa: F821
+    def on_welcome_screen_dismissed(self, event: WelcomeScreen.Dismissed) -> None:  # noqa: F821
         """Handle user permanently dismissing the welcome screen."""
         try:
             from claudechic.hints.state import HintStateStore
@@ -1657,10 +1648,8 @@ class ChatApp(App):
         # Remove phase context file
         phase_file = self._cwd / ".claude" / "phase_context.md"
         if phase_file.is_file():
-            try:
+            with contextlib.suppress(OSError):
                 phase_file.unlink()
-            except OSError:
-                pass
 
         self.notify(f"Workflow '{wf_id}' deactivated")
         create_safe_task(
@@ -3468,10 +3457,8 @@ class ChatApp(App):
 
         # Use update=False to defer CSS recalculation, refresh_css at end
         if old_agent:
-            try:
+            with contextlib.suppress(Exception):
                 old_agent.pending_input = self.chat_input.text
-            except Exception:
-                pass  # chat_input may be in a bad state during mass closure
             old_chat_view = self._chat_views.get(old_agent.id)
             if old_chat_view:
                 old_chat_view.add_class("hidden", update=False)
@@ -3497,10 +3484,8 @@ class ChatApp(App):
         else:
             self.input_container.remove_class("hidden", update=False)
 
-        try:
+        with contextlib.suppress(Exception):
             self.agent_section.set_active(new_agent.id)
-        except Exception:
-            pass
 
         # Update footer
         self.status_footer.permission_mode = new_agent.permission_mode
@@ -3569,10 +3554,8 @@ class ChatApp(App):
         # Stop review polling only if the closed agent owned the timer
         self._stop_review_polling(agent_id)
 
-        try:
+        with contextlib.suppress(Exception):
             self.agent_section.remove_agent(agent_id)
-        except Exception:
-            pass
         self._position_right_sidebar()
 
         # Refresh autocomplete after agent closed

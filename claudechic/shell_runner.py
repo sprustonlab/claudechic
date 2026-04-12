@@ -5,6 +5,7 @@ Use the fallback in commands.py for Windows (interactive shell via subprocess).
 """
 
 import asyncio
+import contextlib
 import os
 import signal
 import subprocess
@@ -128,10 +129,8 @@ def _run_in_pty_with_cancel(
             if check_cancelled():
                 was_cancelled = True
                 # Kill the process group
-                try:
+                with contextlib.suppress(ProcessLookupError, OSError):
                     os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except (ProcessLookupError, OSError):
-                    pass
                 break
 
             r, _, _ = select.select([master_fd], [], [], 0.1)
@@ -171,10 +170,8 @@ def _run_in_pty_with_cancel(
         if master_fd >= 0:
             os.close(master_fd)
         if proc and proc.poll() is None:
-            try:
+            with contextlib.suppress(ProcessLookupError, OSError):
                 os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (ProcessLookupError, OSError):
-                pass
         raise
 
 
