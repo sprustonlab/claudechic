@@ -85,7 +85,7 @@ def _(datetime, httpx, os):
         r.raise_for_status()
         data = r.json()
         columns = data["columns"]
-        return [dict(zip(columns, row)) for row in data["results"]]
+        return [dict(zip(columns, row, strict=False)) for row in data["results"]]
 
     return ALL_DATES, SINCE, hogql
 

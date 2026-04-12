@@ -316,7 +316,7 @@ def format_diff_text(old: str, new: str, max_len: int = 300) -> Text:
                 result.append(f"+ {line}\n", style="green")
         elif tag == "replace":
             # For replaced lines, highlight word-level changes
-            for old_line, new_line in zip(old_lines[i1:i2], new_lines[j1:j2]):
+            for old_line, new_line in zip(old_lines[i1:i2], new_lines[j1:j2], strict=False):
                 _render_word_diff(old_line, new_line, result)
             # Handle unequal line counts
             for line in old_lines[i1 + len(new_lines[j1:j2]) : i2]:

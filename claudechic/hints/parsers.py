@@ -122,8 +122,10 @@ class HintsParser:
                 )
             try:
                 cooldown_seconds = int(raw_cooldown)
-            except (TypeError, ValueError):
-                raise _SkipItem(f"id {raw_id!r}: cooldown_seconds must be an integer")
+            except (TypeError, ValueError) as err:
+                raise _SkipItem(
+                    f"id {raw_id!r}: cooldown_seconds must be an integer"
+                ) from err
             if cooldown_seconds <= 0:
                 raise _SkipItem(f"id {raw_id!r}: cooldown_seconds must be > 0")
 
