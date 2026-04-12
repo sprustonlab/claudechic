@@ -587,10 +587,7 @@ def _handle_shell(app: ChatApp, command: str) -> bool:
     if is_windows:
         # Windows: use cmd.exe or PowerShell
         shell = os.environ.get("COMSPEC", "cmd.exe")
-        if cmd:
-            args = [shell, "/c", cmd]
-        else:
-            args = [shell]
+        args = [shell, "/c", cmd] if cmd else [shell]
     else:
         # Unix: use SHELL env var or fallback to /bin/sh
         # Force color output
@@ -789,10 +786,7 @@ def _handle_processes(app: ChatApp) -> None:
     from claudechic.widgets.modals.process_modal import ProcessModal
 
     agent = app._agent
-    if agent:
-        processes = agent.get_background_processes()
-    else:
-        processes = []
+    processes = agent.get_background_processes() if agent else []
     app.push_screen(ProcessModal(processes))
 
 

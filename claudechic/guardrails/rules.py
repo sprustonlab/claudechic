@@ -70,10 +70,7 @@ def load_rules(rules_path: Path) -> list[Rule]:
     for entry in data["rules"]:
         # Parse trigger — can be string or list
         raw_trigger = entry.get("trigger", "")
-        if isinstance(raw_trigger, str):
-            triggers = [raw_trigger]
-        else:
-            triggers = list(raw_trigger)
+        triggers = [raw_trigger] if isinstance(raw_trigger, str) else list(raw_trigger)
 
         # Parse detect pattern
         detect = entry.get("detect", {})
@@ -183,10 +180,7 @@ def should_skip_for_role(rule: Rule | Injection, agent_role: str | None) -> bool
     if rule.roles and (agent_role is None or agent_role not in rule.roles):
         # Rule only applies to specific roles
         return True
-    if rule.exclude_roles and agent_role and agent_role in rule.exclude_roles:
-        # Rule is skipped for excluded roles
-        return True
-    return False
+    return bool(rule.exclude_roles and agent_role and agent_role in rule.exclude_roles)
 
 
 def should_skip_for_phase(rule: Rule | Injection, current_phase: str | None) -> bool:
@@ -205,10 +199,7 @@ def should_skip_for_phase(rule: Rule | Injection, current_phase: str | None) -> 
     if rule.phases and current_phase not in rule.phases:
         return True  # Skip: not in allowed phase
 
-    if rule.exclude_phases and current_phase in rule.exclude_phases:
-        return True  # Skip: excluded in this phase
-
-    return False
+    return bool(rule.exclude_phases and current_phase in rule.exclude_phases)
 
 
 def apply_injection(injection: Injection, tool_input: dict) -> dict:
