@@ -5,13 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from claudechic.features.worktree.git import _expand_worktree_path, start_worktree
 
 _unix_only = pytest.mark.skipif(
     sys.platform == "win32",
     reason="Test uses Unix-style /tmp/ paths which are not absolute on Windows",
 )
-
-from claudechic.features.worktree.git import _expand_worktree_path, start_worktree
 
 
 @pytest.fixture
