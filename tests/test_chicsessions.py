@@ -80,9 +80,7 @@ class TestSave:
     def test_overwrite(self, mgr: ChicsessionManager):
         cs = Chicsession(name="ow", active_agent="main", agents=[])
         mgr.save(cs)
-        cs.agents.append(
-            ChicsessionEntry(name="X", session_id="s1", cwd="/tmp")
-        )
+        cs.agents.append(ChicsessionEntry(name="X", session_id="s1", cwd="/tmp"))
         mgr.save(cs)
         loaded = mgr.load("ow")
         assert len(loaded.agents) == 1

@@ -35,7 +35,9 @@ def _load() -> tuple[dict, bool]:
         config.setdefault("worktree", {})
         config["worktree"].setdefault("path_template", None)
         config.setdefault("default_permission_mode", "default")
-        config.setdefault("show_message_metadata", True)  # Show timestamp/tokens by default
+        config.setdefault(
+            "show_message_metadata", True
+        )  # Show timestamp/tokens by default
         # Migrate legacy vim key to vi-mode
         if "vim" in config:
             config["vi-mode"] = config.pop("vim")

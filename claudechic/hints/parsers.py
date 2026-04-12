@@ -19,12 +19,14 @@ from claudechic.hints.types import HintDecl
 logger = logging.getLogger(__name__)
 
 # Valid lifecycle string values (matches HintLifecycle implementations)
-_VALID_LIFECYCLES = frozenset({
-    "show-once",
-    "show-until-resolved",
-    "show-every-session",
-    "cooldown",
-})
+_VALID_LIFECYCLES = frozenset(
+    {
+        "show-once",
+        "show-until-resolved",
+        "show-every-session",
+        "cooldown",
+    }
+)
 
 
 class HintsParser:
@@ -64,11 +66,11 @@ class HintsParser:
                 continue
 
             try:
-                decl = self._parse_item(item, namespace=namespace, source_path=source_path, idx=idx)
-            except _SkipItem as exc:
-                logger.warning(
-                    "%s: hints[%d]: %s — skipping", source_path, idx, exc
+                decl = self._parse_item(
+                    item, namespace=namespace, source_path=source_path, idx=idx
                 )
+            except _SkipItem as exc:
+                logger.warning("%s: hints[%d]: %s — skipping", source_path, idx, exc)
                 continue
 
             results.append(decl)
@@ -115,7 +117,9 @@ class HintsParser:
         if lifecycle == "cooldown":
             raw_cooldown = item.get("cooldown_seconds")
             if raw_cooldown is None:
-                raise _SkipItem(f"id {raw_id!r}: lifecycle 'cooldown' requires 'cooldown_seconds'")
+                raise _SkipItem(
+                    f"id {raw_id!r}: lifecycle 'cooldown' requires 'cooldown_seconds'"
+                )
             try:
                 cooldown_seconds = int(raw_cooldown)
             except (TypeError, ValueError):

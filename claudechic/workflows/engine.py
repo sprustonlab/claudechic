@@ -37,6 +37,7 @@ class WorkflowManifest:
     phases: list[Phase] = field(default_factory=list)
     main_role: str | None = None  # Role folder for the main agent
 
+
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
@@ -196,7 +197,9 @@ class WorkflowEngine:
                     on_failure = OnFailureConfig(
                         message=check_decl.on_failure.get("message", "Check failed"),
                         severity=check_decl.on_failure.get("severity", "warning"),
-                        lifecycle=check_decl.on_failure.get("lifecycle", "show-until-resolved"),
+                        lifecycle=check_decl.on_failure.get(
+                            "lifecycle", "show-until-resolved"
+                        ),
                     )
                     hint_data = check_failed_to_hint(result, on_failure, check_decl.id)
 

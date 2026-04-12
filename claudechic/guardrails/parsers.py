@@ -89,7 +89,13 @@ class RulesParser:
         qualified_id = f"{namespace}:{raw_id}"
 
         raw_trigger = entry.get("trigger") or ""
-        triggers = [raw_trigger] if isinstance(raw_trigger, str) else [str(t) for t in raw_trigger] if isinstance(raw_trigger, list) else []
+        triggers = (
+            [raw_trigger]
+            if isinstance(raw_trigger, str)
+            else [str(t) for t in raw_trigger]
+            if isinstance(raw_trigger, list)
+            else []
+        )
         if not any(triggers):
             return f"rule '{raw_id}' has no trigger"
 
@@ -116,7 +122,9 @@ class RulesParser:
                 return f"invalid exclude regex: {e}"
 
         phases = _qualify_phases(_as_list(entry.get("phases", [])), namespace)
-        exclude_phases = _qualify_phases(_as_list(entry.get("exclude_phases", [])), namespace)
+        exclude_phases = _qualify_phases(
+            _as_list(entry.get("exclude_phases", [])), namespace
+        )
 
         return Rule(
             id=qualified_id,
@@ -163,7 +171,9 @@ class InjectionsParser:
                 logger.warning("Skipping injection in %s: %s", source_path, result)
         return injections
 
-    def _parse_one(self, entry: dict, namespace: str, source_path: str) -> Injection | str:
+    def _parse_one(
+        self, entry: dict, namespace: str, source_path: str
+    ) -> Injection | str:
         raw_id = entry.get("id")
         if not raw_id or not isinstance(raw_id, str):
             return "missing 'id' field"
@@ -173,7 +183,13 @@ class InjectionsParser:
         qualified_id = f"{namespace}:{raw_id}"
 
         raw_trigger = entry.get("trigger") or ""
-        triggers = [raw_trigger] if isinstance(raw_trigger, str) else [str(t) for t in raw_trigger] if isinstance(raw_trigger, list) else []
+        triggers = (
+            [raw_trigger]
+            if isinstance(raw_trigger, str)
+            else [str(t) for t in raw_trigger]
+            if isinstance(raw_trigger, list)
+            else []
+        )
         if not any(triggers):
             return f"injection '{raw_id}' has no trigger"
 
@@ -188,7 +204,9 @@ class InjectionsParser:
             detect_field = detect.get("field", "command")
 
         phases = _qualify_phases(_as_list(entry.get("phases", [])), namespace)
-        exclude_phases = _qualify_phases(_as_list(entry.get("exclude_phases", [])), namespace)
+        exclude_phases = _qualify_phases(
+            _as_list(entry.get("exclude_phases", [])), namespace
+        )
 
         return Injection(
             id=qualified_id,

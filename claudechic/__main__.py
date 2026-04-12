@@ -18,6 +18,7 @@ logger = logging.getLogger("claudechic")
 
 # --- Global exception hooks: capture ANY unhandled exception to the log ---
 
+
 def _excepthook(exc_type, exc_value, exc_tb):
     """Log unhandled exceptions (except KeyboardInterrupt) before the interpreter dies."""
     if exc_type is KeyboardInterrupt:

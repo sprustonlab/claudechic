@@ -21,5 +21,7 @@ class Phase:
     id: str
     namespace: str
     file: str
-    advance_checks: list[Any] = field(default_factory=list)  # list[CheckDecl] at runtime
+    advance_checks: list[Any] = field(
+        default_factory=list
+    )  # list[CheckDecl] at runtime
     hints: list[Any] = field(default_factory=list)  # list[HintDecl] at runtime

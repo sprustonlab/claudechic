@@ -222,7 +222,9 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
     if answers.get("use_cluster") and _workflow_exists(workflows_dir, "cluster_setup"):
         configured = _cluster_configured(project_root)
         detail = _cluster_detail(project_root) if configured else "not configured"
-        facets.append(FacetStatus("cluster-setup", "Cluster access", configured, detail))
+        facets.append(
+            FacetStatus("cluster-setup", "Cluster access", configured, detail)
+        )
 
     # Git is always relevant (if the workflow exists)
     if _workflow_exists(workflows_dir, "git_setup"):
@@ -230,10 +232,14 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
         detail = _git_detail(project_root) if configured else "no remote set"
         facets.append(FacetStatus("git-setup", "Git remote", configured, detail))
 
-    if answers.get("use_existing_codebase") and _workflow_exists(workflows_dir, "codebase_setup"):
+    if answers.get("use_existing_codebase") and _workflow_exists(
+        workflows_dir, "codebase_setup"
+    ):
         configured = _codebase_configured(project_root)
         detail = _codebase_detail(project_root) if configured else "not integrated"
-        facets.append(FacetStatus("codebase-setup", "Codebase integration", configured, detail))
+        facets.append(
+            FacetStatus("codebase-setup", "Codebase integration", configured, detail)
+        )
 
     # If everything is configured, don't show
     if all(f.configured for f in facets):

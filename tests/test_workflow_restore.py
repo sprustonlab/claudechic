@@ -36,7 +36,9 @@ def _setup_workflow(root: Path) -> None:
     (wf_dir / "proj.yaml").write_text(yaml.dump(manifest))
 
 
-def _save_chicsession(root: Path, name: str, workflow_state: dict | None = None) -> None:
+def _save_chicsession(
+    root: Path, name: str, workflow_state: dict | None = None
+) -> None:
     """Create a chicsession file on disk."""
     mgr = ChicsessionManager(root)
     cs = Chicsession(
@@ -59,9 +61,7 @@ def _common_patches():
     stack.enter_context(
         patch("claudechic.tasks.create_safe_task", return_value=MagicMock())
     )
-    stack.enter_context(
-        patch("claudechic.sessions.count_sessions", return_value=1)
-    )
+    stack.enter_context(patch("claudechic.sessions.count_sessions", return_value=1))
     stack.enter_context(
         patch.object(ChatApp, "_prompt_chicsession_name", _mock_prompt_chicsession_name)
     )

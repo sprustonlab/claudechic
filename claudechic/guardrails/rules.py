@@ -200,7 +200,9 @@ def should_skip_for_phase(rule: Rule | Injection, current_phase: str | None) -> 
         return False  # No phase restrictions
 
     if current_phase is None:
-        return bool(rule.phases)  # Skip if rule requires specific phases; don't skip if only exclude_phases
+        return bool(
+            rule.phases
+        )  # Skip if rule requires specific phases; don't skip if only exclude_phases
 
     if rule.phases and current_phase not in rule.phases:
         return True  # Skip: not in allowed phase
