@@ -8,27 +8,27 @@ from textual.widget import Widget
 
 from claudechic.agent import (
     Agent,
-    ImageAttachment,
-    UserContent,
     AssistantContent,
-    ToolUse,
+    ImageAttachment,
     TextBlock,
+    ToolUse,
+    UserContent,
 )
 from claudechic.config import CONFIG
 from claudechic.enums import AgentStatus, ToolName
 from claudechic.formatting import format_agent_prompt
-from claudechic.widgets.content.message import (
-    ChatMessage,
-    ChatAttachment,
-    ThinkingIndicator,
-    SystemInfo,
-)
-from claudechic.widgets.primitives.scroll import AutoHideScroll
-from claudechic.widgets.content.tools import ToolUseWidget, TaskWidget, AgentToolWidget
 from claudechic.widgets.content.collapsed_turn import CollapsedTurn
+from claudechic.widgets.content.message import (
+    ChatAttachment,
+    ChatMessage,
+    SystemInfo,
+    ThinkingIndicator,
+)
+from claudechic.widgets.content.tools import AgentToolWidget, TaskWidget, ToolUseWidget
+from claudechic.widgets.primitives.scroll import AutoHideScroll
 
 if TYPE_CHECKING:
-    from claude_agent_sdk import ToolUseBlock, ToolResultBlock
+    from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 
 # Tools to collapse by default
 COLLAPSE_BY_DEFAULT = {

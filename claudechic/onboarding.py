@@ -16,7 +16,6 @@ from pathlib import Path
 
 from claudechic.hints.state import CopierAnswers, HintStateStore
 
-
 # ---------------------------------------------------------------------------
 # FacetStatus — one row in the welcome screen checklist
 # ---------------------------------------------------------------------------

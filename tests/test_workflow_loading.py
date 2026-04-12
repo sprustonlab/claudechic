@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-
 from claudechic.app import ChatApp
+
 from tests.conftest import submit_command
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]

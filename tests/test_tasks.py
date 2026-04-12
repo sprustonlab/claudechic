@@ -1,8 +1,8 @@
 """Tests for claudechic.tasks module."""
 
 import asyncio
-import pytest
 
+import pytest
 from claudechic.tasks import create_safe_task
 
 

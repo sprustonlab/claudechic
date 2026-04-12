@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # CopierAnswers -- parsed .copier-answers.yml
 # ---------------------------------------------------------------------------

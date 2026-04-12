@@ -9,11 +9,10 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
-
 from claudechic.app import ChatApp
 from claudechic.chicsessions import Chicsession, ChicsessionEntry, ChicsessionManager
 

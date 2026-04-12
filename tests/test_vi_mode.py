@@ -1,7 +1,8 @@
 """Tests for vi-mode state machine."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 
 @pytest.fixture

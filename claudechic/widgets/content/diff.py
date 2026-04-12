@@ -6,13 +6,12 @@ from functools import lru_cache
 
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
-from textual.content import Content, Span
 from textual.containers import HorizontalScroll
+from textual.content import Content, Span
 from textual.highlight import HighlightTheme
 from textual.widgets import Static
 
 from claudechic.formatting import get_lang_from_path
-
 
 # Theme-aware diff styles - dark and light variants
 DARK_THEME_STYLES = {

@@ -9,7 +9,6 @@ from rich.text import Text
 
 from claudechic.enums import ToolName
 
-
 # Constants
 MAX_CONTEXT_TOKENS = 200_000  # Default context window (overridden per-model)
 

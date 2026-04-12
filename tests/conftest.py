@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-
-import pytest
 from contextlib import ExitStack
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from claudechic.features.roborev.models import ReviewJob
 from claudechic.widgets.layout.reviews import ReviewItem
 

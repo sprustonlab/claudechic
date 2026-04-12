@@ -1,8 +1,8 @@
 """Tests for autocomplete widget."""
 
-import pytest
 from pathlib import Path
 
+import pytest
 from claudechic import ChatApp
 from claudechic.widgets import ChatInput, TextAreaAutoComplete
 

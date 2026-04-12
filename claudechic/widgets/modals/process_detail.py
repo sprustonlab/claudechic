@@ -7,12 +7,11 @@ from pathlib import Path
 
 import psutil
 from rich.table import Table
-
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Static, Button, TextArea
+from textual.widgets import Button, Static, TextArea
 
 from claudechic.processes import BackgroundProcess
 

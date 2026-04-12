@@ -6,7 +6,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import ListView, Input, Static
+from textual.widgets import Input, ListView, Static
 
 from claudechic.widgets.layout.sidebar import SessionItem
 

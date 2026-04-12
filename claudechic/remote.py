@@ -18,11 +18,10 @@ import io
 import logging
 import os
 from pathlib import Path
-
-from rich.console import Console
 from typing import TYPE_CHECKING
 
 from aiohttp import web
+from rich.console import Console
 
 if TYPE_CHECKING:
     from claudechic.app import ChatApp

@@ -1,7 +1,6 @@
 """Diff view widgets - sidebar, main view, and file panels."""
 
 import difflib
-
 from pathlib import Path
 
 from textual.app import ComposeResult

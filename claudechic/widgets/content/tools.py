@@ -5,28 +5,25 @@ import logging
 import re
 from pathlib import Path
 
+from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 from rich.text import Text
-
 from textual.app import ComposeResult
 from textual.message import Message
 from textual.widgets import Markdown, Static
 
-from claudechic.widgets.primitives.button import Button
-from claudechic.widgets.primitives.collapsible import QuietCollapsible
-
-from claude_agent_sdk import ToolUseBlock, ToolResultBlock
-
 from claudechic.enums import ToolName
 from claudechic.formatting import (
+    format_result_summary,
     format_tool_header,
     format_tool_input,
-    format_result_summary,
     make_relative,
 )
+from claudechic.widgets.base.tool_base import BaseToolWidget
 from claudechic.widgets.content.diff import DiffWidget
 from claudechic.widgets.content.message import ChatMessage
+from claudechic.widgets.primitives.button import Button
+from claudechic.widgets.primitives.collapsible import QuietCollapsible
 from claudechic.widgets.primitives.spinner import Spinner
-from claudechic.widgets.base.tool_base import BaseToolWidget
 
 log = logging.getLogger(__name__)
 

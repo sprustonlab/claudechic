@@ -4,18 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import claudechic.features.roborev.cli as roborev_cli
+import pytest
 from claudechic.commands import _format_verdict, _is_user_command, _list_reviews_in_chat
 from claudechic.features.roborev.cli import list_reviews, show_review
 from claudechic.features.roborev.models import ReviewDetail, ReviewJob
 from claudechic.widgets.layout.reviews import (
-    ReviewItem,
     _SPINNER_FRAMES,
+    ReviewItem,
     has_running_reviews,
 )
-
 
 # =============================================================================
 # ReviewJob.from_dict

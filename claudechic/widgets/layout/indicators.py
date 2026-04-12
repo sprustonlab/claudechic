@@ -1,15 +1,14 @@
 """Resource indicator widgets - context bar, CPU monitor, and process indicator."""
 
 import psutil
-
+from rich.text import Text
 from textual.app import RenderResult
 from textual.reactive import reactive
 from textual.widgets import Static
-from rich.text import Text
 
 from claudechic.formatting import MAX_CONTEXT_TOKENS
-from claudechic.profiling import profile, timed
 from claudechic.processes import BackgroundProcess
+from claudechic.profiling import profile, timed
 
 
 class IndicatorWidget(Static):

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import ExitStack
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from claudechic.agent import Agent
 
 

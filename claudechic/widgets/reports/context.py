@@ -1,6 +1,7 @@
 """Context report widget for /context command output."""
 
 import re
+
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
@@ -167,7 +168,7 @@ class ContextReport(Widget):
         return colors.get(color_key, "#666666")
 
     def compose(self) -> ComposeResult:
-        from textual.containers import Vertical, Horizontal
+        from textual.containers import Horizontal, Vertical
 
         data = self.data
 

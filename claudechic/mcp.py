@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from claude_agent_sdk import tool, create_sdk_mcp_server
+from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from claudechic.analytics import capture
 from claudechic.config import CONFIG
@@ -926,11 +926,11 @@ def create_chic_server(caller_name: str | None = None):
     # LSF cluster tools (always registered; LSF availability checked at runtime)
     try:
         from claudechic.cluster import (
+            _make_cluster_watch,
             cluster_jobs,
             cluster_kill,
             cluster_status,
             cluster_submit,
-            _make_cluster_watch,
         )
 
         tools.extend([

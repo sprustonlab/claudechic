@@ -16,7 +16,6 @@ from pathlib import Path
 from claudechic.enums import ToolName
 from claudechic.sessions import get_project_sessions_dir
 
-
 # Files that should never have their Read results compacted (matched by basename).
 READ_WHITELIST = [
     "CLAUDE.md",

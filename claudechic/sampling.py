@@ -20,7 +20,6 @@ from typing import Any
 
 import psutil
 
-
 # Default threshold (fraction, not percentage)
 DEFAULT_THRESHOLD = float(os.environ.get("CHIC_SAMPLE_THRESHOLD", "0.20"))
 

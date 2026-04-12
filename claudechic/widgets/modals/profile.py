@@ -4,15 +4,14 @@ import time
 
 from rich.table import Table
 from rich.text import Text
-
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Static, Button
+from textual.widgets import Button, Static
 
-from claudechic.profiling import get_stats_table, get_stats_text, reset_stats, _stats
-from claudechic.sampling import get_sampler, flatten, Episode
+from claudechic.profiling import _stats, get_stats_table, get_stats_text, reset_stats
+from claudechic.sampling import Episode, flatten, get_sampler
 
 
 def _get_sampling_table() -> Table | None:

@@ -9,12 +9,12 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Markdown, TextArea, Static
+from textual.widgets import Markdown, Static, TextArea
 
 from claudechic.errors import log_exception
+from claudechic.widgets.input.vi_mode import ViHandler, ViMode
 from claudechic.widgets.primitives.button import Button
 from claudechic.widgets.primitives.spinner import Spinner
-from claudechic.widgets.input.vi_mode import ViHandler, ViMode
 
 
 class MessageMetadataHeader(Static):

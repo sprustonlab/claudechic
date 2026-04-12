@@ -3,12 +3,11 @@
 from datetime import datetime
 
 from rich.table import Table
-
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Static, Button
+from textual.widgets import Button, Static
 
 from claudechic.processes import BackgroundProcess
 

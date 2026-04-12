@@ -4,13 +4,13 @@ import re
 import time
 from pathlib import Path
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.events import Click
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Static, Label, ListItem
-from rich.text import Text
+from textual.widgets import Label, ListItem, Static
 
 from claudechic.enums import AgentStatus
 from claudechic.widgets.primitives.button import Button

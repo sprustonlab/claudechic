@@ -6,10 +6,10 @@ import shutil
 import sys
 import uuid as uuid_mod
 from datetime import datetime, timezone
+from importlib.metadata import version
 from pathlib import Path
 
 import httpx
-from importlib.metadata import version
 
 from claudechic.config import CONFIG
 

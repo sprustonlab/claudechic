@@ -11,8 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from claudechic.checks.protocol import CheckDecl
-    from claudechic.hints.types import HintDecl
+    pass
 
 
 @dataclass(frozen=True)

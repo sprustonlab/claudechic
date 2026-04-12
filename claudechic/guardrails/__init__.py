@@ -7,6 +7,7 @@ from claudechic.guardrails.hooks import (
     OverrideTokenConsumer,
     create_guardrail_hooks,
 )
+from claudechic.guardrails.parsers import InjectionsParser, RulesParser
 from claudechic.guardrails.rules import (
     Injection,
     Rule,
@@ -17,7 +18,6 @@ from claudechic.guardrails.rules import (
     should_skip_for_phase,
     should_skip_for_role,
 )
-from claudechic.guardrails.parsers import InjectionsParser, RulesParser
 from claudechic.guardrails.tokens import OverrideToken, OverrideTokenStore
 
 __all__ = [

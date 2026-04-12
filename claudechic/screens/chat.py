@@ -6,24 +6,24 @@ from typing import TYPE_CHECKING, cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.screen import Screen
 
 from claudechic.widgets import (
-    ChatView,
-    ChatInput,
-    ImageAttachments,
-    TextAreaAutoComplete,
-    HistorySearch,
     AgentSection,
+    ChatInput,
+    ChatView,
     ChicsessionLabel,
-    TodoPanel,
-    ProcessPanel,
-    PlanSection,
     FilesSection,
     HamburgerButton,
+    HistorySearch,
+    ImageAttachments,
+    PlanSection,
+    ProcessPanel,
     ReviewPanel,
+    TextAreaAutoComplete,
+    TodoPanel,
 )
 from claudechic.widgets.layout.footer import StatusFooter
 
