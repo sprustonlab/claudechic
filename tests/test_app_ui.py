@@ -1516,34 +1516,37 @@ async def test_toast_debounce_expires_after_cooldown(mock_sdk):
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_prompt_visible_and_focused_after_agent_switch(mock_sdk):
-    """Switching to an agent with a pending prompt: prompt is visible and focused.
+    """Switching to an agent with a pending prompt must NOT focus chat_input.
 
-    Creates a prompt on a non-active agent (prompt starts hidden), then
-    switches to that agent. The prompt should lose the 'hidden' class
-    and gain focus.
+    Bug: on_agent_switched unconditionally calls chat_input.focus() at
+    the end, even when an active prompt exists.  This steals focus from
+    the prompt.  (In practice on_blur fights back, but the spurious
+    focus call causes a visible flicker and is wrong by contract.)
+
+    Fix: chat_input.focus() must be conditional -- skipped when an
+    active prompt is being shown.
     """
+    from unittest.mock import patch
+
     app = ChatApp()
     async with app.run_test(size=(120, 40)) as pilot:
         from tests.conftest import submit_command, wait_for_workers
 
-        # Create second agent
         await submit_command(app, pilot, "/agent prompted")
         await wait_for_workers(app)
         await pilot.pause()
 
         agent_ids = list(app.agents.keys())
-        first_id = agent_ids[0]
-        second_id = agent_ids[1]
+        first_id, second_id = agent_ids[0], agent_ids[1]
         second_agent = app.agents[second_id]
 
-        # Switch to first agent so second is inactive
+        # Make first agent active so second is inactive
         app.agent_mgr.switch(first_id)
         await pilot.pause()
-        assert app.active_agent_id == first_id
 
         import asyncio
 
-        # Launch a prompt on the inactive second agent
+        # Mount a prompt on the inactive second agent
         prompt_task = asyncio.create_task(
             app._show_override_prompt(
                 "global:test_rule", "Approve?", agent=second_agent
@@ -1554,30 +1557,36 @@ async def test_prompt_visible_and_focused_after_agent_switch(mock_sdk):
 
         from claudechic.widgets.prompts import SelectionPrompt
 
-        # Prompt should exist but be hidden (non-active agent)
         prompts = list(app.query(SelectionPrompt))
-        assert len(prompts) >= 1, "Expected prompt to be mounted"
+        assert len(prompts) >= 1
         prompt = prompts[-1]
-        assert prompt.has_class("hidden"), (
-            "Prompt should be hidden while agent is not active"
-        )
+        assert prompt.has_class("hidden")
 
-        # Now switch TO the agent with the pending prompt
-        app.agent_mgr.switch(second_id)
-        await pilot.pause()
-        await pilot.pause()
+        # Spy on chat_input.focus during the switch
+        chat_input_focus_calls: list[bool] = []
+        original_ci_focus = app.chat_input.focus
 
-        # Prompt should now be VISIBLE (not hidden)
+        def spy_ci_focus(*a, **kw):
+            chat_input_focus_calls.append(True)
+            return original_ci_focus(*a, **kw)
+
+        with patch.object(app.chat_input, "focus", side_effect=spy_ci_focus):
+            app.agent_mgr.switch(second_id)
+            await pilot.pause()
+            await pilot.pause()
+
+        # Prompt should be visible
         assert not prompt.has_class("hidden"), (
             "Prompt should be visible after switching to its agent"
         )
 
-        # Prompt should have FOCUS (not chat input)
-        assert app.focused is prompt, (
-            f"Expected prompt to have focus, but focused widget is: {app.focused}"
+        # Contract: chat_input.focus() must NOT be called when a prompt
+        # is active.  The buggy code calls it unconditionally.
+        assert len(chat_input_focus_calls) == 0, (
+            f"chat_input.focus() called {len(chat_input_focus_calls)} time(s) "
+            f"during switch -- should not be called when active prompt exists"
         )
 
-        # Cleanup
         prompt._resolve("deny")
         await prompt_task
 
@@ -1586,34 +1595,34 @@ async def test_prompt_visible_and_focused_after_agent_switch(mock_sdk):
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_prompt_refocused_after_switch_away_and_back(mock_sdk):
-    """Prompt on active agent: switch away, switch back -- prompt is visible and focused.
+    """After switch-back, prompt.focus() must happen AFTER refresh_css().
 
-    Creates a prompt on the active agent, switches to a different agent
-    (prompt becomes hidden), switches back -- prompt should be visible
-    and focused again.
+    Bug: on_agent_switched calls active_prompt.focus() BEFORE
+    refresh_css(), so focus targets an element whose CSS display has
+    not been recomputed yet.
+
+    Fix: move the prompt.focus() call to AFTER refresh_css().
     """
+    from unittest.mock import patch
+
     app = ChatApp()
     async with app.run_test(size=(120, 40)) as pilot:
         from tests.conftest import submit_command, wait_for_workers
 
-        # Create second agent
         await submit_command(app, pilot, "/agent other")
         await wait_for_workers(app)
         await pilot.pause()
 
         agent_ids = list(app.agents.keys())
-        first_id = agent_ids[0]
-        second_id = agent_ids[1]
+        first_id, second_id = agent_ids[0], agent_ids[1]
         first_agent = app.agents[first_id]
 
-        # Switch to first agent
         app.agent_mgr.switch(first_id)
         await pilot.pause()
-        assert app.active_agent_id == first_id
 
         import asyncio
 
-        # Launch a prompt on the ACTIVE first agent
+        # Mount a prompt on the active first agent
         prompt_task = asyncio.create_task(
             app._show_override_prompt("global:test_rule", "Approve?", agent=first_agent)
         )
@@ -1623,40 +1632,53 @@ async def test_prompt_refocused_after_switch_away_and_back(mock_sdk):
         from claudechic.widgets.prompts import SelectionPrompt
 
         prompts = list(app.query(SelectionPrompt))
-        assert len(prompts) >= 1, "Expected prompt to be mounted"
+        assert len(prompts) >= 1
         prompt = prompts[-1]
+        assert not prompt.has_class("hidden")
 
-        # Prompt should be visible on active agent
-        assert not prompt.has_class("hidden"), (
-            "Prompt should be visible on active agent"
-        )
-
-        # Switch AWAY to second agent
+        # Switch away
         app.agent_mgr.switch(second_id)
         await pilot.pause()
-        await pilot.pause()
+        assert prompt.has_class("hidden")
 
-        # Prompt should now be hidden
-        assert prompt.has_class("hidden"), (
-            "Prompt should be hidden after switching away"
-        )
+        # Record call order during switch-back
+        call_order: list[str] = []
+        orig_refresh = app.refresh_css
+        orig_pfocus = prompt.focus
 
-        # Switch BACK to first agent
-        app.agent_mgr.switch(first_id)
-        await pilot.pause()
-        await pilot.pause()
+        def spy_refresh(*a, **kw):
+            call_order.append("refresh_css")
+            return orig_refresh(*a, **kw)
 
-        # Prompt should be visible again
+        def spy_pfocus(*a, **kw):
+            call_order.append("prompt_focus")
+            return orig_pfocus(*a, **kw)
+
+        with (
+            patch.object(app, "refresh_css", side_effect=spy_refresh),
+            patch.object(prompt, "focus", side_effect=spy_pfocus),
+        ):
+            app.agent_mgr.switch(first_id)
+            await pilot.pause()
+            await pilot.pause()
+
         assert not prompt.has_class("hidden"), (
             "Prompt should be visible after switching back"
         )
 
-        # Prompt should have focus (not chat input)
-        assert app.focused is prompt, (
-            f"Expected prompt to have focus after switch-back, "
-            f"but focused widget is: {app.focused}"
+        # prompt.focus() must appear in the call log
+        assert "prompt_focus" in call_order, (
+            f"prompt.focus() never called during switch-back: {call_order}"
+        )
+        assert "refresh_css" in call_order, (
+            f"refresh_css() never called during switch-back: {call_order}"
         )
 
-        # Cleanup
+        # And it must come AFTER refresh_css
+        assert call_order.index("prompt_focus") > call_order.index("refresh_css"), (
+            f"prompt.focus() called BEFORE refresh_css() -- "
+            f"focus must happen after CSS recomputation. Order: {call_order}"
+        )
+
         prompt._resolve("deny")
         await prompt_task

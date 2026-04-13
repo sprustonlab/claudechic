@@ -3640,7 +3640,6 @@ class ChatApp(App):
         active_prompt = self._active_prompts.get(new_agent.id)
         if active_prompt:
             active_prompt.remove_class("hidden", update=False)
-            active_prompt.focus()
             self.input_container.add_class("hidden", update=False)
         else:
             self.input_container.remove_class("hidden", update=False)
@@ -3672,7 +3671,11 @@ class ChatApp(App):
         create_safe_task(
             self.status_footer.refresh_branch(str(new_agent.cwd)), name="refresh-branch"
         )
-        self.chat_input.focus()
+        # Focus after refresh_css so computed display is correct
+        if active_prompt:
+            active_prompt.focus()
+        else:
+            self.chat_input.focus()
 
     def on_agent_closed(self, agent_id: str, message_count: int = 0) -> None:
         """Handle agent closure from AgentManager."""
