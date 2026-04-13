@@ -583,6 +583,9 @@ class Agent:
             except asyncio.CancelledError:
                 pass  # Task was cancelled elsewhere, that's fine
 
+        # Clear stale permission prompts left by CancelledError
+        self.pending_prompts.clear()
+
         self._set_response_state(ResponseState.IDLE)
         self._set_status(AgentStatus.IDLE)
 

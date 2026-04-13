@@ -191,9 +191,7 @@ class WorkflowEngine:
                             message=check_decl.on_failure.get(
                                 "message", "Check failed"
                             ),
-                            severity=check_decl.on_failure.get(
-                                "severity", "warning"
-                            ),
+                            severity=check_decl.on_failure.get("severity", "warning"),
                             lifecycle=check_decl.on_failure.get(
                                 "lifecycle", "show-until-resolved"
                             ),
@@ -226,9 +224,7 @@ class WorkflowEngine:
             # Persist via callback
             await self._persist()
 
-            return PhaseAdvanceResult(
-                success=True, reason=f"Advanced to {next_phase}"
-            )
+            return PhaseAdvanceResult(success=True, reason=f"Advanced to {next_phase}")
 
     # ------------------------------------------------------------------
     # Setup checks (global, no short-circuit)
@@ -317,9 +313,7 @@ class WorkflowEngine:
                 current = self._current_phase
                 phase_order = self._phase_order
                 phase_index = (
-                    phase_order.index(current) + 1
-                    if current in phase_order
-                    else 0
+                    phase_order.index(current) + 1 if current in phase_order else 0
                 )
                 params["context"] = {
                     "phase_id": current,

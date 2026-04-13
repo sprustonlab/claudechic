@@ -70,6 +70,7 @@ testpaths = ["tests"]
 markers = [
     "fast: fast unit tests (default tier, under 1s each)",
     "integration: integration tests (may be slower, uses more complex mocking)",
+    "slow: tests that take >30s (real timeouts, E2E flows)",
 ]
 
 [tool.setuptools_scm]

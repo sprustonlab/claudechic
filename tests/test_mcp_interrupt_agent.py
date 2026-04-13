@@ -5,9 +5,8 @@ Covers all 9 unit tests and 1 integration test from the spec (Issue #10, Section
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from claudechic.mcp import _make_interrupt_agent, set_app
@@ -124,15 +123,20 @@ class TestBusyAgent:
         assert "isError" not in result
 
     async def test_busy_with_redirect(self, two_agents):
-        """Test 2: Busy agent, with redirect -- interrupt() then send() in order."""
+        """Test 2: Busy agent, with redirect -- interrupt() then fire-and-forget."""
         _alice, bob = two_agents
         bob.status = "busy"
 
         tool = _make_interrupt_agent(caller_name="alice")
-        result = await tool.handler({"name": "bob", "prompt": "Do something else"})
+        with patch("claudechic.mcp._send_prompt_fire_and_forget") as mock_fire:
+            result = await tool.handler({"name": "bob", "prompt": "Do something else"})
 
         bob.interrupt.assert_awaited_once()
-        bob.send.assert_awaited_once()
+        # Redirect uses fire-and-forget with pre-wrapped prefix
+        mock_fire.assert_called_once()
+        sent_prompt = mock_fire.call_args[0][1]
+        assert "[Redirected by agent 'alice']" in sent_prompt
+        assert "Do something else" in sent_prompt
         assert result["content"][0]["text"] == "Interrupted 'bob' and sent new prompt"
         assert "isError" not in result
 
@@ -202,21 +206,20 @@ class TestErrorCases:
         assert "SDK timeout" in result["content"][0]["text"]
         bob.send.assert_not_awaited()
 
-    async def test_redirect_failure(self, two_agents):
-        """Test 8: send() raises after successful interrupt -- partial success error."""
+    async def test_redirect_uses_fire_and_forget(self, two_agents):
+        """Test 8: Redirect after interrupt uses fire-and-forget (can't raise)."""
         _alice, bob = two_agents
         bob.status = "busy"
-        bob.send = AsyncMock(side_effect=RuntimeError("Connection lost"))
 
         tool = _make_interrupt_agent(caller_name="alice")
-        result = await tool.handler({"name": "bob", "prompt": "Redirect"})
+        with patch("claudechic.mcp._send_prompt_fire_and_forget") as mock_fire:
+            result = await tool.handler({"name": "bob", "prompt": "Redirect"})
 
         bob.interrupt.assert_awaited_once()
-        assert result["isError"] is True
-        text = result["content"][0]["text"]
-        assert "Interrupted 'bob'" in text
-        assert "failed to send new prompt" in text
-        assert "Connection lost" in text
+        # Fire-and-forget handles errors internally -- no partial-success path
+        mock_fire.assert_called_once()
+        assert result["content"][0]["text"] == "Interrupted 'bob' and sent new prompt"
+        assert "isError" not in result
 
 
 class TestRedirectPrefix:
@@ -228,10 +231,11 @@ class TestRedirectPrefix:
         bob.status = "busy"
 
         tool = _make_interrupt_agent(caller_name="alice")
-        await tool.handler({"name": "bob", "prompt": "Focus on section 3"})
+        with patch("claudechic.mcp._send_prompt_fire_and_forget") as mock_fire:
+            await tool.handler({"name": "bob", "prompt": "Focus on section 3"})
 
-        bob.send.assert_awaited_once()
-        sent_prompt = bob.send.call_args[0][0]
+        mock_fire.assert_called_once()
+        sent_prompt = mock_fire.call_args[0][1]
         assert sent_prompt.startswith("[Redirected by agent 'alice']")
         assert "Focus on section 3" in sent_prompt
 
@@ -241,10 +245,11 @@ class TestRedirectPrefix:
         bob.status = "busy"
 
         tool = _make_interrupt_agent(caller_name=None)
-        await tool.handler({"name": "bob", "prompt": "Focus on section 3"})
+        with patch("claudechic.mcp._send_prompt_fire_and_forget") as mock_fire:
+            await tool.handler({"name": "bob", "prompt": "Focus on section 3"})
 
-        bob.send.assert_awaited_once()
-        sent_prompt = bob.send.call_args[0][0]
+        mock_fire.assert_called_once()
+        sent_prompt = mock_fire.call_args[0][1]
         # Without caller, prompt should be sent as-is
         assert sent_prompt == "Focus on section 3"
 
@@ -272,17 +277,22 @@ class TestInterruptIntegration:
         researcher.interrupt = AsyncMock(side_effect=interrupt_side_effect)
 
         tool = _make_interrupt_agent(caller_name="coordinator")
-        result = await tool.handler(
-            {"name": "researcher", "prompt": "Switch to section 3 analysis"}
-        )
+        with patch("claudechic.mcp._send_prompt_fire_and_forget") as mock_fire:
+            result = await tool.handler(
+                {"name": "researcher", "prompt": "Switch to section 3 analysis"}
+            )
 
         # Verify the full sequence
         researcher.interrupt.assert_awaited_once()
-        researcher.send.assert_awaited_once()
 
-        sent_prompt = researcher.send.call_args[0][0]
+        # Redirect uses fire-and-forget with pre-wrapped prefix
+        mock_fire.assert_called_once()
+        sent_prompt = mock_fire.call_args[0][1]
         assert "[Redirected by agent 'coordinator']" in sent_prompt
         assert "Switch to section 3 analysis" in sent_prompt
 
-        assert result["content"][0]["text"] == "Interrupted 'researcher' and sent new prompt"
+        assert (
+            result["content"][0]["text"]
+            == "Interrupted 'researcher' and sent new prompt"
+        )
         assert "isError" not in result

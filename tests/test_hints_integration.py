@@ -57,9 +57,7 @@ def _install_hints(dest: Path) -> None:
     """Create a minimal template-side hints package in *dest*."""
     hints_dir = dest / "hints"
     hints_dir.mkdir(exist_ok=True)
-    (hints_dir / "__init__.py").write_text(
-        _HINTS_INIT_SRC, encoding="utf-8"
-    )
+    (hints_dir / "__init__.py").write_text(_HINTS_INIT_SRC, encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,34 @@ async def empty_async_gen():
     yield  # unreachable - makes this an async generator
 
 
+@pytest.fixture
+def real_agent_with_mock_sdk(tmp_path):
+    """Create a real Agent with a mock ClaudeSDKClient.
+
+    Returns a (agent, mock_client) tuple. The agent is connected with a
+    mock SDK that supports connect/interrupt/query/receive_response as
+    minimal stubs. This lets integration tests exercise real Agent state
+    machine logic without needing a live SDK connection.
+    """
+    from claudechic.agent import Agent
+
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.interrupt = AsyncMock()
+    mock_client.query = AsyncMock()
+    mock_client.receive_response = lambda: empty_async_gen()
+    mock_client.get_server_info = AsyncMock(return_value={"commands": [], "models": []})
+    mock_client.set_permission_mode = AsyncMock()
+    mock_client._transport = None
+
+    agent = Agent(name="test-agent", cwd=tmp_path)
+    # Inject mock client directly (bypass connect() which needs real SDK)
+    agent.client = mock_client
+    agent.session_id = "mock-session-001"
+
+    return agent, mock_client
+
+
 async def wait_for_workers(app):
     """Wait for all workers to complete."""
     await app.workers.wait_for_complete()

@@ -25,6 +25,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from claudechic.analytics import capture
 from claudechic.config import CONFIG
+from claudechic.enums import AgentStatus
 from claudechic.features.worktree.git import (
     FinishPhase,
     FinishState,
@@ -685,48 +686,28 @@ def _make_interrupt_agent(caller_name: str | None = None):
                 return _error_response(error or "Agent not found")
 
             # Idle agent: skip interrupt, optionally send prompt
-            if agent.status != "busy":
+            if agent.status == AgentStatus.IDLE:
                 if prompt:
-                    _send_prompt_fire_and_forget(
-                        agent, prompt, caller_name=caller_name
-                    )
-                    return _text_response(
-                        f"Agent '{name}' was idle; sent new prompt"
-                    )
-                return _text_response(
-                    f"Agent '{name}' is not currently busy"
-                )
+                    _send_prompt_fire_and_forget(agent, prompt, caller_name=caller_name)
+                    return _text_response(f"Agent '{name}' was idle; sent new prompt")
+                return _text_response(f"Agent '{name}' is not currently busy")
 
             # Busy agent: await interrupt to completion
             try:
                 await agent.interrupt()
             except Exception as exc:
                 log.exception(f"interrupt_agent: interrupt failed for '{name}'")
-                return _error_response(
-                    f"Failed to interrupt '{name}': {exc}"
-                )
+                return _error_response(f"Failed to interrupt '{name}': {exc}")
 
             # Redirect with new prompt if provided
             if prompt:
-                try:
-                    wrapped = prompt
-                    if caller_name:
-                        wrapped = (
-                            f"[Redirected by agent '{caller_name}']\n\n"
-                            f"{prompt}"
-                        )
-                    await agent.send(wrapped)
-                except Exception as exc:
-                    log.exception(
-                        f"interrupt_agent: redirect failed for '{name}'"
-                    )
-                    return _error_response(
-                        f"Interrupted '{name}' but failed to send "
-                        f"new prompt: {exc}"
-                    )
-                return _text_response(
-                    f"Interrupted '{name}' and sent new prompt"
-                )
+                wrapped = prompt
+                if caller_name:
+                    wrapped = f"[Redirected by agent '{caller_name}']\n\n{prompt}"
+                # Fire-and-forget: don't block MCP handler.
+                # caller_name=None because we already wrapped the prefix.
+                _send_prompt_fire_and_forget(agent, wrapped)
+                return _text_response(f"Interrupted '{name}' and sent new prompt")
 
             return _text_response(f"Interrupted '{name}'")
 
@@ -1002,7 +983,9 @@ def _make_request_override(caller_name: str | None = None):
             caller_agent = _app.agent_mgr.find_by_name(caller_name)
 
         approved = await _app._show_override_prompt(
-            rule_id, description, agent=caller_agent,
+            rule_id,
+            description,
+            agent=caller_agent,
         )
 
         if approved:
