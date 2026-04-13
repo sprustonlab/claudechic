@@ -935,3 +935,728 @@ async def test_clearui_all_agents(mock_sdk):
             chat_view = app._chat_views.get(agent_id)
             if chat_view:
                 assert len(chat_view.children) == 10
+
+
+# =============================================================================
+# Toast debounce unit tests (fast marker)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_should_show_toast_none_key(mock_sdk):
+    """_should_show_toast(None) always returns True (no debounce)."""
+    app = ChatApp()
+    async with app.run_test():
+        assert app._should_show_toast(None) is True
+        assert app._should_show_toast(None) is True
+        assert app._should_show_toast(None) is True
+
+
+@pytest.mark.asyncio
+async def test_should_show_toast_cooldown(mock_sdk):
+    """Same key within 10s returns False; after 10s returns True."""
+    from unittest.mock import patch
+
+    app = ChatApp()
+    async with app.run_test():
+        fake_time = 1000.0
+
+        with patch("time.monotonic", return_value=fake_time):
+            assert app._should_show_toast("agent-1:advance") is True
+
+        # Within cooldown window (5s later)
+        with patch("time.monotonic", return_value=fake_time + 5.0):
+            assert app._should_show_toast("agent-1:advance") is False
+
+        # After cooldown expires (11s later)
+        with patch("time.monotonic", return_value=fake_time + 11.0):
+            assert app._should_show_toast("agent-1:advance") is True
+
+
+@pytest.mark.asyncio
+async def test_should_show_toast_independent_keys(mock_sdk):
+    """Different keys have independent cooldowns."""
+    from unittest.mock import patch
+
+    app = ChatApp()
+    async with app.run_test():
+        fake_time = 1000.0
+
+        with patch("time.monotonic", return_value=fake_time):
+            assert app._should_show_toast("agent-1:advance") is True
+
+        # Different key should still return True even immediately after
+        with patch("time.monotonic", return_value=fake_time + 0.1):
+            assert app._should_show_toast("agent-1:no_pip_install") is True
+
+        # Original key still in cooldown
+        with patch("time.monotonic", return_value=fake_time + 0.2):
+            assert app._should_show_toast("agent-1:advance") is False
+
+
+# =============================================================================
+# Integration tests: Advance check UX (issue #21)
+# =============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_advance_check_prompt_shows_phase_context(mock_sdk):
+    """Confirm prompt displays phase name and progress."""
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        ctx = {
+            "phase_id": "proj:review",
+            "phase_index": 2,
+            "phase_total": 4,
+            "check_id": "proj:review:advance:0",
+        }
+
+        # Launch the prompt in a task so we can inspect it
+        import asyncio
+
+        prompt_task = asyncio.create_task(
+            app._show_advance_check_prompt("Ready to review?", context=ctx)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        # Find the SelectionPrompt widget
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1, "Expected SelectionPrompt to be mounted"
+        prompt = prompts[-1]
+
+        # Check title contains phase context
+        assert "Phase 2/4" in prompt.title
+        assert "review" in prompt.title
+        assert "[Advance check]" in prompt.title
+
+        # Check subtitle is the question
+        assert prompt.subtitle == "Ready to review?"
+
+        # Dismiss
+        prompt._resolve("allow")
+        result = await prompt_task
+        assert result is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_advance_check_sets_needs_input(mock_sdk):
+    """Requesting agent gets NEEDS_INPUT status during prompt, restored after."""
+    from claudechic.enums import AgentStatus
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        import asyncio
+
+        agent = app._agent
+        assert agent is not None
+
+        ctx = {
+            "phase_id": "proj:design",
+            "phase_index": 1,
+            "phase_total": 3,
+            "check_id": "proj:design:advance:0",
+        }
+
+        prompt_task = asyncio.create_task(
+            app._show_advance_check_prompt("Advance?", context=ctx, agent=agent)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        # Agent should be NEEDS_INPUT while prompt is showing
+        assert agent.status == AgentStatus.NEEDS_INPUT
+
+        # Dismiss prompt
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+        prompts[-1]._resolve("allow")
+        await prompt_task
+        await pilot.pause()
+
+        # Status should be restored
+        assert agent.status != AgentStatus.NEEDS_INPUT
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_advance_check_toast_for_inactive_agent(mock_sdk):
+    """Toast shown when advance check fires for a non-active agent."""
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        # Create second agent
+        await submit_command(app, pilot, "/agent background")
+        await wait_for_workers(app)
+
+        agent_ids = list(app.agents.keys())
+        assert len(agent_ids) == 2
+
+        # Switch to first agent via API (avoids flaky WaitForScreenTimeout)
+        first_id = agent_ids[0]
+        app.agent_mgr.switch(first_id)
+        await pilot.pause()
+        second_agent = app.agents[agent_ids[1]]
+        assert app.active_agent_id == first_id
+
+        import asyncio
+
+        notif_count_before = len(app._notifications)
+
+        ctx = {
+            "phase_id": "proj:design",
+            "phase_index": 1,
+            "phase_total": 3,
+            "check_id": "proj:design:advance:0",
+        }
+
+        prompt_task = asyncio.create_task(
+            app._show_advance_check_prompt("Advance?", context=ctx, agent=second_agent)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        # Toast should have been shown for the non-active agent
+        notifs_after = list(app._notifications)[notif_count_before:]
+        toast_messages = [n.message for n in notifs_after]
+        assert any("background" in msg.lower() for msg in toast_messages), (
+            f"Expected toast mentioning 'background' agent, got: {toast_messages}"
+        )
+
+        # Dismiss
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        if prompts:
+            prompts[-1]._resolve("deny")
+        await prompt_task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_advance_check_deny_feedback(mock_sdk):
+    """Post-deny toast: 'Phase advance blocked...'"""
+    app = ChatApp()
+    async with app.run_test(size=(120, 40), notifications=True) as pilot:
+        import asyncio
+
+        ctx = {
+            "phase_id": "proj:design",
+            "phase_index": 1,
+            "phase_total": 3,
+            "check_id": "proj:design:advance:0",
+        }
+
+        prompt_task = asyncio.create_task(
+            app._show_advance_check_prompt("Advance?", context=ctx)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+
+        notif_count_before = len(app._notifications)
+        prompts[-1]._resolve("deny")
+        result = await prompt_task
+        await pilot.pause()
+
+        assert result is False
+        # Check post-deny notification
+        notifs_after = list(app._notifications)[notif_count_before:]
+        deny_messages = [n.message for n in notifs_after]
+        assert any("blocked" in msg.lower() for msg in deny_messages), (
+            f"Expected 'blocked' in deny feedback, got: {deny_messages}"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_advance_check_no_auto_switch(mock_sdk):
+    """Active agent does NOT change when another agent's advance check fires."""
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        # Create second agent
+        await submit_command(app, pilot, "/agent background")
+        await wait_for_workers(app)
+
+        agent_ids = list(app.agents.keys())
+        # Switch to first agent via API (avoids flaky WaitForScreenTimeout)
+        first_id = agent_ids[0]
+        app.agent_mgr.switch(first_id)
+        await pilot.pause()
+        second_agent = app.agents[agent_ids[1]]
+        assert app.active_agent_id == first_id
+
+        import asyncio
+
+        ctx = {
+            "phase_id": "proj:design",
+            "phase_index": 1,
+            "phase_total": 3,
+            "check_id": "proj:design:advance:0",
+        }
+
+        prompt_task = asyncio.create_task(
+            app._show_advance_check_prompt("Advance?", context=ctx, agent=second_agent)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        # Active agent should still be the first one
+        assert app.active_agent_id == first_id
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        if prompts:
+            prompts[-1]._resolve("allow")
+        await prompt_task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_override_prompt_shows_rule_context(mock_sdk):
+    """Override prompt displays [Override] Rule: {rule_id} title + description as subtitle."""
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        import asyncio
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        description = (
+            "Agent wants to run blocked action:\n"
+            "  Tool: Bash\n"
+            "  Input: pip install foo\n"
+            "  Blocked by: global:no_pip_install\n"
+            "Approve this specific action?"
+        )
+
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt("global:no_pip_install", description)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+        prompt = prompts[-1]
+
+        assert "[Override]" in prompt.title
+        assert "no_pip_install" in prompt.title
+        assert prompt.subtitle == description
+
+        prompt._resolve("deny")
+        await prompt_task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_override_prompt_sets_needs_input(mock_sdk):
+    """Requesting agent gets NEEDS_INPUT status during override prompt."""
+    from claudechic.enums import AgentStatus
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        import asyncio
+
+        agent = app._agent
+        assert agent is not None
+
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt("global:no_pip_install", "Block?", agent=agent)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        assert agent.status == AgentStatus.NEEDS_INPUT
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+        prompts[-1]._resolve("deny")
+        await prompt_task
+        await pilot.pause()
+
+        assert agent.status != AgentStatus.NEEDS_INPUT
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_override_prompt_toast_for_inactive_agent(mock_sdk):
+    """Toast shown when override fires for a non-active agent."""
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        await submit_command(app, pilot, "/agent background")
+        await wait_for_workers(app)
+
+        agent_ids = list(app.agents.keys())
+        # Use agent_mgr.switch to avoid flaky WaitForScreenTimeout
+        app.agent_mgr.switch(agent_ids[0])
+        await pilot.pause()
+        second_agent = app.agents[agent_ids[1]]
+        assert app.active_agent_id == agent_ids[0]
+
+        import asyncio
+
+        notif_count_before = len(app._notifications)
+
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt(
+                "global:no_pip_install", "Block?", agent=second_agent
+            )
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        notifs_after = list(app._notifications)[notif_count_before:]
+        toast_messages = [n.message for n in notifs_after]
+        assert any("background" in msg.lower() for msg in toast_messages), (
+            f"Expected toast for 'background' agent, got: {toast_messages}"
+        )
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        if prompts:
+            prompts[-1]._resolve("deny")
+        await prompt_task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_override_prompt_no_emoji(mock_sdk):
+    """Override prompt title contains no non-ASCII characters."""
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        import asyncio
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt("global:no_pip_install", "Blocked")
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+        title = prompts[-1].title
+
+        # Verify ASCII only
+        assert all(ord(c) < 128 for c in title), (
+            f"Non-ASCII characters in override title: {title!r}"
+        )
+
+        prompts[-1]._resolve("deny")
+        await prompt_task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_toast_debounce_suppresses_repeat(mock_sdk):
+    """Second override prompt for same agent+rule within 10s does NOT fire a toast.
+
+    Uses a single prompt flow + _should_show_toast state check to avoid
+    TUI sequencing issues with mounting multiple sequential prompts.
+    """
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        await submit_command(app, pilot, "/agent background")
+        await wait_for_workers(app)
+
+        agent_ids = list(app.agents.keys())
+        # Use agent_mgr.switch to avoid flaky ctrl+1 WaitForScreenTimeout
+        app.agent_mgr.switch(agent_ids[0])
+        await pilot.pause()
+        second_agent = app.agents[agent_ids[1]]
+        assert app.active_agent_id == agent_ids[0]
+
+        import asyncio
+
+        # First prompt -- toast should fire (sets debounce timestamp)
+        notif_count_before = len(app._notifications)
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt(
+                "global:no_pip_install", "Block?", agent=second_agent
+            )
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        notifs_first = list(app._notifications)[notif_count_before:]
+        assert len(notifs_first) > 0, "Expected toast on first prompt"
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+        prompts[-1]._resolve("deny")
+        await prompt_task
+        await pilot.pause()
+
+        # Verify debounce state: same key should be suppressed
+        toast_key = f"{second_agent.id}:global:no_pip_install"
+        assert app._should_show_toast(toast_key) is False, (
+            "Expected debounce to suppress repeat toast for same key"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_toast_debounce_allows_different_keys(mock_sdk):
+    """Two override prompts for same agent but different rule_ids both fire toasts.
+
+    Uses a single prompt flow + _should_show_toast state check.
+    """
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        await submit_command(app, pilot, "/agent background")
+        await wait_for_workers(app)
+
+        agent_ids = list(app.agents.keys())
+        # Use agent_mgr.switch to avoid flaky WaitForScreenTimeout
+        app.agent_mgr.switch(agent_ids[0])
+        await pilot.pause()
+        second_agent = app.agents[agent_ids[1]]
+
+        import asyncio
+
+        # First prompt with rule A -- fires toast for key "agent:no_pip_install"
+        notif_count_before = len(app._notifications)
+        task1 = asyncio.create_task(
+            app._show_override_prompt(
+                "global:no_pip_install", "Block A?", agent=second_agent
+            )
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        notifs1 = list(app._notifications)[notif_count_before:]
+        assert len([n for n in notifs1 if "background" in n.message.lower()]) > 0, (
+            "Expected toast for first rule"
+        )
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1
+        prompts[-1]._resolve("deny")
+        await task1
+        await pilot.pause()
+
+        # Different rule key should NOT be suppressed
+        different_key = f"{second_agent.id}:global:no_shell_exec"
+        assert app._should_show_toast(different_key) is True, (
+            "Expected independent cooldown for different rule key"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_toast_debounce_expires_after_cooldown(mock_sdk):
+    """After 10s cooldown, same agent+rule fires toast again.
+
+    Verifies debounce expiry by seeding the timestamp dict directly and
+    calling _should_show_toast with mocked time. Uses a real running app
+    to ensure integration with the ChatApp instance.
+    """
+    from unittest.mock import patch
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)):
+        agent = app._agent
+        assert agent is not None
+
+        fake_time = 1000.0
+        toast_key = f"{agent.id}:global:no_pip_install"
+
+        # Seed a timestamp as if a toast was shown at t=1000
+        app._toast_timestamps[toast_key] = fake_time
+
+        # Within cooldown (t=1005): should be suppressed
+        with patch("claudechic.app.time.monotonic", return_value=fake_time + 5.0):
+            assert app._should_show_toast(toast_key) is False, (
+                "Expected toast to be suppressed within cooldown"
+            )
+
+        # After cooldown (t=1012): should be allowed
+        with patch("claudechic.app.time.monotonic", return_value=fake_time + 12.0):
+            assert app._should_show_toast(toast_key) is True, (
+                "Expected toast to be allowed after cooldown expiry"
+            )
+
+
+# =============================================================================
+# Prompt focus on agent switch (TDD -- written before fix)
+# =============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_prompt_visible_and_focused_after_agent_switch(mock_sdk):
+    """Switching to an agent with a pending prompt: prompt is visible and focused.
+
+    Creates a prompt on a non-active agent (prompt starts hidden), then
+    switches to that agent. The prompt should lose the 'hidden' class
+    and gain focus.
+    """
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        # Create second agent
+        await submit_command(app, pilot, "/agent prompted")
+        await wait_for_workers(app)
+        await pilot.pause()
+
+        agent_ids = list(app.agents.keys())
+        first_id = agent_ids[0]
+        second_id = agent_ids[1]
+        second_agent = app.agents[second_id]
+
+        # Switch to first agent so second is inactive
+        app.agent_mgr.switch(first_id)
+        await pilot.pause()
+        assert app.active_agent_id == first_id
+
+        import asyncio
+
+        # Launch a prompt on the inactive second agent
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt(
+                "global:test_rule", "Approve?", agent=second_agent
+            )
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        # Prompt should exist but be hidden (non-active agent)
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1, "Expected prompt to be mounted"
+        prompt = prompts[-1]
+        assert prompt.has_class("hidden"), (
+            "Prompt should be hidden while agent is not active"
+        )
+
+        # Now switch TO the agent with the pending prompt
+        app.agent_mgr.switch(second_id)
+        await pilot.pause()
+        await pilot.pause()
+
+        # Prompt should now be VISIBLE (not hidden)
+        assert not prompt.has_class("hidden"), (
+            "Prompt should be visible after switching to its agent"
+        )
+
+        # Prompt should have FOCUS (not chat input)
+        assert app.focused is prompt, (
+            f"Expected prompt to have focus, but focused widget is: {app.focused}"
+        )
+
+        # Cleanup
+        prompt._resolve("deny")
+        await prompt_task
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_prompt_refocused_after_switch_away_and_back(mock_sdk):
+    """Prompt on active agent: switch away, switch back -- prompt is visible and focused.
+
+    Creates a prompt on the active agent, switches to a different agent
+    (prompt becomes hidden), switches back -- prompt should be visible
+    and focused again.
+    """
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        from tests.conftest import submit_command, wait_for_workers
+
+        # Create second agent
+        await submit_command(app, pilot, "/agent other")
+        await wait_for_workers(app)
+        await pilot.pause()
+
+        agent_ids = list(app.agents.keys())
+        first_id = agent_ids[0]
+        second_id = agent_ids[1]
+        first_agent = app.agents[first_id]
+
+        # Switch to first agent
+        app.agent_mgr.switch(first_id)
+        await pilot.pause()
+        assert app.active_agent_id == first_id
+
+        import asyncio
+
+        # Launch a prompt on the ACTIVE first agent
+        prompt_task = asyncio.create_task(
+            app._show_override_prompt("global:test_rule", "Approve?", agent=first_agent)
+        )
+        await pilot.pause()
+        await pilot.pause()
+
+        from claudechic.widgets.prompts import SelectionPrompt
+
+        prompts = list(app.query(SelectionPrompt))
+        assert len(prompts) >= 1, "Expected prompt to be mounted"
+        prompt = prompts[-1]
+
+        # Prompt should be visible on active agent
+        assert not prompt.has_class("hidden"), (
+            "Prompt should be visible on active agent"
+        )
+
+        # Switch AWAY to second agent
+        app.agent_mgr.switch(second_id)
+        await pilot.pause()
+        await pilot.pause()
+
+        # Prompt should now be hidden
+        assert prompt.has_class("hidden"), (
+            "Prompt should be hidden after switching away"
+        )
+
+        # Switch BACK to first agent
+        app.agent_mgr.switch(first_id)
+        await pilot.pause()
+        await pilot.pause()
+
+        # Prompt should be visible again
+        assert not prompt.has_class("hidden"), (
+            "Prompt should be visible after switching back"
+        )
+
+        # Prompt should have focus (not chat input)
+        assert app.focused is prompt, (
+            f"Expected prompt to have focus after switch-back, "
+            f"but focused widget is: {app.focused}"
+        )
+
+        # Cleanup
+        prompt._resolve("deny")
+        await prompt_task

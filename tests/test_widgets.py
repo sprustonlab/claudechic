@@ -900,3 +900,33 @@ async def test_clear_to_recent_accumulates_hidden_count():
         chat_view.clear_to_recent(keep=3)
         await pilot.pause()
         assert chat_view._hidden_widget_count == 12  # 5 + 7
+
+
+# --- SelectionPrompt subtitle tests ---
+
+
+@pytest.mark.asyncio
+async def test_selection_prompt_subtitle():
+    """SelectionPrompt with subtitle renders the subtitle text."""
+    options = [("a", "Option A"), ("b", "Option B")]
+    app = WidgetTestApp(
+        lambda: SelectionPrompt("Title:", options, subtitle="Detail info here")
+    )
+    async with app.run_test():
+        prompt = app.query_one(SelectionPrompt)
+        subtitles = list(prompt.query(".prompt-subtitle"))
+        assert len(subtitles) == 1
+        rendered = subtitles[0].render()
+        assert hasattr(rendered, "plain")
+        assert "Detail info here" in rendered.plain  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_selection_prompt_no_subtitle():
+    """SelectionPrompt without subtitle does not render subtitle element."""
+    options = [("a", "Option A"), ("b", "Option B")]
+    app = WidgetTestApp(lambda: SelectionPrompt("Title:", options))
+    async with app.run_test():
+        prompt = app.query_one(SelectionPrompt)
+        subtitles = list(prompt.query(".prompt-subtitle"))
+        assert len(subtitles) == 0
