@@ -345,7 +345,10 @@ class FilesSection(SidebarSection):
     ) -> FileItem:
         """Create a FileItem with proper ID and styling."""
         item = FileItem(file_path, additions, deletions, untracked)
-        safe_id = str(file_path).replace("/", "-").replace(".", "-").replace(" ", "-")
+        # Use .as_posix() to normalize separators before replacing: on Windows
+        # str(Path("src/file.py")) == "src\\file.py" and backslash is not
+        # replaced, producing an invalid Textual ID ("file-src\\file-py").
+        safe_id = file_path.as_posix().replace("/", "-").replace(".", "-").replace(" ", "-")
         item.id = f"file-{safe_id}"
         item.set_class(self._compact, "compact")
         return item
