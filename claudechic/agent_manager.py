@@ -82,6 +82,7 @@ class AgentManager:
         *,
         worktree: str | None = None,
         switch_to: bool = True,
+        agent_type: str | None = None,
     ) -> Agent:
         """Create a new agent without connecting to SDK.
 
@@ -93,11 +94,12 @@ class AgentManager:
             cwd: Working directory
             worktree: Git worktree branch name if applicable
             switch_to: Whether to make this the active agent
+            agent_type: Role type (e.g. "Implementer") — stored on agent
 
         Returns:
             The created agent (not yet connected)
         """
-        agent = Agent(name=name, cwd=cwd, worktree=worktree)
+        agent = Agent(name=name, cwd=cwd, worktree=worktree, agent_type=agent_type)
         # Inherit global permission mode
         agent.permission_mode = self.global_permission_mode
 
@@ -142,7 +144,7 @@ class AgentManager:
         Returns:
             The created agent (connected and ready)
         """
-        agent = Agent(name=name, cwd=cwd, worktree=worktree)
+        agent = Agent(name=name, cwd=cwd, worktree=worktree, agent_type=agent_type)
         agent.model = model
         # Inherit global permission mode (before connect so SDK notification uses it)
         agent.permission_mode = self.global_permission_mode
@@ -191,7 +193,11 @@ class AgentManager:
         """
         agent.model = model
         options = self._options_factory(
-            cwd=agent.cwd, resume=resume, agent_name=agent.name, model=model
+            cwd=agent.cwd,
+            resume=resume,
+            agent_name=agent.name,
+            model=model,
+            agent_type=agent.agent_type,
         )
         await agent.connect(options, resume=resume)
 

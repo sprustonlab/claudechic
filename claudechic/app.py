@@ -662,10 +662,22 @@ class ChatApp(App):
 
         from claudechic.guardrails.hooks import create_guardrail_hooks
 
+        # If an explicit role is given (sub-agents), use it statically.
+        # If no role (main agent), resolve dynamically: after workflow
+        # activation the main agent assumes the manifest's main_role.
+        if agent_role:
+            effective_role: str | None | callable = agent_role
+        else:
+
+            def effective_role() -> str | None:
+                if self._workflow_engine:
+                    return getattr(self._workflow_engine.manifest, "main_role", None)
+                return None
+
         return create_guardrail_hooks(
             loader=self._manifest_loader,
             hit_logger=self._hit_logger,
-            agent_role=agent_role,
+            agent_role=effective_role,
             get_phase=lambda: (
                 self._workflow_engine.get_current_phase()
                 if self._workflow_engine
@@ -3313,7 +3325,11 @@ class ChatApp(App):
         """Disconnect and reconnect an agent to reload its session."""
         await agent.disconnect()
         options = self._make_options(
-            cwd=agent.cwd, resume=session_id, agent_name=agent.name, model=agent.model
+            cwd=agent.cwd,
+            resume=session_id,
+            agent_name=agent.name,
+            model=agent.model,
+            agent_type=agent.agent_type,
         )
         await agent.connect(options, resume=session_id)
 

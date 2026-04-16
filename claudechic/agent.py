@@ -185,12 +185,14 @@ class Agent:
         *,
         id: str | None = None,
         worktree: str | None = None,
+        agent_type: str | None = None,
     ):
         # Identity
         self.id = id or str(uuid.uuid4())[:8]
         self.name = name
         self.cwd = cwd
         self.worktree = worktree
+        self.agent_type = agent_type
 
         # SDK
         self.client: ClaudeSDKClient | None = None

@@ -264,10 +264,17 @@ def _make_spawn_agent(caller_name: str | None = None):
 
         result = f"Created agent '{name}' in {path}"
 
+        if _app._workflow_engine and not agent_type:
+            result += (
+                "\n\n[WARNING] No type= specified. This agent will not receive "
+                "role-specific phase instructions. Set type= to a role folder "
+                "name to enable agent prompt injection."
+            )
+
         if prompt:
             # Inject agent folder prompt at spawn time if workflow is active
             full_prompt = prompt
-            if _app._workflow_engine:
+            if _app._workflow_engine and agent_type:
                 try:
                     from claudechic.workflows.agent_folders import (
                         assemble_phase_prompt,
@@ -276,7 +283,7 @@ def _make_spawn_agent(caller_name: str | None = None):
                     folder_prompt = assemble_phase_prompt(
                         workflows_dir=Path.cwd() / "workflows",
                         workflow_id=_app._workflow_engine.workflow_id,
-                        role_name=agent_type or name,
+                        role_name=agent_type,
                         current_phase=_app._workflow_engine.get_current_phase(),
                     )
                     if folder_prompt:
@@ -865,6 +872,42 @@ def _make_advance_phase(caller_name: str | None = None):
                     _app._inject_phase_prompt_to_main_agent(
                         engine.workflow_id, main_role, next_phase
                     )
+
+                # Broadcast phase prompt to typed sub-agents
+                if _app.agent_mgr:
+                    from claudechic.workflows.agent_folders import (
+                        assemble_phase_prompt as _broadcast_assemble,
+                    )
+
+                    for agent in list(_app.agent_mgr.agents.values()):
+                        # Skip coordinator (already got content in tool response)
+                        if main_role and agent.agent_type == main_role:
+                            continue
+                        # Skip untyped agents
+                        if not agent.agent_type:
+                            continue
+                        # Skip the calling agent (coordinator calling advance)
+                        if caller_name and agent.name == caller_name:
+                            continue
+                        try:
+                            agent_prompt = _broadcast_assemble(
+                                workflows_dir=Path.cwd() / "workflows",
+                                workflow_id=engine.workflow_id,
+                                role_name=agent.agent_type,
+                                current_phase=next_phase,
+                            )
+                            if agent_prompt:
+                                _send_prompt_fire_and_forget(
+                                    agent,
+                                    f"--- Phase Update: {next_phase} ---\n\n{agent_prompt}",
+                                    caller_name=None,
+                                )
+                        except Exception:
+                            log.debug(
+                                "Failed to broadcast phase prompt to '%s'",
+                                agent.name,
+                                exc_info=True,
+                            )
 
                 response = f"Advanced to phase: {next_phase}"
                 if phase_content:

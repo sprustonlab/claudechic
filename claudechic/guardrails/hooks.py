@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 # Type aliases for callback signatures
 GetPhaseCallback = Callable[[], str | None]
 GetActiveWfCallback = Callable[[], str | None]
+GetRoleCallback = Callable[[], str | None]
 OverrideTokenConsumer = Callable[
     [str, str, dict, str], bool
 ]  # (rule_id, tool_name, tool_input, enforcement) -> consumed
@@ -39,7 +40,7 @@ OverrideTokenConsumer = Callable[
 def create_guardrail_hooks(
     loader: ManifestLoader,
     hit_logger: HitLogger,
-    agent_role: str | None = None,
+    agent_role: str | None | GetRoleCallback = None,
     get_phase: GetPhaseCallback | None = None,
     get_active_wf: GetActiveWfCallback | None = None,
     consume_override: OverrideTokenConsumer | None = None,
@@ -50,7 +51,10 @@ def create_guardrail_hooks(
         loader: Shared ManifestLoader instance (created once at app init,
                 reused across all hook closures — parsers registered once).
         hit_logger: Shared HitLogger for audit trail.
-        agent_role: Role type captured at agent creation time.
+        agent_role: Role type for this agent. Can be a static string or a
+                    callable returning the role at evaluation time (for
+                    dynamic resolution, e.g. main agent resolving to
+                    main_role after workflow activation).
         get_phase: Callback returning current phase (in-memory engine lookup).
                    If None, phase filtering is skipped.
         get_active_wf: Callback returning the active workflow_id (in-memory).
@@ -79,6 +83,8 @@ def create_guardrail_hooks(
 
         current_phase = get_phase() if get_phase else None
         active_wf = get_active_wf() if get_active_wf else None
+        # Resolve agent_role: may be a callable for dynamic resolution
+        resolved_role = agent_role() if callable(agent_role) else agent_role
 
         # Step 1: Apply injections (from `injections:` section)
         for injection in result.injections:
@@ -86,7 +92,7 @@ def create_guardrail_hooks(
                 continue
             if not matches_trigger(injection, tool_name):
                 continue
-            if should_skip_for_role(injection, agent_role):
+            if should_skip_for_role(injection, resolved_role):
                 continue
             if should_skip_for_phase(injection, current_phase):
                 continue
@@ -100,7 +106,7 @@ def create_guardrail_hooks(
                 continue
             if not matches_trigger(rule, tool_name):
                 continue
-            if should_skip_for_role(rule, agent_role):
+            if should_skip_for_role(rule, resolved_role):
                 continue
             if should_skip_for_phase(rule, current_phase):
                 continue
@@ -118,7 +124,7 @@ def create_guardrail_hooks(
             # Rule matches — log hit, then apply enforcement
             hit = HitRecord(
                 rule_id=rule.id,
-                agent_role=agent_role,
+                agent_role=resolved_role,
                 tool_name=tool_name,
                 enforcement=rule.enforcement,
                 timestamp=time.time(),

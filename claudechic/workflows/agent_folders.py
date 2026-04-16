@@ -60,7 +60,9 @@ def _assemble_agent_prompt(
     role_dir = workflow_dir / role_name
 
     identity_path = role_dir / "identity.md"
-    identity = identity_path.read_text() if identity_path.is_file() else ""
+    identity = (
+        identity_path.read_text(encoding="utf-8") if identity_path.is_file() else ""
+    )
 
     phase_content = ""
     if current_phase:
@@ -70,7 +72,7 @@ def _assemble_agent_prompt(
         )
         phase_path = role_dir / f"{bare_phase}.md"
         if phase_path.is_file():
-            phase_content = phase_path.read_text()
+            phase_content = phase_path.read_text(encoding="utf-8")
 
     if phase_content:
         return f"{identity}\n\n---\n\n{phase_content}"
