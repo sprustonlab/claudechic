@@ -174,8 +174,8 @@ class ManifestLoader:
         Error handling:
         - global/ or workflows/ unreadable -> fail closed (empty rules + fatal error;
           callers treat this as "block everything")
-        - Individual manifest malformed -> fail open (skip, log error)
-        - Individual item malformed -> fail open (skip, log error)
+        - Individual manifest malformed -> skip and log error
+        - Individual item malformed -> skip and log error
         """
         errors: list[LoadError] = []
         workflows: dict[str, WorkflowData] = {}
@@ -198,7 +198,7 @@ class ManifestLoader:
 
         for path in paths:
             try:
-                with path.open() as f:
+                with path.open(encoding="utf-8") as f:
                     data = yaml.safe_load(f)
             except (OSError, yaml.YAMLError) as e:
                 errors.append(LoadError(source=str(path), message=str(e)))

@@ -130,7 +130,10 @@ def _run_in_pty_with_cancel(
                 was_cancelled = True
                 # Kill the process group
                 with contextlib.suppress(ProcessLookupError, OSError):
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    if sys.platform != "win32":
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    else:
+                        proc.terminate()
                 break
 
             r, _, _ = select.select([master_fd], [], [], 0.1)
@@ -171,7 +174,10 @@ def _run_in_pty_with_cancel(
             os.close(master_fd)
         if proc and proc.poll() is None:
             with contextlib.suppress(ProcessLookupError, OSError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                if sys.platform != "win32":
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                else:
+                    proc.terminate()
         raise
 
 

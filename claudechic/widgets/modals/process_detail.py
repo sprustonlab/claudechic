@@ -3,6 +3,7 @@
 import contextlib
 import os
 import signal
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -65,7 +66,7 @@ def _read_output_tail(output_file: str, max_lines: int = 50) -> str | None:
         path = Path(output_file)
         if not path.exists():
             return None
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
         if len(lines) > max_lines:
             lines = lines[-max_lines:]
@@ -200,5 +201,6 @@ class ProcessDetailModal(ModalScreen):
             pass  # Already dead
         except psutil.AccessDenied:
             # Try SIGKILL as fallback
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(self.process.pid, signal.SIGKILL)
+            if sys.platform != "win32":
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.kill(self.process.pid, signal.SIGKILL)

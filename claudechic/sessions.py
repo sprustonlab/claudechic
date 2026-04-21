@@ -56,6 +56,22 @@ def count_sessions(cwd: Path | None = None) -> int:
     return sum(1 for f in sessions_dir.glob("*.jsonl") if is_valid_uuid(f.stem))
 
 
+def encode_project_key(cwd: Path) -> str:
+    """Encode a project directory path as a Claude session key.
+
+    Replaces path separators, colons, underscores, and dots with dashes.
+    The caller is responsible for resolving to an absolute path first.
+    """
+    return (
+        str(cwd)
+        .replace("/", "-")
+        .replace("\\", "-")
+        .replace(":", "-")
+        .replace("_", "-")
+        .replace(".", "-")
+    )
+
+
 def get_project_sessions_dir(cwd: Path | None = None) -> Path | None:
     """Get the sessions directory for a project.
 
@@ -66,15 +82,7 @@ def get_project_sessions_dir(cwd: Path | None = None) -> Path | None:
         cwd: Project directory. If None, uses current working directory.
     """
     cwd = (cwd or Path.cwd()).absolute()
-    # Replace path separators with dashes (handles both / and \ on Windows)
-    # Also remove Windows drive colon (C:\foo -> C-foo)
-    project_key = (
-        str(cwd)
-        .replace(os.sep, "-")
-        .replace(":", "")
-        .replace("_", "-")
-        .replace(".", "-")
-    )
+    project_key = encode_project_key(cwd)
     sessions_dir = Path.home() / ".claude/projects" / project_key
     return sessions_dir if sessions_dir.exists() else None
 
@@ -229,7 +237,7 @@ async def load_session_messages(session_id: str, cwd: Path | None = None) -> lis
     skip_tags = ("<command-name>/", "<local-command-stdout>", "<local-command-caveat>")
     messages = []
     try:
-        async with aiofiles.open(session_file) as f:
+        async with aiofiles.open(session_file, encoding="utf-8", errors="replace") as f:
             async for line in f:
                 d = json.loads(line)
                 if d.get("type") == "user":

@@ -52,6 +52,9 @@ class Injection:
     exclude_phases: list[str] = field(default_factory=list)
 
 
+# DEPRECATED: This function is unused. Rules are now loaded via ManifestLoader
+# and RulesParser. This legacy loader does not support trigger-aware detect_field
+# defaults (DETECT_FIELD_DEFAULTS). Do not use for new code.
 def load_rules(rules_path: Path) -> list[Rule]:
     """Parse rules.yaml into Rule objects. Returns empty list if file missing.
 
@@ -60,7 +63,7 @@ def load_rules(rules_path: Path) -> list[Rule]:
     if not rules_path.is_file():
         return []
 
-    with rules_path.open() as f:
+    with rules_path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if not data or "rules" not in data:
@@ -241,7 +244,7 @@ def read_phase_state(phase_state_path: Path) -> dict[str, Any] | None:
     if not phase_state_path.is_file():
         return None
     try:
-        with phase_state_path.open() as f:
+        with phase_state_path.open(encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None

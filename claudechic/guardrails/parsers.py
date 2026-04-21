@@ -17,6 +17,15 @@ from claudechic.guardrails.rules import Injection, Rule
 
 logger = logging.getLogger(__name__)
 
+# Default detect_field per trigger tool name. Tools not listed default to "command".
+DETECT_FIELD_DEFAULTS: dict[str, str] = {
+    "Bash": "command",
+    "Write": "file_path",
+    "Edit": "file_path",
+    "Read": "file_path",
+    "NotebookEdit": "notebook_path",
+}
+
 
 # Module-level cache, never cleared. 256 entries is sufficient for any realistic manifest set.
 @lru_cache(maxsize=256)
@@ -103,15 +112,24 @@ class RulesParser:
         if enforcement not in ("deny", "warn", "log"):
             return f"unknown enforcement '{enforcement}'"
 
+        # Infer default detect_field from first trigger's tool name
+        trigger_tool = ""
+        for t in triggers:
+            parts = t.split("/", 1)
+            if len(parts) == 2:
+                trigger_tool = parts[1]
+                break
+        default_field = DETECT_FIELD_DEFAULTS.get(trigger_tool, "command")
+
         detect = entry.get("detect", {})
         detect_pattern = None
-        detect_field = "command"
+        detect_field = default_field
         if isinstance(detect, dict) and detect.get("pattern"):
             try:
                 detect_pattern = _cached_compile(detect["pattern"])
             except re.error as e:
                 return f"invalid detect regex: {e}"
-            detect_field = detect.get("field", "command")
+            detect_field = detect.get("field", default_field)
 
         exclude_pattern = None
         exclude_str = entry.get("exclude_if_matches", "")
@@ -193,15 +211,24 @@ class InjectionsParser:
         if not any(triggers):
             return f"injection '{raw_id}' has no trigger"
 
+        # Infer default detect_field from first trigger's tool name
+        trigger_tool = ""
+        for t in triggers:
+            parts = t.split("/", 1)
+            if len(parts) == 2:
+                trigger_tool = parts[1]
+                break
+        default_field = DETECT_FIELD_DEFAULTS.get(trigger_tool, "command")
+
         detect = entry.get("detect", {})
         detect_pattern = None
-        detect_field = "command"
+        detect_field = default_field
         if isinstance(detect, dict) and detect.get("pattern"):
             try:
                 detect_pattern = _cached_compile(detect["pattern"])
             except re.error as e:
                 return f"invalid detect regex: {e}"
-            detect_field = detect.get("field", "command")
+            detect_field = detect.get("field", default_field)
 
         phases = _qualify_phases(_as_list(entry.get("phases", [])), namespace)
         exclude_phases = _qualify_phases(

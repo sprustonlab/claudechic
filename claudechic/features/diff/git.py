@@ -146,7 +146,7 @@ async def get_file_stats(cwd: str, target: str = "HEAD") -> list[FileStat]:
                 try:
                     # Only read small files
                     if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                        line_count = len(file_path.read_text().splitlines())
+                        line_count = len(file_path.read_text(encoding="utf-8").splitlines())
                 except (OSError, UnicodeDecodeError):
                     pass
                 stats.append(
@@ -222,7 +222,7 @@ async def get_changes(cwd: str, target: str = "HEAD") -> list[FileChange]:
                 try:
                     # Only read small files for synthetic diff
                     if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                        content = file_path.read_text()
+                        content = file_path.read_text(encoding="utf-8")
                         lines = content.splitlines()
                         hunk = Hunk(
                             old_start=0,

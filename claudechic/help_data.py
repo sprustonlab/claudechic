@@ -46,7 +46,7 @@ MCP_TOOLS = [
 def _parse_skill_description(path: Path) -> str:
     """Extract description from SKILL.md frontmatter."""
     try:
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         if content.startswith("---"):
             end = content.find("---", 3)
             if end > 0:
@@ -69,7 +69,7 @@ def discover_skills() -> list[tuple[str, str]]:
         return skills
 
     try:
-        settings = json.loads(settings_path.read_text())
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
     except Exception:
         return skills
 
@@ -81,7 +81,7 @@ def discover_skills() -> list[tuple[str, str]]:
         return skills
 
     try:
-        installed = json.loads(installed_path.read_text())
+        installed = json.loads(installed_path.read_text(encoding="utf-8"))
     except Exception:
         return skills
 
