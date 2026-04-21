@@ -178,7 +178,7 @@ class ToolUseWidget(BaseToolWidget):
         # Use plan_path from agent (session-specific)
         if self._plan_path and self._plan_path.exists():
             try:
-                return self._plan_path.read_text()
+                return self._plan_path.read_text(encoding="utf-8")
             except Exception:
                 pass
 

@@ -697,7 +697,7 @@ def _handle_review(app: ChatApp, context: str | None) -> bool:
     # Load skill from markdown file
     skill_path = Path(__file__).parent / "prompts" / "reviewer.md"
     try:
-        instructions = skill_path.read_text()
+        instructions = skill_path.read_text(encoding="utf-8")
     except FileNotFoundError:
         app.notify(f"Skill file not found: {skill_path}", severity="error")
         return True

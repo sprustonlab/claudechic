@@ -36,7 +36,7 @@ def _find_workflow_dir(workflows_dir: Path, workflow_id: str) -> Path | None:
         if not manifest.is_file():
             continue
         try:
-            with manifest.open() as f:
+            with manifest.open(encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             if isinstance(data, dict) and data.get("workflow_id") == workflow_id:
                 return child

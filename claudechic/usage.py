@@ -66,7 +66,7 @@ def _get_oauth_token_file() -> str | None:
         creds_path = Path.home() / ".claude" / ".credentials.json"
         if not creds_path.exists():
             return None
-        creds = json.loads(creds_path.read_text())
+        creds = json.loads(creds_path.read_text(encoding="utf-8"))
         return creds.get("claudeAiOauth", {}).get("accessToken")
     except Exception:
         return None

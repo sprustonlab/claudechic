@@ -1753,7 +1753,8 @@ class ChatApp(App):
                 phase_file.write_text(
                     f"# Active Workflow: {workflow_id}\n"
                     f"# Phase: {current_phase or 'none'}\n\n"
-                    f"{prompt}\n"
+                    f"{prompt}\n",
+                    encoding="utf-8",
                 )
                 log.debug(
                     "Wrote phase context to %s (phase: %s)",
@@ -4297,7 +4298,7 @@ class ChatApp(App):
         plan_path = agent.plan_path
 
         if not plan_content and plan_path and plan_path.exists():
-            plan_content = plan_path.read_text()
+            plan_content = plan_path.read_text(encoding="utf-8")
 
         options = [
             ("clear_auto", "Yes, clear context and auto-approve edits"),
