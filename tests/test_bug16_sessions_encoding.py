@@ -10,13 +10,12 @@ call load_session_messages() through the real code path. Passes on Linux
 """
 
 import json
-import os
 import re
 from pathlib import Path
 
 import pytest
 
-from claudechic.sessions import get_project_sessions_dir, load_session_messages
+from claudechic.sessions import encode_project_key, load_session_messages
 
 
 @pytest.mark.asyncio
@@ -30,16 +29,9 @@ async def test_load_session_messages_with_non_ascii(
     On Windows with cp1252 default encoding, the old code raises
     UnicodeDecodeError. The fix adds encoding='utf-8'.
     """
-    # Compute project key the same way the code does (inline, no import)
     project_dir = tmp_path / "myproject"
     project_dir.mkdir()
-    project_key = (
-        str(project_dir)
-        .replace(os.sep, "-")
-        .replace(":", "")
-        .replace("_", "-")
-        .replace(".", "-")
-    )
+    project_key = encode_project_key(project_dir)
     session_id = "00000000-0000-0000-0000-000000000001"
 
     sessions_dir = tmp_path / ".claude" / "projects" / project_key
