@@ -628,6 +628,22 @@ WorktreePrompt, ModelPrompt {
     padding: 0 0 1 0;
 }
 
+#todo-panel .clear-finished-btn {
+    color: $text-muted;
+    text-style: italic;
+    padding: 0;
+    margin: 1 0 0 0;
+}
+
+#todo-panel .clear-finished-btn:hover {
+    color: $text;
+    text-style: bold;
+}
+
+#todo-panel .clear-finished-btn.hidden {
+    display: none;
+}
+
 /* Todo widget - inline checklist */
 TodoWidget {
     border-left: tall $accent;

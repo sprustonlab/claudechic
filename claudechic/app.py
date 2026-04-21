@@ -47,7 +47,13 @@ from claudechic.analytics import capture
 from claudechic.commands import BARE_WORDS, handle_command
 from claudechic.config import CONFIG, NEW_INSTALL
 from claudechic.config import save as save_config
-from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
+from claudechic.enums import (
+    AgentStatus,
+    PermissionChoice,
+    ResponseState,
+    TodoStatus,
+    ToolName,
+)
 from claudechic.errors import set_notify_callback as set_log_notify_callback
 from claudechic.errors import setup_logging  # noqa: F401 - used at startup
 from claudechic.features.diff import EditFileRequested
@@ -2413,7 +2419,10 @@ class ChatApp(App):
         agents_expanded = agent_count * AGENT_EXPANDED
         agents_compact = agent_count * AGENT_COMPACT
 
-        if agents_expanded <= remaining_for_agents and agent_count <= COMPACT_SAFETY_NET:
+        if (
+            agents_expanded <= remaining_for_agents
+            and agent_count <= COMPACT_SAFETY_NET
+        ):
             self.agent_section.set_compact(False)
             agent_height = agents_expanded
         else:
@@ -3180,7 +3189,9 @@ class ChatApp(App):
         cwd = agent.cwd if agent else None
         self.push_screen(DiagnosticsModal(session_id=session_id, cwd=cwd))
 
-    def on_computer_info_label_requested(self, event: ComputerInfoLabel.Requested) -> None:  # noqa: ARG002
+    def on_computer_info_label_requested(
+        self, event: ComputerInfoLabel.Requested
+    ) -> None:  # noqa: ARG002
         """Handle sys label press - open computer info modal."""
         from claudechic.widgets.modals.computer_info import ComputerInfoModal
 
@@ -3215,7 +3226,10 @@ class ChatApp(App):
                     async def _confirm_restart() -> None:
                         choice = await self._show_agent_prompt(
                             f"'{wf_id}' is active (phase: {phase_id}). Restart from the beginning?",
-                            [("yes", "Yes, restart from the beginning"), ("no", "No, keep current phase")],
+                            [
+                                ("yes", "Yes, restart from the beginning"),
+                                ("no", "No, keep current phase"),
+                            ],
                         )
                         if choice == "yes":
                             await self._activate_workflow(wf_id)
@@ -3231,7 +3245,9 @@ class ChatApp(App):
         # dict[str, dict] with main_role, phase_count, is_active.
         picker_data: dict = {}
         for wf_id in self._workflow_registry:
-            wf_data = self._load_result.get_workflow(wf_id) if self._load_result else None
+            wf_data = (
+                self._load_result.get_workflow(wf_id) if self._load_result else None
+            )
             phase_count = (
                 sum(1 for p in self._load_result.phases if p.namespace == wf_id)
                 if self._load_result
@@ -3241,8 +3257,7 @@ class ChatApp(App):
                 "main_role": wf_data.main_role if wf_data else "",
                 "phase_count": phase_count,
                 "is_active": bool(
-                    self._workflow_engine
-                    and self._workflow_engine.workflow_id == wf_id
+                    self._workflow_engine and self._workflow_engine.workflow_id == wf_id
                 ),
             }
         self.push_screen(WorkflowPickerScreen(picker_data), on_dismiss)
@@ -4049,6 +4064,16 @@ class ChatApp(App):
 
         # Post ResponseComplete message for existing UI handler
         self.post_message(ResponseComplete(result, agent_id=agent.id))
+
+    def on_todo_panel_clear_finished(self, message: TodoPanel.ClearFinished) -> None:
+        """Handle clear finished tasks button click."""
+        agent = self._agent
+        if agent:
+            agent.todos = [
+                t for t in agent.todos if t.get("status") != TodoStatus.COMPLETED
+            ]
+            self.todo_panel.update_todos(agent.todos)
+            self._position_right_sidebar()
 
     def on_todos_updated(self, agent: Agent) -> None:
         """Handle agent todos update."""

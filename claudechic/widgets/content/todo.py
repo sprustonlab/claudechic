@@ -2,9 +2,11 @@
 
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.message import Message
 from textual.widgets import Static
 
 from claudechic.enums import TodoStatus
+from claudechic.widgets.primitives.button import Button
 
 
 class TodoPanel(Static):
@@ -12,12 +14,20 @@ class TodoPanel(Static):
 
     can_focus = False
 
+    class ClearFinished(Message):
+        """Posted when user clicks the clear finished tasks button."""
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.todos: list[dict] = []
 
     def compose(self) -> ComposeResult:
         yield Static("Tasks", classes="todo-title")
+        yield Button(
+            "Clear finished",
+            id="clear-finished-btn",
+            classes="clear-finished-btn hidden",
+        )
 
     def set_visible(self, visible: bool) -> None:
         """Control visibility (only shows if has todos and visible=True)."""
@@ -29,13 +39,32 @@ class TodoPanel(Static):
     def update_todos(self, todos: list[dict]) -> None:
         """Replace todos with new list. Visibility controlled by set_visible()."""
         self.todos = todos
-        # Remove old items (keep title)
+        # Remove old items (keep title and button)
         for child in list(self.children):
             if isinstance(child, TodoItem):
                 child.remove()
         # Add new items
         for todo in todos:
             self.mount(TodoItem(todo))
+        # Show/hide clear button based on completed tasks
+        self._update_clear_button()
+
+    def _update_clear_button(self) -> None:
+        """Show clear button only when completed tasks exist."""
+        has_completed = any(t.get("status") == TodoStatus.COMPLETED for t in self.todos)
+        try:
+            btn = self.query_one("#clear-finished-btn", Button)
+            if has_completed:
+                btn.remove_class("hidden")
+            else:
+                btn.add_class("hidden")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle clear finished button click."""
+        if event.button.id == "clear-finished-btn":
+            self.post_message(self.ClearFinished())
 
 
 class TodoWidget(Static):
