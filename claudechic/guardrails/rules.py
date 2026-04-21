@@ -52,6 +52,9 @@ class Injection:
     exclude_phases: list[str] = field(default_factory=list)
 
 
+# DEPRECATED: This function is unused. Rules are now loaded via ManifestLoader
+# and RulesParser. This legacy loader does not support trigger-aware detect_field
+# defaults (DETECT_FIELD_DEFAULTS). Do not use for new code.
 def load_rules(rules_path: Path) -> list[Rule]:
     """Parse rules.yaml into Rule objects. Returns empty list if file missing.
 
