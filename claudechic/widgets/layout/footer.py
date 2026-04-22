@@ -153,7 +153,7 @@ class StatusFooter(Static):
     """Footer showing git branch, model, auto-edit status, and resource indicators."""
 
     can_focus = False
-    permission_mode = reactive("default")  # default, acceptEdits, plan
+    permission_mode = reactive("auto")  # auto, default, acceptEdits, plan
     model = reactive("")
     branch = reactive("")
 

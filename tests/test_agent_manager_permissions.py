@@ -42,14 +42,14 @@ class TestGlobalPermissionModeInitialization:
             assert manager.global_permission_mode == "acceptEdits"
 
     def test_default_permission_mode_fallback(self, options_factory):
-        """Verify default is 'default' when not in CONFIG (fresh install behavior)."""
+        """Verify default is 'auto' when not in CONFIG (fresh install behavior)."""
         with patch.dict(
             "claudechic.agent_manager.CONFIG",
             {},
             clear=True,
         ):
             manager = AgentManager(options_factory)
-            assert manager.global_permission_mode == "default"
+            assert manager.global_permission_mode == "auto"
 
     def test_default_permission_mode_explicit_bypass(self, options_factory):
         """Verify bypassPermissions is read correctly from CONFIG."""
@@ -132,8 +132,8 @@ class TestSetGlobalPermissionMode:
         """Verify set_global_permission_mode() updates self.global_permission_mode."""
         with patch.dict("claudechic.agent_manager.CONFIG", {}, clear=True):
             manager = AgentManager(options_factory)
-        # Default is now 'default' for fresh install (safe mode)
-        assert manager.global_permission_mode == "default"
+        # Default is now 'auto' for fresh install
+        assert manager.global_permission_mode == "auto"
 
         await manager.set_global_permission_mode("acceptEdits")
 

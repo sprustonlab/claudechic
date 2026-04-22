@@ -35,22 +35,18 @@ async def test_app_mounts_basic_widgets(mock_sdk):
 
 @pytest.mark.asyncio
 async def test_permission_mode_cycle(mock_sdk):
-    """Shift+Tab cycles permission mode: default -> bypassPermissions -> acceptEdits -> plan -> default.
+    """Shift+Tab cycles permission mode: auto -> acceptEdits -> plan -> default -> bypassPermissions -> auto.
 
-    Note: Initial mode is 'default' (fresh install behavior).
-    Cycle goes through all modes and wraps back to default.
+    Note: Initial mode is 'auto' (default startup behavior).
+    Cycle goes through all modes and wraps back to auto.
     """
     app = ChatApp()
     async with app.run_test() as pilot:
         assert app._agent is not None
-        # Initial mode is 'default' (fresh install behavior)
-        assert app._agent.permission_mode == "default"
+        # Initial mode is 'auto' (default startup behavior)
+        assert app._agent.permission_mode == "auto"
 
-        # Cycle: default -> bypassPermissions
-        await pilot.press("shift+tab")
-        assert app._agent.permission_mode == "bypassPermissions"
-
-        # Cycle: bypassPermissions -> acceptEdits
+        # Cycle: auto -> acceptEdits
         await pilot.press("shift+tab")
         assert app._agent.permission_mode == "acceptEdits"
 
@@ -58,9 +54,17 @@ async def test_permission_mode_cycle(mock_sdk):
         await pilot.press("shift+tab")
         assert app._agent.permission_mode == "plan"
 
-        # Cycle: plan -> default (back to start)
+        # Cycle: plan -> default
         await pilot.press("shift+tab")
         assert app._agent.permission_mode == "default"
+
+        # Cycle: default -> bypassPermissions
+        await pilot.press("shift+tab")
+        assert app._agent.permission_mode == "bypassPermissions"
+
+        # Cycle: bypassPermissions -> auto (back to start)
+        await pilot.press("shift+tab")
+        assert app._agent.permission_mode == "auto"
 
 
 @pytest.mark.asyncio
@@ -69,16 +73,16 @@ async def test_permission_mode_footer_updates(mock_sdk):
     app = ChatApp()
     async with app.run_test() as pilot:
         footer = app.query_one(StatusFooter)
-        # Initial mode is 'default' (fresh install behavior)
-        assert footer.permission_mode == "default"
+        # Initial mode is 'auto' (default startup behavior)
+        assert footer.permission_mode == "auto"
 
-        # First cycle: default -> bypassPermissions
-        await pilot.press("shift+tab")
-        assert footer.permission_mode == "bypassPermissions"
-
-        # Second cycle: bypassPermissions -> acceptEdits
+        # First cycle: auto -> acceptEdits
         await pilot.press("shift+tab")
         assert footer.permission_mode == "acceptEdits"
+
+        # Second cycle: acceptEdits -> plan
+        await pilot.press("shift+tab")
+        assert footer.permission_mode == "plan"
 
 
 @pytest.mark.asyncio

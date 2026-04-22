@@ -28,11 +28,11 @@ class TestYoloFlagSetsGlobalPermissionMode:
 
     @pytest.mark.asyncio
     async def test_default_mode_without_yolo(self, mock_sdk):
-        """Verify default mode is 'default' without --yolo flag."""
+        """Verify default mode is 'auto' without --yolo flag."""
         app = ChatApp(skip_permissions=False)
         async with app.run_test():
             assert app.agent_mgr is not None
-            assert app.agent_mgr.global_permission_mode == "default"
+            assert app.agent_mgr.global_permission_mode == "auto"
 
     @pytest.mark.asyncio
     async def test_initial_agent_inherits_yolo_mode(self, mock_sdk):
@@ -44,11 +44,11 @@ class TestYoloFlagSetsGlobalPermissionMode:
 
     @pytest.mark.asyncio
     async def test_initial_agent_default_mode_without_yolo(self, mock_sdk):
-        """Verify initial agent has 'default' mode without --yolo."""
+        """Verify initial agent has 'auto' mode without --yolo."""
         app = ChatApp(skip_permissions=False)
         async with app.run_test():
             assert app._agent is not None
-            assert app._agent.permission_mode == "default"
+            assert app._agent.permission_mode == "auto"
 
 
 class TestSpawnedAgentsInheritBypassMode:
@@ -80,12 +80,12 @@ class TestSpawnedAgentsInheritBypassMode:
 
     @pytest.mark.asyncio
     async def test_spawned_agent_inherits_default_mode_without_yolo(self, mock_sdk):
-        """Verify spawned agents inherit 'default' mode without --yolo."""
+        """Verify spawned agents inherit 'auto' mode without --yolo."""
         app = ChatApp(skip_permissions=False)
         async with app.run_test() as pilot:
             # Verify initial state
             assert app.agent_mgr is not None
-            assert app.agent_mgr.global_permission_mode == "default"
+            assert app.agent_mgr.global_permission_mode == "auto"
 
             # Create new agent
             await submit_command(app, pilot, "/agent spawned-test")
@@ -96,7 +96,7 @@ class TestSpawnedAgentsInheritBypassMode:
                 (a for a in app.agents.values() if a.name == "spawned-test"), None
             )
             assert spawned is not None
-            assert spawned.permission_mode == "default"
+            assert spawned.permission_mode == "auto"
 
     @pytest.mark.asyncio
     async def test_multiple_spawned_agents_inherit_bypass_mode(self, mock_sdk):
@@ -130,11 +130,11 @@ class TestModeIndicatorsShowCorrectState:
 
     @pytest.mark.asyncio
     async def test_footer_shows_default_mode_without_yolo(self, mock_sdk):
-        """Verify footer shows 'default' mode without --yolo."""
+        """Verify footer shows 'auto' mode without --yolo."""
         app = ChatApp(skip_permissions=False)
         async with app.run_test():
             footer = app.query_one(StatusFooter)
-            assert footer.permission_mode == "default"
+            assert footer.permission_mode == "auto"
 
     @pytest.mark.asyncio
     async def test_yolo_notification_shown(self, mock_sdk):

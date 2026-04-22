@@ -1153,9 +1153,9 @@ def start_plan_swarm(app: ChatApp, task: str) -> None:
     if not agent:
         return
 
-    # Reset mode to default (the orchestrator will enter plan mode via EnterPlanMode)
+    # Reset mode to auto (the orchestrator will enter plan mode via EnterPlanMode)
     async def reset_mode():
-        await agent.set_permission_mode("default")
+        await agent.set_permission_mode("auto")
 
     app.run_worker(reset_mode(), exclusive=False)
 

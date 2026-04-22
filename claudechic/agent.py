@@ -225,8 +225,8 @@ class Agent:
         self.pending_images: list[ImageAttachment] = []
         self.file_index: FileIndex | None = None
         self.todos: list[dict] = []
-        self.permission_mode: str = "default"  # default, acceptEdits, plan
-        self._pre_plan_permission_mode: str = "default"  # mode before entering plan
+        self.permission_mode: str = "auto"  # auto, default, acceptEdits, plan
+        self._pre_plan_permission_mode: str = "auto"  # mode before entering plan
         self.session_allowed_tools: set[str] = set()  # Tools allowed for this session
         self._pending_followup: str | None = None  # Auto-send after current response
         self._pending_reply_to: str | None = None  # Agent name we owe a reply to
@@ -307,9 +307,9 @@ class Agent:
         self.client = ClaudeSDKClient(options)
         await self.client.connect()
 
-        # Notify SDK of initial permission mode if not default
+        # Notify SDK of initial permission mode if not the SDK's own default
         # Must happen AFTER connect() completes (async timing requirement)
-        if self.permission_mode != "default":
+        if self.permission_mode not in ("default", None):
             await self.client.set_permission_mode(
                 cast(PermissionMode, self.permission_mode)
             )

@@ -146,7 +146,7 @@ class TestSetPermissionModeMethod:
     async def test_updates_permission_mode_field(self, mock_sdk_for_agent, tmp_path):
         """Verify set_permission_mode updates the permission_mode field."""
         agent = Agent("test", tmp_path)
-        assert agent.permission_mode == "default"
+        assert agent.permission_mode == "auto"
 
         await agent.set_permission_mode("acceptEdits")
         assert agent.permission_mode == "acceptEdits"

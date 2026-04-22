@@ -24,7 +24,7 @@ class TestConfigModuleValues:
 
         assert (
             "default_permission_mode" in CONFIG
-            or CONFIG.get("default_permission_mode") == "default"
+            or CONFIG.get("default_permission_mode") == "auto"
         ), "CONFIG should have default_permission_mode set"
 
     def test_config_has_analytics_section(self):
@@ -48,16 +48,15 @@ class TestDefaultPermissionModeValue:
     """Test the default_permission_mode constant in config.py.
 
     The specification requires:
-    - Fresh installs should default to "default" mode (safe)
+    - Fresh installs should default to "auto" mode
     - Existing configs preserve their values
     """
 
-    def test_fresh_install_default_is_safe_mode(self):
-        """Verify the fresh install config uses 'default' permission mode.
+    def test_fresh_install_default_is_auto_mode(self):
+        """Verify the fresh install config uses 'auto' permission mode.
 
-        Per specification in 00_specification.md:
-        - Fresh installs should start in 'default' mode (permission checking)
-        - NOT 'bypassPermissions' (which skips checks)
+        Fresh installs should start in 'auto' mode, matching the setdefault
+        fallback for existing configs.
         """
         # Read the actual config.py source to verify the default
         from pathlib import Path
@@ -65,9 +64,9 @@ class TestDefaultPermissionModeValue:
         config_source = Path(__file__).parent.parent / "claudechic" / "config.py"
         source_code = config_source.read_text()
 
-        # Verify the fresh install config sets "default" mode
-        assert '"default_permission_mode": "default"' in source_code, (
-            "Fresh install config should set default_permission_mode to 'default'"
+        # Verify the fresh install config sets "auto" mode
+        assert '"default_permission_mode": "auto"' in source_code, (
+            "Fresh install config should set default_permission_mode to 'auto'"
         )
 
         # Verify it's NOT using bypassPermissions as default
@@ -78,13 +77,13 @@ class TestDefaultPermissionModeValue:
             if "New install" in line or "new_install = True" in line:
                 in_fresh_install_block = True
             if in_fresh_install_block and "default_permission_mode" in line:
-                assert '"default"' in line, (
-                    f"Fresh install should use 'default' mode, found: {line}"
+                assert '"auto"' in line, (
+                    f"Fresh install should use 'auto' mode, found: {line}"
                 )
                 break
 
-    def test_existing_config_fallback_is_default_mode(self):
-        """Verify existing configs without permission_mode default to 'default'.
+    def test_existing_config_fallback_is_auto_mode(self):
+        """Verify existing configs without permission_mode default to 'auto'.
 
         This handles upgrade scenarios where older configs don't have the key.
         """
@@ -93,9 +92,9 @@ class TestDefaultPermissionModeValue:
         config_source = Path(__file__).parent.parent / "claudechic" / "config.py"
         source_code = config_source.read_text()
 
-        # The setdefault call should use "default"
-        assert 'setdefault("default_permission_mode", "default")' in source_code, (
-            "Missing default_permission_mode should fallback to 'default'"
+        # The setdefault call should use "auto"
+        assert 'setdefault("default_permission_mode", "auto")' in source_code, (
+            "Missing default_permission_mode should fallback to 'auto'"
         )
 
 
@@ -105,17 +104,17 @@ class TestAgentManagerConfigIntegration:
     These tests verify the complete flow from CONFIG to AgentManager.
     """
 
-    def test_agent_manager_uses_config_default(self):
+    def test_agent_manager_uses_config_auto(self):
         """Verify AgentManager initializes from CONFIG."""
         with patch.dict(
             "claudechic.agent_manager.CONFIG",
-            {"default_permission_mode": "default"},
+            {"default_permission_mode": "auto"},
         ):
             from claudechic.agent_manager import AgentManager
 
             manager = AgentManager(MagicMock())
-            assert manager.global_permission_mode == "default", (
-                "AgentManager should read 'default' mode from CONFIG"
+            assert manager.global_permission_mode == "auto", (
+                "AgentManager should read 'auto' mode from CONFIG"
             )
 
     def test_agent_manager_respects_bypass_config(self):
@@ -154,7 +153,7 @@ class TestAgentManagerConfigIntegration:
             assert manager.global_permission_mode == "plan"
 
     def test_agent_manager_fallback_when_key_missing(self):
-        """Verify AgentManager falls back to 'default' when key is missing."""
+        """Verify AgentManager falls back to 'auto' when key is missing."""
         with patch.dict(
             "claudechic.agent_manager.CONFIG",
             {},
@@ -163,29 +162,29 @@ class TestAgentManagerConfigIntegration:
             from claudechic.agent_manager import AgentManager
 
             manager = AgentManager(MagicMock())
-            assert manager.global_permission_mode == "default", (
-                "AgentManager should fallback to 'default' when key missing"
+            assert manager.global_permission_mode == "auto", (
+                "AgentManager should fallback to 'auto' when key missing"
             )
 
 
 class TestAgentInheritance:
     """Test that agents inherit global_permission_mode."""
 
-    def test_create_unconnected_inherits_default_mode(self):
-        """Verify create_unconnected() inherits 'default' mode."""
+    def test_create_unconnected_inherits_auto_mode(self):
+        """Verify create_unconnected() inherits 'auto' mode."""
         from pathlib import Path
 
         with patch.dict(
             "claudechic.agent_manager.CONFIG",
-            {"default_permission_mode": "default"},
+            {"default_permission_mode": "auto"},
         ):
             from claudechic.agent_manager import AgentManager
 
             manager = AgentManager(MagicMock())
             agent = manager.create_unconnected("test", Path("/tmp"))
 
-            assert agent.permission_mode == "default", (
-                "Agent should inherit 'default' permission mode"
+            assert agent.permission_mode == "auto", (
+                "Agent should inherit 'auto' permission mode"
             )
 
     def test_create_unconnected_inherits_bypass_mode(self):

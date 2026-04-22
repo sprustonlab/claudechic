@@ -698,7 +698,7 @@ class ChatApp(App):
                 elif self._agent:
                     mode = self._agent.permission_mode
                 else:
-                    mode = "default"
+                    mode = "auto"
             self.status_footer.permission_mode = mode
         except Exception:
             pass  # Footer may not be mounted yet
@@ -1008,7 +1008,7 @@ class ChatApp(App):
         which routes to permission_ui_callback set by AgentManager.
         """
         # Override ANTHROPIC_API_KEY to prefer subscription auth,
-        # unless ANTHROPIC_BASE_URL is set (SSO proxy needs the key)
+        # unless ANTHROPIC_BASE_URL is set (SSO proxy needs the key).
         env: dict[str, str] = {}
         if not os.environ.get("ANTHROPIC_BASE_URL"):
             env["ANTHROPIC_API_KEY"] = ""
@@ -1028,7 +1028,7 @@ class ChatApp(App):
         # CLI flag --yolo sets global_permission_mode at init, no special handling needed here
         permission_mode: PermissionMode = cast(
             PermissionMode,
-            self.agent_mgr.global_permission_mode if self.agent_mgr else "default",
+            self.agent_mgr.global_permission_mode if self.agent_mgr else "auto",
         )
         return ClaudeAgentOptions(
             permission_mode=permission_mode,
@@ -1108,6 +1108,7 @@ class ChatApp(App):
         self._wire_agent_manager_callbacks()
 
         # Set global permission mode based on CLI flags
+        # (AgentManager defaults to CONFIG["default_permission_mode"] which is "auto")
         if self._skip_permissions:
             self.agent_mgr.global_permission_mode = "bypassPermissions"
 
@@ -4522,9 +4523,9 @@ class ChatApp(App):
             return PermissionResponse(PermissionChoice.ALLOW)
         elif choice == "manual":
             agent._set_permission_mode_local(restore_mode)
-            # Sync to SDK if restore_mode differs from "default" (which
+            # Sync to SDK if restore_mode differs from "auto" (which
             # ExitPlanMode already sets on the SDK side).
-            if restore_mode != "default":
+            if restore_mode != "auto":
                 create_safe_task(
                     agent._sync_permission_mode_to_sdk(restore_mode),
                     name="deferred-permission-mode-restore",

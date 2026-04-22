@@ -34,7 +34,7 @@ def _load() -> tuple[dict, bool]:
         config.setdefault("experimental", {})
         config.setdefault("worktree", {})
         config["worktree"].setdefault("path_template", None)
-        config.setdefault("default_permission_mode", "default")
+        config.setdefault("default_permission_mode", "auto")
         config.setdefault(
             "show_message_metadata", True
         )  # Show timestamp/tokens by default
@@ -47,7 +47,7 @@ def _load() -> tuple[dict, bool]:
         config = {
             "analytics": {"enabled": True, "id": str(uuid.uuid4())},
             "recent-tools-expanded": 2,
-            "default_permission_mode": "default",
+            "default_permission_mode": "auto",
             "show_message_metadata": True,  # Show timestamp/tokens by default
         }
         new_install = True
