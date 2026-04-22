@@ -2,11 +2,11 @@
 
 THIS IS NOT OPTIONAL. DO NOT SKIP.
 
-Spawn ALL 4 Leadership agents with `requires_answer: true`:
-1. Composability -- review through composability lens, identify axes
-2. Terminology -- identify domain terms, define canonical meanings
-3. Skeptic -- challenge assumptions, identify risks and failure modes
-4. UserAlignment -- verify vision captures user intent, flag gaps
+Spawn ALL 4 Leadership agents with `requires_answer: true` and `type` set to their role folder name (required for phase updates):
+1. Composability (type: composability) -- review through composability lens, identify axes
+2. Terminology (type: terminology) -- identify domain terms, define canonical meanings
+3. Skeptic (type: skeptic) -- challenge assumptions, identify risks and failure modes
+4. UserAlignment (type: user_alignment) -- verify vision captures user intent, flag gaps
 
 VERIFY: Run `list_agents`. Confirm all 4 are visible.
 

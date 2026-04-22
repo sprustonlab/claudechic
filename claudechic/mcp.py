@@ -176,7 +176,7 @@ def _make_spawn_agent(caller_name: str | None = None):
                 },
                 "type": {
                     "type": "string",
-                    "description": "Agent type for guardrail env vars",
+                    "description": "Workflow role folder name (e.g. 'skeptic', 'composability'). Required for the agent to receive phase updates and role-specific instructions when a workflow is active.",
                 },
                 "requires_answer": {
                     "type": "boolean",
