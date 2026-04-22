@@ -1383,6 +1383,7 @@ Key Rules:
     # Valid permission modes
     PERMISSION_MODES = {
         "default",
+        "auto",
         "acceptEdits",
         "plan",
         "planSwarm",

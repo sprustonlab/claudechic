@@ -656,7 +656,7 @@ class ChatApp(App):
         if not self.agent_mgr:
             return
 
-        modes = ["bypassPermissions", "acceptEdits", "plan", "default"]
+        modes = ["bypassPermissions", "auto", "acceptEdits", "plan", "default"]
         current = self.agent_mgr.global_permission_mode
 
         # If in planSwarm, exit to bypassPermissions (not in normal cycle)
@@ -677,11 +677,12 @@ class ChatApp(App):
         # Show notification with friendly names
         display = {
             "default": "Default",
+            "auto": "Auto",
             "acceptEdits": "Auto-edit",
             "plan": "Plan",
             "bypassPermissions": "Bypass",
         }
-        self.notify(f"Mode: {display[next_mode]}")
+        self.notify(f"Mode: {display.get(next_mode, next_mode)}")
 
     def _update_footer_permission_mode(self, mode: str | None = None) -> None:
         """Update footer to reflect current permission mode.

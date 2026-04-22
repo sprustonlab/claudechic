@@ -212,6 +212,11 @@ class StatusFooter(Static):
                 label.set_class(False, "active")
                 label.set_class(True, "plan-mode")
                 label.set_class(False, "plan-swarm-mode")
+            elif value == "auto":
+                label.update("Auto: classifier-gated")
+                label.set_class(True, "active")
+                label.set_class(False, "plan-mode")
+                label.set_class(False, "plan-swarm-mode")
             elif value == "acceptEdits":
                 label.update("Auto-edit: on")
                 label.set_class(True, "active")

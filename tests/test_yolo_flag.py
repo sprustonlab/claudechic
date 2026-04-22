@@ -153,7 +153,11 @@ class TestModeIndicatorsShowCorrectState:
             footer = app.query_one(StatusFooter)
             assert footer.permission_mode == "bypassPermissions"
 
-            # Cycle: bypassPermissions -> acceptEdits
+            # Cycle: bypassPermissions -> auto
+            await pilot.press("shift+tab")
+            assert footer.permission_mode == "auto"
+
+            # Cycle: auto -> acceptEdits
             await pilot.press("shift+tab")
             assert footer.permission_mode == "acceptEdits"
 
@@ -182,11 +186,11 @@ class TestYoloFlagIntegration:
             assert app.agent_mgr is not None
             assert app.agent_mgr.global_permission_mode == "bypassPermissions"
 
-            # Cycle to acceptEdits
+            # Cycle to auto
             await pilot.press("shift+tab")
-            assert app.agent_mgr.global_permission_mode == "acceptEdits"
+            assert app.agent_mgr.global_permission_mode == "auto"
 
-            # Spawn new agent - should inherit current global mode (acceptEdits)
+            # Spawn new agent - should inherit current global mode (auto)
             await submit_command(app, pilot, "/agent test-after-cycle")
             await wait_for_workers(app)
 
@@ -194,8 +198,8 @@ class TestYoloFlagIntegration:
                 (a for a in app.agents.values() if a.name == "test-after-cycle"), None
             )
             assert spawned is not None
-            # New agent should inherit the current global mode (acceptEdits), not the original --yolo mode
-            assert spawned.permission_mode == "acceptEdits"
+            # New agent should inherit the current global mode (auto), not the original --yolo mode
+            assert spawned.permission_mode == "auto"
 
     @pytest.mark.asyncio
     async def test_all_agents_updated_on_mode_change(self, mock_sdk):
@@ -213,8 +217,8 @@ class TestYoloFlagIntegration:
             # Change mode
             await pilot.press("shift+tab")
 
-            # Both should now be in acceptEdits mode
+            # Both should now be in auto mode
             for agent in app.agents.values():
-                assert agent.permission_mode == "acceptEdits", (
-                    f"Agent {agent.name} should have updated to acceptEdits"
+                assert agent.permission_mode == "auto", (
+                    f"Agent {agent.name} should have updated to auto"
                 )
