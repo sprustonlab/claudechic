@@ -175,6 +175,46 @@ def _track_command(app: ChatApp, command: str) -> None:
     )
 
 
+# Short aliases always accepted regardless of what the SDK advertises.
+_MODEL_ALIASES = frozenset({"opus", "sonnet", "haiku"})
+
+
+def _is_valid_model(app: ChatApp, model: str) -> bool:
+    """Check whether ``model`` is a value we can pass through to the SDK.
+
+    Accepts (a) short aliases opus/sonnet/haiku, (b) any ``value`` advertised
+    in ``app._available_models`` (which includes both SDK-curated entries and
+    the full-ID extras merged in by ``_merge_model_extras``), and (c) any
+    full model ID prefixed with ``claude-`` (user-supplied escape hatch for
+    IDs we haven't listed).
+    """
+    if not model:
+        return False
+    if model.lower() in _MODEL_ALIASES:
+        return True
+    values = {m.get("value", "") for m in getattr(app, "_available_models", []) or []}
+    if model in values:
+        return True
+    return model.startswith("claude-")
+
+
+def _invalid_model_message(app: ChatApp, model: str) -> str:
+    """Human-readable error when ``model`` isn't accepted."""
+    values = [
+        m.get("value", "")
+        for m in getattr(app, "_available_models", []) or []
+        if m.get("value")
+    ]
+    # Keep the message short; show aliases and up to 6 example values.
+    sample = ", ".join(values[:6])
+    if sample:
+        return (
+            f"Invalid model '{model}'. Use: opus, sonnet, haiku, or a full ID "
+            f"(e.g. {sample})."
+        )
+    return f"Invalid model '{model}'. Use: opus, sonnet, haiku."
+
+
 def handle_command(app: ChatApp, prompt: str) -> bool:
     """Route slash commands. Returns True if handled, False to send to Claude."""
     cmd = prompt.strip()
@@ -242,12 +282,11 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
             # No argument - show prompt
             app._handle_model_prompt()
         else:
-            # Direct model selection: /model sonnet
-            model = parts[1].lower()
-            valid_models = {"opus", "sonnet", "haiku"}
-            if model not in valid_models:
+            # Direct model selection: /model sonnet, /model claude-opus-4-6, etc.
+            model = parts[1].strip()
+            if not _is_valid_model(app, model):
                 app.notify(
-                    f"Invalid model '{model}'. Use: opus, sonnet, haiku",
+                    _invalid_model_message(app, model),
                     severity="error",
                 )
             else:
@@ -526,23 +565,20 @@ def _handle_agent(app: ChatApp, command: str) -> bool:
     # Create new agent - parse optional --model flag (supports --model=x or --model x)
     cwd: Path | None = None
     model = None
-    valid_models = {"opus", "sonnet", "haiku"}
     args = parts[2:]
     i = 0
     while i < len(args):
         part = args[i]
         if part.startswith("--model="):
-            model = part[8:].lower()
+            model = part[8:].strip()
         elif part == "--model" and i + 1 < len(args):
-            model = args[i + 1].lower()
+            model = args[i + 1].strip()
             i += 1
         elif not part.startswith("-") and cwd is None:
             cwd = Path(part)
         i += 1
-    if model and model not in valid_models:
-        app.notify(
-            f"Invalid model '{model}'. Use: opus, sonnet, haiku", severity="error"
-        )
+    if model and not _is_valid_model(app, model):
+        app.notify(_invalid_model_message(app, model), severity="error")
         return True
     # Default to current agent's cwd, fallback to app's cwd
     default_cwd = app._agent.cwd if app._agent else Path.cwd()

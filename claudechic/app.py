@@ -128,6 +128,71 @@ _PKG_DIR = Path(__file__).parent
 # Pattern to strip SDK's <tool_use_error> tags from error messages
 TOOL_USE_ERROR_PATTERN = re.compile(r"</?tool_use_error>")
 
+# Full-ID model entries merged into the SDK's curated model menu so the user
+# can target specific versions (e.g. Opus 4.6) that the CLI no longer
+# advertises in `get_server_info()["models"]`. The CLI still routes full IDs
+# via `--model`, so these values can be passed straight through. Override by
+# adding `models: {extra: [...]}` to ~/.claude/.claudechic.yaml.
+DEFAULT_EXTRA_MODEL_ENTRIES: list[dict] = [
+    # ── Opus ────────────────────────────────────────────────────────
+    {"value": "claude-opus-4-7", "displayName": "Opus 4.7", "description": "Opus 4.7"},
+    {
+        "value": "claude-opus-4-7[1m]",
+        "displayName": "Opus 4.7 (1M)",
+        "description": "Opus 4.7 (1M context)",
+    },
+    {"value": "claude-opus-4-6", "displayName": "Opus 4.6", "description": "Opus 4.6"},
+    {
+        "value": "claude-opus-4-6[1m]",
+        "displayName": "Opus 4.6 (1M)",
+        "description": "Opus 4.6 (1M context)",
+    },
+    {"value": "claude-opus-4-5", "displayName": "Opus 4.5", "description": "Opus 4.5"},
+    # ── Sonnet ──────────────────────────────────────────────────────
+    {
+        "value": "claude-sonnet-4-6",
+        "displayName": "Sonnet 4.6",
+        "description": "Sonnet 4.6",
+    },
+    {
+        "value": "claude-sonnet-4-6[1m]",
+        "displayName": "Sonnet 4.6 (1M)",
+        "description": "Sonnet 4.6 (1M context)",
+    },
+    {
+        "value": "claude-sonnet-4-5",
+        "displayName": "Sonnet 4.5",
+        "description": "Sonnet 4.5",
+    },
+    # ── Haiku ───────────────────────────────────────────────────────
+    {
+        "value": "claude-haiku-4-5",
+        "displayName": "Haiku 4.5",
+        "description": "Haiku 4.5",
+    },
+]
+
+
+def _merge_model_extras(
+    sdk_models: list[dict], extras: list[dict] | None = None
+) -> list[dict]:
+    """Append extra full-ID model entries to the SDK-provided list.
+
+    Deduplicates by ``value``; SDK entries win on collision. Entries without
+    a ``value`` key are skipped. A ``None`` ``extras`` arg uses the built-in
+    ``DEFAULT_EXTRA_MODEL_ENTRIES`` list.
+    """
+    if extras is None:
+        extras = DEFAULT_EXTRA_MODEL_ENTRIES
+    seen = {m.get("value") for m in sdk_models if m.get("value")}
+    merged = list(sdk_models)
+    for m in extras:
+        v = m.get("value")
+        if v and v not in seen:
+            merged.append(m)
+            seen.add(v)
+    return merged
+
 
 def _categorize_cli_error(e: CLIConnectionError) -> str:
     """Categorize CLI connection error without exposing user paths."""
@@ -1272,7 +1337,11 @@ class ChatApp(App):
             if "models" in info:
                 models = info["models"]
                 if isinstance(models, list) and models:
-                    self._available_models = models
+                    # Merge in extra full-ID entries (Opus 4.5/4.6/etc.) so the
+                    # user can target versions the CLI no longer advertises.
+                    # User override: models.extra in ~/.claude/.claudechic.yaml.
+                    extras = CONFIG.get("models", {}).get("extra")
+                    self._available_models = _merge_model_extras(models, extras)
                     # Update footer with current agent's model
                     agent = self._agent
                     self._update_footer_model(agent.model if agent else None)

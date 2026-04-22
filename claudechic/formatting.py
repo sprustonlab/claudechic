@@ -25,10 +25,14 @@ def get_context_window(model: str | None) -> int:
     """Return context window size for a model alias or full name.
 
     Checks short aliases ("opus") and substrings in full model names
-    ("claude-opus-4-6").  Falls back to MAX_CONTEXT_TOKENS.
+    ("claude-opus-4-6").  The ``[1m]`` suffix forces 1M regardless of
+    model family.  Falls back to MAX_CONTEXT_TOKENS.
     """
     if not model:
         return MAX_CONTEXT_TOKENS
+    # [1m] suffix always means 1M context
+    if model.endswith("[1m]"):
+        return 1_000_000
     # Exact alias match
     if model in CONTEXT_WINDOW_BY_MODEL:
         return CONTEXT_WINDOW_BY_MODEL[model]
