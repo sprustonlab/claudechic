@@ -922,7 +922,7 @@ class ChatApp(App):
             compact_hooks = create_post_compact_hook(
                 engine=self._workflow_engine,
                 agent_role=agent_type or "",
-                workflows_dir=self._cwd / "workflows",
+                workflows_dir=self._workflows_dir,
             )
             for event, matchers in compact_hooks.items():
                 hooks.setdefault(event, []).extend(matchers)
@@ -1490,7 +1490,6 @@ class ChatApp(App):
             from claudechic.guardrails.tokens import OverrideTokenStore
             from claudechic.workflows.loader import ManifestLoader
 
-            self._token_store = OverrideTokenStore()
             self._hit_logger = HitLogger(self._cwd / ".claudechic" / "hits.jsonl")
             self._workflows_dir = workflows_dir or _PKG_DIR / "defaults" / "workflows"
             self._manifest_loader = ManifestLoader(
