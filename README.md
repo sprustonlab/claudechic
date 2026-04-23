@@ -12,18 +12,26 @@ https://github.com/user-attachments/assets/bbdae8ac-9ddb-455b-8282-b52cfb73c4e8
 
 ## Install
 
-With `uv`
 ```bash
-uv tool install claudechic
-```
-
-With `pip`
-
-```bash
-pip install claudechic
+uv tool install git+https://github.com/sprustonlab/claudechic
 ```
 
 Requires Claude Code to be logged in (`claude /login`).
+
+## Development
+
+```bash
+git clone https://github.com/sprustonlab/claudechic.git
+cd claudechic
+uv sync --dev
+uv run claudechic
+```
+
+Run tests:
+
+```bash
+uv run python -m pytest tests/ -n auto -q
+```
 
 ## Introduction Video
 
@@ -44,4 +52,4 @@ Built on the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/ov
 ## Alpha Status
 
 This project is young and fresh.  Expect bugs.
-[Report issues](https://github.com/mrocklin/claudechic/issues/new).
+[Report issues](https://github.com/sprustonlab/claudechic/issues/new).

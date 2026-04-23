@@ -4,23 +4,70 @@ __pycache__/
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
 # Virtual environments
 .venv
+.pixi/
 
 # Logs
 *.log
 
+# Claude Code
+.claude/cache/
+.claude/logs/
+.claude/hits.jsonl
+
+# Claudechic session state
+.chicsessions/
+
+# Guardrail runtime artifacts (generated at runtime, not tracked)
+.claude/guardrails/acks/
+.claude/guardrails/sessions/
+.claude/guardrails/session_names.json
+.claude/guardrails/hits.jsonl
+
+# Hints runtime state
+.claude/hints_state.json
+
+# Phase context (written at runtime by workflow engine)
+.claude/phase_context.md
+
 # Test artifacts
 test_write*.txt
 .test_results/
-site/
+.test_runs/
+.coverage
+.hypothesis/
 uv.lock
+
+# Audit database
+.audit/
+scripts/audit/*.db
+
+# Built docs
+site/
+docs/coverage/
 
 # Recordings
 *.cast
+
+# OS / Editor
 .DS_Store
+.vscode/
+.idea/
 
 # Marimo cache
 __marimo__/
+
+# NFS temp files
+.nfs*
+
+# Data (customize per project)
+data/raw/
+data/processed/
+*.csv
+*.parquet
+
+# Project team (tracked on develop, blocked from main via pre-commit hook)
+.project_team/

@@ -5,6 +5,7 @@ Public API exports for use by other claudechic packages.
 
 from claudechic.hints.engine import run_pipeline
 from claudechic.hints.parsers import HintsParser
+from claudechic.hints.triggers import ContextDocsDrift
 from claudechic.hints.types import (
     AlwaysTrue,
     CooldownPeriod,
@@ -20,6 +21,7 @@ from claudechic.hints.types import (
 
 __all__ = [
     "AlwaysTrue",
+    "ContextDocsDrift",
     "CooldownPeriod",
     "HintDecl",
     "HintLifecycle",

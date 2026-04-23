@@ -6,7 +6,7 @@ that cross seams between axes.
 
 All dataclasses are frozen -- hints system types are immutable by design.
 
-LEAF MODULE: stdlib only. No imports from workflows/, checks/, or guardrails/.
+LEAF MODULE: stdlib only. No imports from workflow_engine/, checks/, or guardrails/.
 """
 
 from __future__ import annotations
@@ -209,6 +209,9 @@ class HintDecl:
     cooldown_seconds: int | None = None
     phase: str | None = None  # qualified phase ID, or None for unscoped
     namespace: str = ""
+    trigger_type: str | None = None  # e.g. "context-docs-drift", None = AlwaysTrue
+    severity: str = "info"
+    priority: int = 3
 
 
 # ---------------------------------------------------------------------------

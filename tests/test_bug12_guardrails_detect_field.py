@@ -13,8 +13,8 @@ import yaml
 from claudechic.guardrails.hits import HitLogger
 from claudechic.guardrails.hooks import create_guardrail_hooks
 from claudechic.guardrails.tokens import OverrideTokenStore
-from claudechic.workflows import register_default_parsers
-from claudechic.workflows.loader import ManifestLoader
+from claudechic.workflow_engine import register_default_parsers
+from claudechic.workflow_engine.loader import ManifestLoader
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 
@@ -25,9 +25,7 @@ def _setup_rules(
     """Create global/rules.yaml (and optionally injections.yaml), return loader."""
     global_dir = root / "global"
     global_dir.mkdir(parents=True, exist_ok=True)
-    (global_dir / "rules.yaml").write_text(
-        yaml.dump(rules), encoding="utf-8"
-    )
+    (global_dir / "rules.yaml").write_text(yaml.dump(rules), encoding="utf-8")
     if injections:
         (global_dir / "injections.yaml").write_text(
             yaml.dump(injections), encoding="utf-8"
@@ -140,9 +138,7 @@ class TestDetectFieldDefaults:
                 hit_logger=hit_logger,
                 consume_override=token_store.consume,
             )
-            result = await _call_hook(
-                hooks, "Bash", {"command": "echo DANGER"}
-            )
+            result = await _call_hook(hooks, "Bash", {"command": "echo DANGER"})
             assert result.get("decision") == "block", (
                 "Bash rule should still match against command field"
             )

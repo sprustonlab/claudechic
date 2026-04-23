@@ -33,8 +33,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mrocklin/claudechic"
-Repository = "https://github.com/mrocklin/claudechic"
+Homepage = "https://github.com/sprustonlab/claudechic"
+Repository = "https://github.com/sprustonlab/claudechic"
 
 [project.scripts]
 claudechic = "claudechic.__main__:main"
@@ -59,7 +59,20 @@ package = true
 include = ["claudechic*"]
 
 [tool.setuptools.package-data]
-claudechic = ["*.tcss", "*.md", "prompts/*.md"]
+claudechic = [
+    "*.tcss",
+    "*.md",
+    "prompts/*.md",
+    "global/*.yaml",
+    "context/*.md",
+    "workflows/**/*.yaml",
+    "workflows/**/*.md",
+    "mcp_tools/*.py",
+    "mcp_tools/*.yaml",
+    "mcp_tools/*.md",
+    "audit/*.py",
+    "audit/*.md",
+]
 
 [tool.pyright]
 exclude = ["build", ".venv", "dist", "site", "**/__pycache__"]

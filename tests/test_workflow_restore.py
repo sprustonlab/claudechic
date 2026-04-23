@@ -82,7 +82,10 @@ class TestRestoreWorkflowFromSession:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await app._activate_workflow("proj")
                 await pilot.pause()
@@ -145,7 +148,10 @@ class TestHandleRestoreCallsWorkflowRestore:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
 
                 # Activate workflow, advance phase, save chicsession
@@ -200,7 +206,10 @@ class TestRestoreSessionSidebarDisplay:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
 
                 # Activate workflow, advance phase, save chicsession
@@ -266,7 +275,10 @@ class TestRestoreSessionSidebarDisplay:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
 
                 # Activate workflow so agents exist, then save WITHOUT workflow_state
@@ -464,18 +476,26 @@ class TestFilesSectionAfterRestore:
         subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         subprocess.run(
             ["git", "config", "user.email", "test@test.com"],
-            cwd=tmp_path, check=True, capture_output=True,
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
             ["git", "config", "user.name", "Test"],
-            cwd=tmp_path, check=True, capture_output=True,
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
         )
         readme = tmp_path / "README.md"
         readme.write_text("initial content\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "add", "."], cwd=tmp_path, check=True, capture_output=True
+        )
         subprocess.run(
             ["git", "commit", "-m", "init"],
-            cwd=tmp_path, check=True, capture_output=True,
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
         )
 
         # 2. Make an uncommitted change (now `git diff HEAD --numstat` returns a result)

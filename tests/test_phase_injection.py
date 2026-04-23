@@ -27,7 +27,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 from claudechic.app import ChatApp
-from claudechic.workflows.agent_folders import _assemble_agent_prompt
+from claudechic.workflow_engine.agent_folders import _assemble_agent_prompt
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 
@@ -149,7 +149,10 @@ async def test_agent_manager_passes_agent_type_to_agent(
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
             await app._activate_workflow("test-workflow")
@@ -198,7 +201,10 @@ async def test_spawn_agent_no_name_fallback(mock_sdk, tmp_path, monkeypatch) -> 
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
             await app._activate_workflow("test-workflow")
@@ -270,7 +276,10 @@ async def test_spawn_agent_warns_when_type_missing(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 
@@ -333,7 +342,10 @@ async def test_advance_phase_broadcasts_to_typed_sub_agents(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 
@@ -419,7 +431,10 @@ async def test_advance_phase_broadcast_skips_coordinator(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 
@@ -500,7 +515,10 @@ async def test_advance_phase_broadcast_skips_untyped_sub_agents(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 
@@ -596,7 +614,10 @@ async def test_advance_phase_broadcast_handles_missing_role_folder(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 
@@ -709,7 +730,10 @@ async def test_advance_phase_no_double_agent_prompt_for_coordinator(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 
@@ -785,8 +809,8 @@ async def test_close_leadership_rule_fires_on_coordinator(tmp_path: Path) -> Non
     """no_close_leadership rule must warn-block close_agent from coordinator."""
     from claudechic.guardrails.hits import HitLogger
     from claudechic.guardrails.hooks import create_guardrail_hooks
-    from claudechic.workflows import register_default_parsers
-    from claudechic.workflows.loader import ManifestLoader
+    from claudechic.workflow_engine import register_default_parsers
+    from claudechic.workflow_engine.loader import ManifestLoader
 
     # Load from the REAL repo manifests — rule must exist in production YAML
     repo_root = Path(__file__).resolve().parents[3]
@@ -899,7 +923,10 @@ async def test_main_agent_role_resolves_to_main_role(
             await pilot.pause()
 
             app._cwd = tmp_path
-            app._init_workflow_infrastructure()
+            app._init_workflow_infrastructure(
+                global_dir=tmp_path / "global",
+                workflows_dir=tmp_path / "workflows",
+            )
             app._discover_workflows()
             await pilot.pause()
 

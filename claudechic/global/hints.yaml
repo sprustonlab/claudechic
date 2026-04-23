@@ -1,0 +1,99 @@
+- id: welcome
+  message: "Welcome! Run /tutorial to start the Workflow Guidance System tutorial."
+  lifecycle: show-once
+
+- id: workflow_list_tip
+  message: "Tip: Use /workflow list to see available workflows."
+  lifecycle: show-once
+
+# --- Slash command discovery hints ---
+
+- id: tip_worktree
+  message: "Tip: Use /worktree <name> to create a git worktree with its own agent for parallel development. Use /worktree finish to merge back, /worktree discard to throw it away."
+  lifecycle: show-once
+
+- id: tip_chicsession
+  message: "Tip: Use /chicsession save <name> to snapshot your multi-agent session, and /chicsession restore <name> to resume it later."
+  lifecycle: show-once
+
+- id: tip_compactish
+  message: "Tip: Use /compactish to shrink your context when the session feels slow. Add -n for a dry run."
+  lifecycle: show-once
+
+- id: tip_diff
+  message: "Tip: Use /diff to review uncommitted changes. Optionally specify a target like /diff main."
+  lifecycle: show-once
+
+- id: tip_reviewer
+  message: "Tip: Use /reviewer to have your current agent review and critique your changes before committing. Add a focus area like /reviewer security."
+  lifecycle: show-once
+
+- id: tip_plan_swarm
+  message: "Tip: Use /plan-swarm then describe your task. Three perspective agents (conservative, balanced, creative) will research, debate, and propose plans for you to choose from."
+  lifecycle: show-once
+
+- id: tip_rewind
+  message: "Tip: Use /rewind to undo file changes — Claude auto-checkpoints files as you work. Pick a snapshot to roll back to."
+  lifecycle: show-once
+
+- id: tip_shell_interactive
+  message: "Tip: Use /shell <cmd> to run commands inline, or /shell -i <cmd> for interactive tools. Common tools like vim, htop, psql are auto-detected. Shortcut: !ls."
+  lifecycle: show-once
+
+- id: tip_clearui
+  message: "Tip: Use /clearui to clean up the UI without losing conversation history. /clear resets everything."
+  lifecycle: show-once
+
+- id: tip_workflow_reload
+  message: "Tip: Use /workflow reload to pick up manifest changes without restarting your session."
+  lifecycle: show-once
+
+- id: tip_agent_create
+  message: "Tip: Use /agent <name> to create a new agent, or /agent <name> to switch to an existing one. Add a path to set its working directory."
+  lifecycle: show-once
+
+- id: tip_agent_reopen
+  message: "Tip: Use /agent reopen <name> to restore a previously closed agent from its saved session, resuming where it left off."
+  lifecycle: show-once
+
+- id: tip_model
+  message: "Tip: Use /model to switch the active agent's model (opus, sonnet, haiku) mid-session."
+  lifecycle: show-once
+
+- id: tip_resume
+  message: "Tip: Use /resume to restore a previous single-agent session. For multi-agent workflows, use /chicsession restore instead."
+  lifecycle: show-once
+
+- id: tip_vim
+  message: "Tip: Use /vim to toggle vi mode for the input editor."
+  lifecycle: show-once
+
+- id: tip_reviews
+  message: "Tip: Use /reviews to see roborev code review results for your current branch."
+  lifecycle: show-once
+
+- id: tip_bang_shortcut
+  message: "Tip: Use !<cmd> as a shortcut for /shell <cmd>. For example, !ls or !git status. Empty ! opens an interactive shell."
+  lifecycle: show-once
+
+- id: tip_workflow_activate
+  message: "Tip: Type /<workflow-id> to activate any registered workflow directly (e.g., /project-team, /tutorial). Use /<workflow-id> stop to end it."
+  lifecycle: show-once
+
+- id: tip_diff_shortcut
+  message: "Tip: /d is a shortcut for /diff — quick way to review your changes."
+  lifecycle: show-once
+
+- id: tip_processes
+  message: "Tip: Use /processes to see all background processes running in the active agent."
+  lifecycle: show-once
+
+# --- Upgrade drift detection ---
+
+- id: context_docs_outdated
+  message: "Context docs have been updated. Run /onboarding to update your .claude/rules/ files."
+  lifecycle: show-until-resolved
+  severity: info
+  priority: 5
+  trigger:
+    type: context-docs-drift

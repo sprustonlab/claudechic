@@ -25,9 +25,7 @@ SKIP_FILES = {
 
 def _collect_python_files() -> list[Path]:
     """Collect all .py files under claudechic/."""
-    return sorted(
-        f for f in CLAUDECHIC_ROOT.rglob("*.py") if f.name not in SKIP_FILES
-    )
+    return sorted(f for f in CLAUDECHIC_ROOT.rglob("*.py") if f.name not in SKIP_FILES)
 
 
 def _is_code_line(line: str) -> bool:

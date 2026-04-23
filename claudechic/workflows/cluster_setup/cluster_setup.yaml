@@ -1,0 +1,80 @@
+workflow_id: cluster-setup
+main_role: cluster_setup_helper
+
+phases:
+  - id: detect
+    file: detect
+    hints:
+      - message: "Phase 1/6: SSH Target Detection & Auth. Find the login node, verify passwordless SSH."
+        lifecycle: show-once
+    advance_checks:
+      - type: file-content-check
+        path: "mcp_tools/cluster.yaml"
+        pattern: "ssh_target:\\s+\\S+"
+        on_failure:
+          message: "ssh_target must be set in mcp_tools/cluster.yaml before advancing."
+          severity: warning
+      - type: manual-confirm
+        prompt: "SSH target confirmed and passwordless SSH working?"
+
+  - id: ssh_mux
+    file: ssh_mux
+    hints:
+      - message: "Phase 2/6: SSH Multiplexing. Connection pooling via ~/.ssh/sockets/ speeds up repeated commands."
+        lifecycle: show-once
+    advance_checks:
+      - type: manual-confirm
+        prompt: "SSH multiplexing configured?"
+
+  - id: scheduler
+    file: scheduler
+    hints:
+      - message: "Phase 3/6: Scheduler Detection. Confirm LSF or SLURM is available on the cluster."
+        lifecycle: show-once
+    advance_checks:
+      - type: file-content-check
+        path: "mcp_tools/cluster.yaml"
+        pattern: "backend:\\s+(lsf|slurm)"
+        on_failure:
+          message: "backend must be set to 'lsf' or 'slurm' in mcp_tools/cluster.yaml before advancing."
+          severity: warning
+      - type: manual-confirm
+        prompt: "Scheduler detected and working?"
+
+  - id: paths
+    file: paths
+    hints:
+      - message: "Phase 4/6: Path Mapping. Map network drives and local filesystem paths to cluster paths so jobs run in the right directory."
+        lifecycle: show-once
+    advance_checks:
+      - type: manual-confirm
+        prompt: "Path mapping and remote_cwd proposals approved?"
+
+  - id: validate
+    file: validate
+    hints:
+      - message: "Phase 5/6: Validation. Test the full config end-to-end before writing."
+        lifecycle: show-once
+      - message: "A test job will be submitted, waited on, and its log checked for clean exit."
+        lifecycle: show-once
+    advance_checks:
+      - type: manual-confirm
+        prompt: "Test job submitted, completed cleanly, and log was readable?"
+
+  - id: apply
+    file: apply
+    hints:
+      - message: "Phase 6/6: Apply. Write the validated configuration to mcp_tools/cluster.yaml."
+        lifecycle: show-once
+    advance_checks:
+      - type: manual-confirm
+        prompt: "Configuration applied and verified?"
+
+rules:
+  - id: warn_ssh_key_operations
+    trigger: PreToolUse/Bash
+    enforcement: warn
+    detect:
+      pattern: "ssh-keygen|ssh-copy-id"
+    message: "SSH key operation detected. Ensure the user is aware and approves."
+    phases: [detect]

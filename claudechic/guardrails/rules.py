@@ -1,6 +1,6 @@
 """Rule and Injection dataclasses, matching functions, and YAML loader.
 
-Leaf module within guardrails/ — no imports from workflows/, checks/, or hints/.
+Leaf module within guardrails/ — no imports from workflow_engine/, checks/, or hints/.
 """
 
 from __future__ import annotations

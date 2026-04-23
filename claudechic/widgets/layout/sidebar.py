@@ -348,7 +348,9 @@ class FilesSection(SidebarSection):
         # Use .as_posix() to normalize separators before replacing: on Windows
         # str(Path("src/file.py")) == "src\\file.py" and backslash is not
         # replaced, producing an invalid Textual ID ("file-src\\file-py").
-        safe_id = file_path.as_posix().replace("/", "-").replace(".", "-").replace(" ", "-")
+        safe_id = (
+            file_path.as_posix().replace("/", "-").replace(".", "-").replace(" ", "-")
+        )
         item.id = f"file-{safe_id}"
         item.set_class(self._compact, "compact")
         return item

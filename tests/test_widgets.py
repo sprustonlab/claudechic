@@ -1061,7 +1061,9 @@ async def test_files_section_scrolls_with_many_files():
 
         # VerticalScroll with id="files-scroll" must exist inside FilesSection
         scroll = section.query_one("#files-scroll", VerticalScroll)
-        assert scroll is not None, "FilesSection must contain a VerticalScroll#files-scroll"
+        assert scroll is not None, (
+            "FilesSection must contain a VerticalScroll#files-scroll"
+        )
 
         # All 20 FileItems must be queryable
         items = section.query(FileItem)
@@ -1138,7 +1140,12 @@ async def test_files_section_renders_with_files():
     """
     from pathlib import Path
 
-    from claudechic.widgets import AgentSection, ChicsessionLabel, FilesSection, PlanSection
+    from claudechic.widgets import (
+        AgentSection,
+        ChicsessionLabel,
+        FilesSection,
+        PlanSection,
+    )
     from textual.containers import Vertical
 
     class SidebarLikeApp(App):
@@ -1170,7 +1177,9 @@ async def test_files_section_renders_with_files():
         await pilot.pause()
 
         assert fs.item_count == 2
-        assert not fs.has_class("hidden"), "FilesSection should not be hidden after mount_all_files"
+        assert not fs.has_class("hidden"), (
+            "FilesSection should not be hidden after mount_all_files"
+        )
         scroll = fs.query_one("#files-scroll")
         assert len(list(scroll.children)) == 2, (
             f"Expected 2 children in #files-scroll, got {len(list(scroll.children))}"

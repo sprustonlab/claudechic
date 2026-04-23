@@ -19,8 +19,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
-      - run: uv sync
-      - run: uv run python -m mkdocs build
+      - run: uv sync --dev
+      - run: uv run mkdocs build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

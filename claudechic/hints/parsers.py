@@ -5,7 +5,7 @@ of YAML manifests into ``HintDecl`` objects.
 
 Fail-open per item: bad entries are skipped with a warning, valid ones returned.
 
-LEAF MODULE: Only imports from hints.types. No imports from workflows/, checks/,
+LEAF MODULE: Only imports from hints.types. No imports from workflow_engine/, checks/,
 or guardrails/.
 """
 
@@ -143,6 +143,35 @@ class HintsParser:
                 else:
                     phase = raw_phase
 
+        # --- trigger: optional, dict with 'type' key ---
+        trigger_type: str | None = None
+        raw_trigger = item.get("trigger")
+        if raw_trigger is not None:
+            if isinstance(raw_trigger, dict):
+                t = raw_trigger.get("type")
+                if isinstance(t, str) and t.strip():
+                    trigger_type = t.strip()
+                else:
+                    raise _SkipItem(
+                        f"id {raw_id!r}: trigger.type must be a non-empty string"
+                    )
+            elif isinstance(raw_trigger, str):
+                trigger_type = raw_trigger.strip()
+            else:
+                raise _SkipItem(f"id {raw_id!r}: trigger must be a dict or string")
+
+        # --- severity: optional, default "info" ---
+        severity = item.get("severity", "info")
+        if not isinstance(severity, str) or severity not in ("info", "warning"):
+            raise _SkipItem(f"id {raw_id!r}: severity must be 'info' or 'warning'")
+
+        # --- priority: optional, default 3 ---
+        priority = item.get("priority", 3)
+        try:
+            priority = int(priority)
+        except (TypeError, ValueError) as err:
+            raise _SkipItem(f"id {raw_id!r}: priority must be an integer") from err
+
         return HintDecl(
             id=qualified_id,
             message=message,
@@ -150,6 +179,9 @@ class HintsParser:
             cooldown_seconds=cooldown_seconds,
             phase=phase,
             namespace=namespace,
+            trigger_type=trigger_type,
+            severity=severity,
+            priority=priority,
         )
 
 

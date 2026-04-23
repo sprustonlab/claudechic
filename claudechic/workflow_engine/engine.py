@@ -21,7 +21,7 @@ from claudechic.checks.protocol import (
     CheckResult,
     OnFailureConfig,
 )
-from claudechic.workflows.phases import Phase
+from claudechic.workflow_engine.phases import Phase
 
 logger = logging.getLogger(__name__)
 

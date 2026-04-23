@@ -12,8 +12,8 @@ import yaml
 from claudechic.guardrails.hits import HitLogger
 from claudechic.guardrails.hooks import create_guardrail_hooks
 from claudechic.guardrails.tokens import OverrideTokenStore
-from claudechic.workflows import register_default_parsers
-from claudechic.workflows.loader import ManifestLoader
+from claudechic.workflow_engine import register_default_parsers
+from claudechic.workflow_engine.loader import ManifestLoader
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 

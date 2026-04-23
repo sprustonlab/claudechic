@@ -1,9 +1,9 @@
 """Onboarding health checks and welcome screen logic.
 
-Checks real state of facets (cluster, git, codebase) against CopierAnswers
-intent, and determines whether the welcome screen should appear.
+Checks real state of facets (cluster, git, codebase) against ProjectConfig
+toggles, and determines whether the welcome screen should appear.
 
-LEAF MODULE: stdlib + yaml only. No imports from workflows/, checks/, or
+LEAF MODULE: stdlib + yaml only. No imports from workflow_engine/, checks/, or
 guardrails/.
 """
 
@@ -14,7 +14,10 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from claudechic.hints.state import CopierAnswers, HintStateStore
+from claudechic.config import ProjectConfig
+from claudechic.hints.state import HintStateStore
+
+_PKG_DIR = Path(__file__).parent
 
 # ---------------------------------------------------------------------------
 # FacetStatus — one row in the welcome screen checklist
@@ -108,15 +111,71 @@ def _git_configured(project_root: Path) -> bool:
         return False
 
 
+_CODE_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".js",
+        ".ts",
+        ".rs",
+        ".go",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".rb",
+        ".jl",
+        ".r",
+        ".m",
+        ".swift",
+        ".kt",
+        ".scala",
+        ".zig",
+    }
+)
+
+
+_SKIP_DIRS = frozenset(
+    {
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        "build",
+        "dist",
+        ".git",
+        ".tox",
+        ".mypy_cache",
+        ".ruff_cache",
+    }
+)
+
+# Cap the number of files examined to avoid slow scans in huge repos.
+_MAX_FILES_CHECKED = 5000
+
+
 def _codebase_configured(project_root: Path) -> bool:
-    """Check if at least one non-hidden directory exists in repos/."""
-    repos_dir = project_root / "repos"
-    if not repos_dir.is_dir():
-        return False
-    return any(
-        child.is_dir() and not child.name.startswith(".")
-        for child in repos_dir.iterdir()
-    )
+    """Check if the project contains code files.
+
+    Returns True if any non-hidden subdirectory of the project root
+    contains files with common code extensions.  Skips heavy directories
+    (.venv, node_modules, __pycache__, etc.) and caps the search to
+    avoid slow scans in large repositories.
+    """
+    checked = 0
+    for child in project_root.iterdir():
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if child.name in _SKIP_DIRS:
+            continue
+        for f in child.rglob("*"):
+            if f.is_dir() and f.name in _SKIP_DIRS:
+                continue
+            if f.is_file() and f.suffix in _CODE_EXTENSIONS:
+                return True
+            checked += 1
+            if checked >= _MAX_FILES_CHECKED:
+                return False
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -166,18 +225,18 @@ def _git_detail(project_root: Path) -> str:
 
 
 def _codebase_detail(project_root: Path) -> str:
-    """Return detail string for codebase, e.g. 'mypackage in repos/'."""
-    repos_dir = project_root / "repos"
-    if not repos_dir.is_dir():
-        return "integrated"
-    dirs = [
-        child.name
-        for child in repos_dir.iterdir()
-        if child.is_dir() and not child.name.startswith(".")
-    ]
-    if dirs:
-        return f"{', '.join(sorted(dirs))} in repos/"
-    return "integrated"
+    """Return detail string for codebase, e.g. 'src, lib'."""
+    dirs_with_code = []
+    for child in project_root.iterdir():
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        if child.name in _SKIP_DIRS:
+            continue
+        if any(f.suffix in _CODE_EXTENSIONS for f in child.rglob("*") if f.is_file()):
+            dirs_with_code.append(child.name)
+    if dirs_with_code:
+        return ", ".join(sorted(dirs_with_code))
+    return "code detected"
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +258,7 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
     """Check onboarding status and return facet list if incomplete.
 
     Returns:
-        None if onboarding should not be shown (dismissed, no copier answers,
+        None if onboarding should not be shown (dismissed, no config file,
         or all facets configured). Otherwise returns the list of FacetStatus
         items for the welcome screen.
     """
@@ -208,18 +267,18 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
     if _is_dismissed(store):
         return None
 
-    answers = CopierAnswers.load(project_root)
-    if not answers.raw:
-        # No .copier-answers.yml or empty — not a template project
-        return None
+    config = ProjectConfig.load(project_root)
 
-    # Map of (workflow_id, directory_name) — only show facets whose
-    # workflow manifest actually exists in the project.
-    workflows_dir = project_root / "workflows"
+    # Map of (workflow_id, directory_name) -- only show facets whose
+    # workflow manifest actually exists. Bundled workflows live in the
+    # package directory, not in the project root.
+    workflows_dir = _PKG_DIR / "workflows"
 
     facets: list[FacetStatus] = []
 
-    if answers.get("use_cluster") and _workflow_exists(workflows_dir, "cluster_setup"):
+    if "cluster_setup" not in config.disabled_workflows and _workflow_exists(
+        workflows_dir, "cluster_setup"
+    ):
         configured = _cluster_configured(project_root)
         detail = _cluster_detail(project_root) if configured else "not configured"
         facets.append(
@@ -232,14 +291,16 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
         detail = _git_detail(project_root) if configured else "no remote set"
         facets.append(FacetStatus("git-setup", "Git remote", configured, detail))
 
-    if answers.get("use_existing_codebase") and _workflow_exists(
-        workflows_dir, "codebase_setup"
-    ):
-        configured = _codebase_configured(project_root)
-        detail = _codebase_detail(project_root) if configured else "not integrated"
+    # Detect existing codebase by checking for code files in the project
+    has_codebase = _codebase_configured(project_root)
+    if has_codebase and _workflow_exists(workflows_dir, "codebase_setup"):
+        detail = _codebase_detail(project_root)
         facets.append(
-            FacetStatus("codebase-setup", "Codebase integration", configured, detail)
+            FacetStatus("codebase-setup", "Codebase integration", has_codebase, detail)
         )
+
+    if not facets:
+        return None
 
     # If everything is configured, don't show
     if all(f.configured for f in facets):

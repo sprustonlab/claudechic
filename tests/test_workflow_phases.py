@@ -82,7 +82,10 @@ class TestWorkflowPhases:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await pilot.pause()
 
@@ -125,7 +128,10 @@ class TestWorkflowPhases:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await app._activate_workflow("proj")
                 await pilot.pause()
@@ -166,7 +172,10 @@ class TestWorkflowPhases:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await app._activate_workflow("proj")
                 await pilot.pause()
@@ -208,7 +217,10 @@ class TestWorkflowPhases:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await app._activate_workflow("proj")
                 await pilot.pause()
@@ -229,7 +241,7 @@ class TestWorkflowPhases:
                 assert state["current_phase"] == "proj:implement"
 
                 # Restore from state into a new engine
-                from claudechic.workflows.engine import WorkflowEngine
+                from claudechic.workflow_engine.engine import WorkflowEngine
 
                 restored = WorkflowEngine.from_session_state(
                     state=state,

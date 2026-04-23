@@ -6,17 +6,17 @@ This is the orchestration layer — it imports from guardrails/, checks/, hints/
 
 from __future__ import annotations
 
-from claudechic.workflows.agent_folders import (
+from claudechic.workflow_engine.agent_folders import (
     assemble_phase_prompt,
     create_post_compact_hook,
 )
-from claudechic.workflows.engine import (
+from claudechic.workflow_engine.engine import (
     PhaseAdvanceResult,
     WorkflowEngine,
     WorkflowManifest,
 )
-from claudechic.workflows.loader import LoadResult, ManifestLoader
-from claudechic.workflows.phases import Phase
+from claudechic.workflow_engine.loader import LoadResult, ManifestLoader
+from claudechic.workflow_engine.phases import Phase
 
 __all__ = [
     "LoadResult",
@@ -40,7 +40,7 @@ def register_default_parsers(loader: ManifestLoader) -> None:
     from claudechic.checks.parsers import ChecksParser
     from claudechic.guardrails.parsers import InjectionsParser, RulesParser
     from claudechic.hints.parsers import HintsParser
-    from claudechic.workflows.parsers import PhasesParser
+    from claudechic.workflow_engine.parsers import PhasesParser
 
     loader.register(RulesParser())
     loader.register(InjectionsParser())

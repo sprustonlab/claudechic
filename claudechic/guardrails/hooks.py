@@ -3,7 +3,7 @@
 Extracted from app.py. Two-step pipeline: injections first, then enforcement.
 
 Imports: sibling modules (rules, hits) + claude_agent_sdk.types.
-NEVER imports from workflows/, app.py, or widgets/.
+NEVER imports from workflow_engine/, app.py, or widgets/.
 All engine/token/phase concerns arrive as callbacks.
 """
 
@@ -26,7 +26,7 @@ from claudechic.guardrails.rules import (
 )
 
 if TYPE_CHECKING:
-    from claudechic.workflows.loader import ManifestLoader
+    from claudechic.workflow_engine.loader import ManifestLoader
 
 # Type aliases for callback signatures
 GetPhaseCallback = Callable[[], str | None]

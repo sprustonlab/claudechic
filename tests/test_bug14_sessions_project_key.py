@@ -12,7 +12,6 @@ paths containing colons. No filesystem, no monkeypatch -- just input/output.
 from pathlib import Path
 
 import pytest
-
 from claudechic.sessions import encode_project_key
 
 

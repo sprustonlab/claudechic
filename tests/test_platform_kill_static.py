@@ -72,6 +72,7 @@ def test_no_unguarded_os_kill() -> None:
     if all_violations:
         pytest.fail(
             f"Found {len(all_violations)} unguarded os.killpg/os.kill(SIGKILL) "
-            f"call(s) -- will crash on Windows:\n" + "\n".join(all_violations)
+            f"call(s) -- will crash on Windows:\n"
+            + "\n".join(all_violations)
             + "\n\nWrap in: if sys.platform != 'win32':"
         )

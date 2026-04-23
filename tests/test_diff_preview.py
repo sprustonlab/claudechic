@@ -383,9 +383,7 @@ async def test_preview_toggle_visible_in_dom(tmp_path: Path):
         assert not toggle.has_class("hidden"), "PreviewToggle has 'hidden' class"
 
         # 3. Does it have a non-zero region (not collapsed)?
-        assert toggle.region.width > 0, (
-            f"PreviewToggle width=0, region={toggle.region}"
-        )
+        assert toggle.region.width > 0, f"PreviewToggle width=0, region={toggle.region}"
         assert toggle.region.height > 0, (
             f"PreviewToggle height=0, region={toggle.region}"
         )
@@ -500,7 +498,9 @@ async def test_preview_toggle_renders_markdown_and_toggles_back(tmp_path: Path):
         assert len(h1_blocks) > 0, "No MarkdownH1 found -- markdown not rendered"
 
         paragraphs = md_widget.query(MarkdownParagraph)
-        assert len(paragraphs) > 0, "No MarkdownParagraph found -- markdown not rendered"
+        assert len(paragraphs) > 0, (
+            "No MarkdownParagraph found -- markdown not rendered"
+        )
 
         # The raw "**bold text**" should NOT appear as literal asterisks in the
         # rendered output -- it should be styled text without the ** markers

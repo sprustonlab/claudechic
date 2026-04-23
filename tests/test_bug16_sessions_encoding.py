@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from claudechic.sessions import encode_project_key, load_session_messages
 
 
@@ -60,7 +59,9 @@ async def test_load_session_messages_with_non_ascii(
         },
         {
             "type": "user",
-            "message": {"content": "Show me caf\u00e9-style na\u00efve co\u00f6peration"},
+            "message": {
+                "content": "Show me caf\u00e9-style na\u00efve co\u00f6peration"
+            },
             "timestamp": "2025-01-15T10:00:02Z",
         },
     ]

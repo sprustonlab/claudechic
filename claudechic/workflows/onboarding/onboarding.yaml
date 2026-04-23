@@ -1,0 +1,26 @@
+workflow_id: onboarding
+main_role: onboarding_helper
+
+phases:
+  - id: orientation
+    file: orientation
+    hints:
+      - message: "Reviewing your project setup and available workflows..."
+        lifecycle: show-once
+    advance_checks:
+      - type: manual-confirm
+        prompt: "Orientation complete — ready to install context docs?"
+
+  - id: context_docs
+    file: context_docs
+    hints:
+      - message: "Scanning for context docs to install into .claude/rules/..."
+        lifecycle: show-once
+    advance_checks:
+      - type: file-exists-check
+        path: ".claude/rules/claudechic-overview.md"
+        on_failure:
+          message: "Context docs not yet installed. Complete the install step to continue."
+          severity: warning
+      - type: manual-confirm
+        prompt: "Context docs installed (or skipped)?"

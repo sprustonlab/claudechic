@@ -18,7 +18,9 @@ if TYPE_CHECKING:
     from claude_agent_sdk.types import HookEvent
     from textual.timer import Timer
 
+    from claudechic.config import ProjectConfig
     from claudechic.screens.chat import ChatScreen
+    from claudechic.workflow_engine.loader import LoadResult
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -121,6 +123,8 @@ from claudechic.widgets.prompts import ModelPrompt
 
 log = logging.getLogger(__name__)
 
+_PKG_DIR = Path(__file__).parent
+
 # Pattern to strip SDK's <tool_use_error> tags from error messages
 TOOL_USE_ERROR_PATTERN = re.compile(r"</?tool_use_error>")
 
@@ -141,6 +145,37 @@ def _categorize_cli_error(e: CLIConnectionError) -> str:
     if "not found" in msg.lower():
         return "cli_not_found"
     return "unknown"
+
+
+def _filter_load_result(result: LoadResult, config: ProjectConfig) -> LoadResult:
+    """Filter loaded content by project config.
+
+    Applied after ManifestLoader.load() returns. Filters by disabled_workflows
+    (namespace match), disabled_ids (individual ID match), and system toggles
+    (guardrails, hints).
+    """
+    from claudechic.workflow_engine.loader import LoadResult
+
+    def keep(item: Any) -> bool:
+        ns = getattr(item, "namespace", "")
+        iid = getattr(item, "id", "")
+        if ns in config.disabled_workflows:
+            return False
+        return iid not in config.disabled_ids
+
+    return LoadResult(
+        rules=([r for r in result.rules if keep(r)] if config.guardrails else []),
+        injections=[i for i in result.injections if keep(i)],  # filtered by namespace/ID, not by guardrails toggle
+        checks=[c for c in result.checks if keep(c)],
+        hints=([h for h in result.hints if keep(h)] if config.hints else []),
+        phases=[p for p in result.phases if keep(p)],
+        errors=result.errors,
+        workflows={
+            k: v
+            for k, v in result.workflows.items()
+            if k not in config.disabled_workflows
+        },
+    )
 
 
 class ChatApp(App):
@@ -248,6 +283,7 @@ class ChatApp(App):
         self._hit_logger: Any = None  # HitLogger
         self._token_store: Any = None  # OverrideTokenStore
         self._load_result: Any = None  # LoadResult
+        self._project_config: Any = None  # ProjectConfig
         self._workflow_registry: dict[str, Path] = {}  # workflow_id -> directory
         self._workflow_engine: Any = None  # WorkflowEngine
 
@@ -877,7 +913,9 @@ class ChatApp(App):
 
         # PostCompact hook — re-injects phase context after /compact
         if self._workflow_engine:
-            from claudechic.workflows.agent_folders import create_post_compact_hook
+            from claudechic.workflow_engine.agent_folders import (
+                create_post_compact_hook,
+            )
 
             compact_hooks = create_post_compact_hook(
                 engine=self._workflow_engine,
@@ -1046,6 +1084,11 @@ class ChatApp(App):
         if agent:
             self._refresh_reviews(agent)
 
+        # Load per-project config (needed for _filter_load_result)
+        from claudechic.config import ProjectConfig
+
+        self._project_config = ProjectConfig.load(self._cwd)
+
         # Discover workflow manifests and register slash commands
         self._discover_workflows()
 
@@ -1067,11 +1110,11 @@ class ChatApp(App):
         self.run_worker(self._check_onboarding_worker(), exit_on_error=False)
 
     async def _check_onboarding_worker(self) -> None:
-        """Run health checks off the event loop, then mount welcome screen."""
+        """Run health checks off the event loop, then push welcome screen."""
         import asyncio
 
         try:
-            # Wait for SDK connection before mounting welcome screen,
+            # Wait for SDK connection before pushing welcome screen,
             # otherwise selecting a workflow would fail with CLIConnectionError
             await asyncio.wait_for(self._sdk_connected.wait(), timeout=30)
 
@@ -1085,41 +1128,63 @@ class ChatApp(App):
             # Don't steal focus if user has already started typing
             chat_input = getattr(self, "chat_input", None)
             user_active = chat_input is not None and bool(chat_input.text.strip())
+            if user_active:
+                return
 
-            from claudechic.widgets.welcome import WelcomeScreen
+            from claudechic.screens.welcome import (
+                WelcomeScreen,
+            )
 
-            welcome = WelcomeScreen(facets, steal_focus=not user_active)
-            # Mount at the top of #chat-column so it's visible above the chat
-            chat_column = self.screen.query_one("#chat-column")
-            chat_column.mount(welcome, before=0)
-            log.info("Onboarding welcome screen shown with %d facets", len(facets))
+            welcome = WelcomeScreen(facets, workflows=self._workflow_registry)
+            result = await self.push_screen_wait(welcome)
+            self._handle_welcome_result(result)
         except Exception:
             log.debug("Onboarding check failed", exc_info=True)
 
-    def on_welcome_screen_selected(self, event: WelcomeScreen.Selected) -> None:  # noqa: F821
-        """Handle user selecting a facet from the welcome screen."""
-        from claudechic.tasks import create_safe_task
-
-        create_safe_task(
-            self._activate_workflow(event.workflow_id, auto_name=event.workflow_id),
-            name=f"onboarding-{event.workflow_id}",
+    def _handle_welcome_result(self, result: str | None) -> None:
+        """Process the result returned by the WelcomeScreen."""
+        from claudechic.screens.welcome import (
+            RESULT_DISMISS,
+            RESULT_PICKER,
+            RESULT_TUTORIAL,
         )
 
-    def on_welcome_screen_skipped(self, event: WelcomeScreen.Skipped) -> None:  # noqa: F821
-        """Handle user skipping the welcome screen for this session."""
-        log.info("Onboarding welcome screen skipped")
+        if result is None:
+            log.info("Onboarding welcome screen skipped")
+            return
 
-    def on_welcome_screen_dismissed(self, event: WelcomeScreen.Dismissed) -> None:  # noqa: F821
-        """Handle user permanently dismissing the welcome screen."""
-        try:
-            from claudechic.hints.state import HintStateStore
-            from claudechic.onboarding import write_dismiss_marker
+        if result == RESULT_DISMISS:
+            try:
+                from claudechic.hints.state import HintStateStore
+                from claudechic.onboarding import write_dismiss_marker
 
-            store = HintStateStore(self._cwd)
-            write_dismiss_marker(store)
-            log.info("Onboarding permanently dismissed")
-        except Exception:
-            log.debug("Failed to write dismiss marker", exc_info=True)
+                store = HintStateStore(self._cwd)
+                write_dismiss_marker(store)
+                log.info("Onboarding permanently dismissed")
+            except Exception:
+                log.debug("Failed to write dismiss marker", exc_info=True)
+        elif result == RESULT_TUTORIAL:
+            from claudechic.tasks import create_safe_task
+
+            create_safe_task(
+                self._activate_workflow("tutorial", auto_name="tutorial"),
+                name="onboarding-tutorial",
+            )
+        elif result == RESULT_PICKER:
+            # Trigger the workflow picker via the same handler as sidebar button
+            from claudechic.widgets.layout.sidebar import ChicsessionActions
+
+            self.on_chicsession_actions_workflow_picker_requested(
+                ChicsessionActions.WorkflowPickerRequested()
+            )
+        else:
+            # Result is a workflow_id from a facet selection
+            from claudechic.tasks import create_safe_task
+
+            create_safe_task(
+                self._activate_workflow(result, auto_name=result),
+                name=f"onboarding-{result}",
+            )
 
     def watch_theme(self, theme: str) -> None:
         """Save theme preference when changed (skip if overridden by CLI flag)."""
@@ -1316,6 +1381,15 @@ class ChatApp(App):
                     ShowUntilResolved,
                 )
 
+                # Registry of trigger types (type string -> class)
+                _trigger_registry: dict[str, type] = {}
+                try:
+                    from claudechic.hints.triggers import ContextDocsDrift
+
+                    _trigger_registry["context-docs-drift"] = ContextDocsDrift
+                except Exception:
+                    log.debug("Failed to import trigger classes", exc_info=True)
+
                 for decl in self._load_result.hints:
                     if decl.namespace != "global" and decl.namespace != active_wf:
                         continue
@@ -1325,11 +1399,20 @@ class ChatApp(App):
                         lifecycle = ShowUntilResolved()
                     else:
                         lifecycle = ShowOnce()
+
+                    # Resolve trigger type from YAML declaration
+                    if decl.trigger_type and decl.trigger_type in _trigger_registry:
+                        trigger = _trigger_registry[decl.trigger_type]()
+                    else:
+                        trigger = AlwaysTrue()
+
                     hint_specs.append(
                         HintSpec(
                             id=decl.id,
-                            trigger=AlwaysTrue(),
+                            trigger=trigger,
                             message=decl.message,
+                            severity=decl.severity,
+                            priority=decl.priority,
                             lifecycle=lifecycle,
                         )
                     )
@@ -1386,26 +1469,34 @@ class ChatApp(App):
 
     # --- Workflow guidance system ---
 
-    def _init_workflow_infrastructure(self) -> None:
+    def _init_workflow_infrastructure(
+        self,
+        global_dir: Path | None = None,
+        workflows_dir: Path | None = None,
+    ) -> None:
         """Initialize workflow guidance infrastructure (called from on_mount).
 
         Creates ManifestLoader, HitLogger, OverrideTokenStore. These are
         independent of whether any workflow is active — global rules and
         the ack mechanism need them always.
+
+        Parameters allow tests to override content directories (defaults to
+        package-bundled content).
         """
         try:
             from claudechic.guardrails.hits import HitLogger
             from claudechic.guardrails.tokens import OverrideTokenStore
-            from claudechic.workflows.loader import ManifestLoader
+            from claudechic.workflow_engine.loader import ManifestLoader
 
             self._token_store = OverrideTokenStore()
             self._hit_logger = HitLogger(self._cwd / ".claude" / "hits.jsonl")
+            self._workflows_dir = workflows_dir or _PKG_DIR / "workflows"
             self._manifest_loader = ManifestLoader(
-                global_dir=self._cwd / "global",
-                workflows_dir=self._cwd / "workflows",
+                global_dir=global_dir or _PKG_DIR / "global",
+                workflows_dir=self._workflows_dir,
             )
             # Register all built-in section parsers before first load()
-            from claudechic.workflows import register_default_parsers
+            from claudechic.workflow_engine import register_default_parsers
 
             register_default_parsers(self._manifest_loader)
         except Exception:
@@ -1422,6 +1513,12 @@ class ChatApp(App):
 
         try:
             self._load_result = self._manifest_loader.load()
+
+            # Filter by project config (disabled workflows/IDs, system toggles)
+            if self._project_config:
+                self._load_result = _filter_load_result(
+                    self._load_result, self._project_config
+                )
 
             # Surface parse errors as toasts (not app failures)
             for error in self._load_result.errors:
@@ -1483,7 +1580,10 @@ class ChatApp(App):
             return
 
         try:
-            from claudechic.workflows.engine import WorkflowEngine, WorkflowManifest
+            from claudechic.workflow_engine.engine import (
+                WorkflowEngine,
+                WorkflowManifest,
+            )
 
             # Construct manifest from LoadResult phases filtered by namespace
             wf_phases = [
@@ -1737,10 +1837,10 @@ class ChatApp(App):
         keeping phase instructions out of the chat conversation.
         """
         try:
-            from claudechic.workflows.agent_folders import assemble_phase_prompt
+            from claudechic.workflow_engine.agent_folders import assemble_phase_prompt
 
             prompt = assemble_phase_prompt(
-                workflows_dir=Path.cwd() / "workflows",
+                workflows_dir=self._workflows_dir,
                 workflow_id=workflow_id,
                 role_name=main_role,
                 current_phase=current_phase,
@@ -1893,7 +1993,10 @@ class ChatApp(App):
             if not wf_data:
                 return
 
-            from claudechic.workflows.engine import WorkflowEngine, WorkflowManifest
+            from claudechic.workflow_engine.engine import (
+                WorkflowEngine,
+                WorkflowManifest,
+            )
 
             # Construct manifest from LoadResult phases filtered by namespace
             wf_phases = [p for p in self._load_result.phases if p.namespace == wf_id]

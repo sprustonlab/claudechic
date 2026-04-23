@@ -67,7 +67,10 @@ class TestWorkflowLoading:
 
                 # Point app at tmp_path and reinitialize workflow infrastructure
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await pilot.pause()
 
@@ -102,7 +105,10 @@ class TestWorkflowLoading:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await pilot.pause()
 
@@ -135,7 +141,10 @@ class TestWorkflowLoading:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await pilot.pause()
 
@@ -161,7 +170,10 @@ class TestWorkflowLoading:
                 await pilot.pause()
 
                 app._cwd = tmp_path
-                app._init_workflow_infrastructure()
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
                 app._discover_workflows()
                 await pilot.pause()
 

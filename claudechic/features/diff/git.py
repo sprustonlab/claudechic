@@ -146,7 +146,9 @@ async def get_file_stats(cwd: str, target: str = "HEAD") -> list[FileStat]:
                 try:
                     # Only read small files
                     if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                        line_count = len(file_path.read_text(encoding="utf-8").splitlines())
+                        line_count = len(
+                            file_path.read_text(encoding="utf-8").splitlines()
+                        )
                 except (OSError, UnicodeDecodeError):
                     pass
                 stats.append(

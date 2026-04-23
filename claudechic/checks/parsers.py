@@ -77,7 +77,7 @@ class ChecksParser:
         if on_failure is not None and not isinstance(on_failure, dict):
             return f"check '{raw_id}' on_failure must be a dict"
 
-        # --- when (optional, copier conditions) ---
+        # --- when (optional, conditional activation) ---
         when = entry.get("when")
         if when is not None and not isinstance(when, dict):
             return f"check '{raw_id}' when must be a dict"

@@ -18,6 +18,12 @@ async def empty_async_gen():
     yield  # unreachable - makes this an async generator
 
 
+@pytest.fixture(autouse=True)
+def _suppress_welcome_screen(monkeypatch):
+    """Prevent welcome screen from showing during tests."""
+    monkeypatch.setattr("claudechic.onboarding.check_onboarding", lambda *a, **kw: None)
+
+
 @pytest.fixture
 def real_agent_with_mock_sdk(tmp_path):
     """Create a real Agent with a mock ClaudeSDKClient.

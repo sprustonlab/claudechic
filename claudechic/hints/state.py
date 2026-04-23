@@ -1,13 +1,14 @@
 """State management for the hints system.
 
-Owns all persistent state: project context, copier answers, hint lifecycle
+Owns all persistent state: project context, feature config, hint lifecycle
 history, and activation preferences. The single state file lives at
 ``.claude/hints_state.json`` with independent sections for activation and
 lifecycle -- one file, one atomic write.
 
 This module is the ONLY code that reads/writes ``.claude/hints_state.json``.
 
-LEAF MODULE: stdlib only. No imports from workflows/, checks/, or guardrails/.
+LEAF MODULE: stdlib + config only. No imports from workflow_engine/, checks/,
+or guardrails/.
 """
 
 from __future__ import annotations
@@ -18,73 +19,11 @@ import os
 import re
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------------------
-# CopierAnswers -- parsed .copier-answers.yml
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CopierAnswers:
-    """Parsed Copier template answers from .copier-answers.yml.
-
-    Graceful fallback: if .copier-answers.yml is missing or corrupt, feature
-    flags default to their copier.yml defaults.
-    """
-
-    raw: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def load(cls, project_root: Path) -> CopierAnswers:
-        """Load from .copier-answers.yml, or return all-defaults if missing."""
-        answers_file = project_root / ".copier-answers.yml"
-        if not answers_file.is_file():
-            return cls(raw={})
-        try:
-            import yaml  # type: ignore[import-untyped]
-
-            data = yaml.safe_load(answers_file.read_text(encoding="utf-8"))
-            return cls(raw=data if isinstance(data, dict) else {})
-        except Exception:
-            return cls(raw={})  # Corrupt file -> same as missing
-
-    @property
-    def use_guardrails(self) -> bool:
-        return bool(self.raw.get("use_guardrails", True))
-
-    @property
-    def use_project_team(self) -> bool:
-        return bool(self.raw.get("use_project_team", True))
-
-    @property
-    def use_pattern_miner(self) -> bool:
-        return bool(self.raw.get("use_pattern_miner", False))
-
-    @property
-    def use_cluster(self) -> bool:
-        return bool(self.raw.get("use_cluster", False))
-
-    @property
-    def use_hints(self) -> bool:
-        return bool(self.raw.get("use_hints", True))
-
-    @property
-    def cluster_scheduler(self) -> str | None:
-        if not self.use_cluster:
-            return None
-        return self.raw.get("cluster_scheduler", "lsf")
-
-    @property
-    def project_name(self) -> str:
-        return self.raw.get("project_name", "")
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Generic accessor for non-typed answers."""
-        return self.raw.get(key, default)
-
+from claudechic.config import ProjectConfig
 
 # ---------------------------------------------------------------------------
 # ProjectState -- read-only context for triggers
@@ -97,7 +36,7 @@ class ProjectState:
 
     Seam discipline: exposes ONLY:
     1. Project root path
-    2. CopierAnswers (stable Copier contract)
+    2. ProjectConfig (feature toggles from .claudechic.yaml)
     3. Context provided by ClaudeChic via evaluate() kwargs
     4. Generic filesystem primitives
 
@@ -105,7 +44,7 @@ class ProjectState:
     """
 
     root: Path
-    copier: CopierAnswers
+    config: ProjectConfig
     session_count: int | None = None
     current_phase: str | None = None
 
@@ -162,14 +101,14 @@ class ProjectState:
         """Build a ProjectState from a project root and optional kwargs.
 
         This is the canonical constructor used by the engine. It loads
-        CopierAnswers from disk and forwards any ClaudeChic-provided
+        ProjectConfig from disk and forwards any ClaudeChic-provided
         context from kwargs.
         """
         root = Path(project_root).resolve()
-        copier = CopierAnswers.load(root)
+        config = ProjectConfig.load(root)
         return cls(
             root=root,
-            copier=copier,
+            config=config,
             session_count=kwargs.get("session_count"),
             current_phase=kwargs.get("current_phase"),
         )

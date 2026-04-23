@@ -1,4 +1,4 @@
-# Claude Chic
+# claudechic
 
 A stylish terminal UI for Claude Code, built with Textual and wrapping the `claude-agent-sdk`.
 
@@ -12,6 +12,22 @@ uv run claudechic -s <uuid>    # Resume specific session
 
 Requires Claude Code to be logged in with a Max/Pro subscription (`claude /login`).
 
+## Development
+
+```bash
+uv sync --dev                  # Install all dependencies
+source .venv/bin/activate      # Activate venv (Linux/macOS)
+claudechic                     # Run after activation
+```
+
+## Commands
+
+```bash
+pytest tests/test_foo.py -v                # Run specific test (preferred)
+TS=$(date -u +%Y-%m-%d_%H%M%S) && pytest --junitxml=.test_results/${TS}.xml --tb=short 2>&1 | tee .test_results/${TS}.log  # Full suite with output capture
+ruff check --fix && ruff format            # Lint + format
+```
+
 ## File Map
 
 ```
@@ -24,6 +40,7 @@ claudechic/
 ├── app.py             # ChatApp - main application, event handlers
 ├── commands.py        # Slash command routing (/agent, /shell, /clear, etc.)
 ├── compact.py         # Session compaction - shrink old tool uses to save context
+├── config.py          # ProjectConfig - project configuration loading
 ├── errors.py          # Logging infrastructure, error handling
 ├── file_index.py      # Fuzzy file search using git ls-files
 ├── formatting.py      # Tool formatting, diff rendering (pure functions)
@@ -45,12 +62,29 @@ claudechic/
 │       ├── __init__.py   # Public API (list_worktrees, handle_worktree_command)
 │       ├── commands.py   # /worktree command handlers
 │       └── git.py        # Git worktree operations
+├── workflow_engine/   # Workflow orchestration (Python code)
+│   ├── __init__.py    # Parser registration, public API
+│   ├── engine.py      # WorkflowEngine - phase state, advance checks
+│   ├── loader.py      # ManifestLoader - universal YAML parser
+│   ├── parsers.py     # Section parsers for rules, hints, phases, etc.
+│   ├── phases.py      # Phase type, PhasesParser
+│   └── agent_folders.py # Agent prompt assembly from workflow role dirs
+├── checks/            # Check protocol (LEAF: stdlib only)
+├── guardrails/        # Guardrail rules (LEAF: no upward imports)
 ├── hints/             # Hints pipeline (LEAF: stdlib only, no upward imports)
 │   ├── __init__.py    # Package marker
 │   ├── engine.py      # 6-stage hint evaluation pipeline
 │   ├── parsers.py     # Manifest section parser for hints YAML
 │   ├── state.py       # HintStateStore - persistence to .claude/hints_state.json
 │   └── types.py       # HintSpec, HintDecl, HintRecord, HintLifecycle, TriggerCondition
+├── global/            # Always-active manifests (data, not Python)
+│   ├── rules.yaml     # Guardrail rules
+│   └── hints.yaml     # Hint definitions
+├── context/           # Claude Code context docs (data, not Python)
+│   ├── CLAUDE.md      # User-facing quick reference
+│   └── *.md           # System docs (checks, guardrails, hints, workflows, etc.)
+├── mcp_tools/         # MCP tool scripts (cluster dispatch, etc.)
+├── audit/             # Audit pipeline scripts
 ├── processes.py       # BackgroundProcess dataclass, child process detection
 ├── screens/           # Full-page screens (navigation)
 │   ├── chat.py        # ChatScreen - main chat UI (default screen)
@@ -83,7 +117,7 @@ claudechic/
     │   └── history_search.py # HistorySearch (Ctrl+R)
     ├── layout/        # Structural/container widgets
     │   ├── chat_view.py # ChatView - renders agent messages
-    │   ├── sidebar.py # AgentSection, AgentItem, WorktreeItem, ChicsessionLabel, ChicsessionActions, ActionButton, DiffButton, FilesSection
+    │   ├── sidebar.py # AgentSection, AgentItem, WorktreeItem, ChicsessionLabel, etc.
     │   ├── footer.py  # StatusFooter, AutoEditLabel, ModelLabel
     │   ├── indicators.py # IndicatorWidget, CPUBar, ContextBar, ProcessIndicator
     │   └── processes.py # ProcessPanel, ProcessItem
@@ -109,9 +143,17 @@ tests/
 ├── test_widgets.py    # Pure widget tests
 ├── test_agent_switcher.py    # AgentSwitcher modal and hint tests
 ├── test_chicsession_actions.py # ChicsessionActions widget tests
-├── test_diff_preview.py      # DiffScreen PreviewToggle tests (visibility, rendering, cwd wiring)
+├── test_diff_preview.py      # DiffScreen PreviewToggle tests
 └── test_workflow_restore.py  # Workflow restore / chicsession integration tests
+
+docs/
+└── dev/               # Developer documentation (from .ai-docs)
 ```
+
+## Important: workflow_engine/ vs workflows/
+
+- `claudechic/workflow_engine/` -- Python code (engine, loader, parsers). This is a Python package.
+- `workflows/` -- Content data directories (YAML manifests, role identity files, phase docs). These are NOT Python packages. Placed at project root for project-local customization.
 
 ## Architecture
 
@@ -207,7 +249,7 @@ Visual language uses left border bars to indicate content type:
 - **Gray** (`#333333`) - Tool uses (brightens on hover)
 - **Blue-gray** (`#445566`) - Task widgets
 
-Context/CPU bars color-code by threshold (dim → yellow → red).
+Context/CPU bars color-code by threshold (dim -> yellow -> red).
 
 Copy buttons appear on hover. Collapsibles auto-collapse older tool uses.
 
@@ -234,7 +276,7 @@ async for message in client.receive_response():
 - Ctrl+C (x2): Quit
 - Ctrl+L: Clear chat (UI only)
 - Ctrl+R: Reverse history search
-- Shift+Tab: Cycle permission mode (default → auto-edit → plan)
+- Shift+Tab: Cycle permission mode (default / auto-edit / plan)
 - Ctrl+N: New agent (hint)
 - Ctrl+1-9: Switch to agent by position
 
@@ -247,7 +289,7 @@ async for message in client.receive_response():
 - `/agent close` - Close current agent
 - `/agent close <name>` - Close agent by name
 
-Agent status indicators: ○ (idle), ● gray (busy), ● orange (needs input)
+Agent status indicators: (idle), gray (busy), orange (needs input)
 
 ### Inter-Agent Communication (MCP Tools)
 
@@ -296,8 +338,9 @@ path_template: null                                                # Sibling dir
 ## Testing
 
 ```bash
-uv run python -m pytest tests/ -n auto -q  # Parallel (fast, ~3s)
-uv run python -m pytest tests/ -v          # Sequential with verbose output
+pytest tests/test_foo.py -v              # Run specific test (preferred)
+pytest tests/ -n auto -q                 # Parallel (fast, ~3s)
+pytest tests/ -v                         # Sequential with verbose output
 ```
 
 Use parallel testing by default.
@@ -310,7 +353,7 @@ For live testing by AI agents, run with remote control enabled:
 ./scripts/claudechic-remote 9999
 ```
 
-This starts an HTTP server on port 9999 with endpoints for sending messages, taking screenshots, and checking state. See [.ai-docs/remote-testing.md](.ai-docs/remote-testing.md) for full API documentation.
+This starts an HTTP server on port 9999 with endpoints for sending messages, taking screenshots, and checking state. See [docs/dev/remote-testing.md](docs/dev/remote-testing.md) for full API documentation.
 
 ## Pre-commit Hooks
 
