@@ -3250,7 +3250,7 @@ class ChatApp(App):
             nudge = (
                 f"You have been idle for {self.REPLY_NUDGE_DELAY} seconds, but no "
                 f"message has been sent to '{caller}'. Remember that an answer is "
-                f"required. Use ask_agent to reply to '{caller}'."
+                f"required. Use message_agent to reply to '{caller}'."
             )
             log.info(
                 "Nudging agent '%s' to reply to '%s' (%d/%d)",

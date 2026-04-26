@@ -33,7 +33,7 @@ All include `agent_id` to link events to specific Claude sessions.
 ### MCP Tools (Claude-initiated)
 All include `agent_id`.
 
-- `mcp_tool_used` - when Claude calls an MCP tool, includes `tool` (spawn_agent/spawn_worktree/ask_agent/interrupt_agent)
+- `mcp_tool_used` - when Claude calls an MCP tool, includes `tool` (spawn_agent/spawn_worktree/message_agent/interrupt_agent)
 
 ### Errors
 - `error_occurred` - on errors, includes `error_type`, `context`, `status_code`, `agent_id`

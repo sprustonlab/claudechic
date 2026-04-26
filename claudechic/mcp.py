@@ -3,7 +3,7 @@
 Exposes tools for Claude to manage agents within claudechic:
 - spawn_agent: Create new agent, optionally with initial prompt
 - spawn_worktree: Create git worktree + agent
-- ask_agent: Send message to existing agent (expects reply by default; fire-and-forget with requires_answer=false)
+- message_agent: Send message to existing agent (expects reply by default; fire-and-forget with requires_answer=false)
 - interrupt_agent: Interrupt an agent, optionally redirect with new prompt
 - list_agents: List current agents and their status
 - close_agent: Close an agent by name
@@ -101,7 +101,7 @@ def _clear_pending_reply_if_matched(
 ) -> None:
     """Clear _pending_reply_to if the sender is replying to their caller.
 
-    Called from ask_agent (requires_answer=False). If the sending agent has
+    Called from message_agent (requires_answer=False). If the sending agent has
     _pending_reply_to == recipient_name, it means the agent is delivering
     its required answer — clear the obligation.
     """
@@ -142,7 +142,7 @@ def _send_prompt_fire_and_forget(
     # Wrap prompt with caller info if provided
     if caller_name:
         if expect_reply:
-            prompt = f"[Question from agent '{caller_name}' - please respond back using ask_agent, or ask_agent if you need more context]\n\n{prompt}"
+            prompt = f"[Question from agent '{caller_name}' - please respond back using message_agent]\n\n{prompt}"
         elif is_spawn:
             prompt = f"[Spawned by agent '{caller_name}']\n\n{prompt}"
         else:
@@ -181,7 +181,7 @@ def _make_spawn_agent(caller_name: str | None = None):
                 },
                 "requires_answer": {
                     "type": "boolean",
-                    "description": "If true, the spawned agent is expected to reply back to the caller using ask_agent. It will be nudged if idle without replying.",
+                    "description": "If true, the spawned agent is expected to reply back to the caller using message_agent. It will be nudged if idle without replying.",
                 },
             },
             "required": ["name", "path", "prompt"],
@@ -361,11 +361,11 @@ def _make_spawn_worktree(caller_name: str | None = None):
     return spawn_worktree
 
 
-def _make_ask_agent(caller_name: str | None = None):
-    """Create ask_agent tool with optional caller name bound."""
+def _make_message_agent(caller_name: str | None = None):
+    """Create message_agent tool with optional caller name bound."""
 
     @tool(
-        "ask_agent",
+        "message_agent",
         "Send a message to another agent. By default, expects a reply (the target is nudged if idle without responding). Set requires_answer=false for fire-and-forget messages.",
         {
             "type": "object",
@@ -380,11 +380,11 @@ def _make_ask_agent(caller_name: str | None = None):
             "required": ["name", "message"],
         },
     )
-    async def ask_agent(args: dict[str, Any]) -> dict[str, Any]:
+    async def message_agent(args: dict[str, Any]) -> dict[str, Any]:
         """Send message to an agent. Non-blocking."""
         if _app is None or _app.agent_mgr is None:
             return _error_response("App not initialized")
-        _track_mcp_tool("ask_agent")
+        _track_mcp_tool("message_agent")
 
         name = args["name"]
         message = args["message"]
@@ -406,7 +406,7 @@ def _make_ask_agent(caller_name: str | None = None):
         preview = message[:80] + "..." if len(message) > 80 else message
         return _text_response(f"→ {name}: {preview}")
 
-    return ask_agent
+    return message_agent
 
 
 
@@ -1275,7 +1275,7 @@ def create_chic_server(
 
     Args:
         caller_name: Name of the agent that will use this server.
-            Used to identify the sender in spawn/ask agent calls.
+            Used to identify the sender in spawn/message agent calls.
         tier_roots: Three-tier roots for ``mcp_tools/`` discovery. If
             ``None``, falls back to ``_app._tier_roots`` (set at app
             startup) — preserves the convenience API for tests.
@@ -1283,7 +1283,7 @@ def create_chic_server(
     tools = [
         _make_spawn_agent(caller_name),
         _make_spawn_worktree(caller_name),
-        _make_ask_agent(caller_name),
+        _make_message_agent(caller_name),
         _make_whoami(caller_name),
         list_agents,
         _make_close_agent(caller_name),

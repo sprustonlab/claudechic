@@ -1,9 +1,9 @@
-"""Test that ask_agent properly injects sender identity."""
+"""Test that message_agent properly injects sender identity."""
 
 import asyncio
 
 import pytest
-from claudechic.mcp import _make_ask_agent, set_app
+from claudechic.mcp import _make_message_agent, set_app
 
 
 class MockAgent:
@@ -59,18 +59,18 @@ def mock_app():
 
 
 @pytest.mark.asyncio
-async def test_ask_agent_injects_sender(mock_app):
+async def test_message_agent_injects_sender(mock_app):
     """When agent 'alice' asks agent 'bob' a question, bob should see it's from alice."""
     alice = MockAgent("alice")
     bob = MockAgent("bob")
     mock_app.agent_mgr.add(alice)
     mock_app.agent_mgr.add(bob)
 
-    # Create ask_agent tool bound to alice
-    ask_agent = _make_ask_agent(caller_name="alice")
+    # Create message_agent tool bound to alice
+    message_agent = _make_message_agent(caller_name="alice")
 
     # Call the handler directly
-    await ask_agent.handler({"name": "bob", "message": "What's the weather?"})
+    await message_agent.handler({"name": "bob", "message": "What's the weather?"})
 
     # Let the event loop run the fire-and-forget task
     await asyncio.sleep(0)
@@ -78,20 +78,20 @@ async def test_ask_agent_injects_sender(mock_app):
     # Bob should have received the prompt with alice's identity and reply instruction
     assert bob.received_prompt is not None
     assert "[Question from agent 'alice'" in bob.received_prompt
-    assert "please respond back using ask_agent" in bob.received_prompt
+    assert "please respond back using message_agent" in bob.received_prompt
     assert "What's the weather?" in bob.received_prompt
 
 
 @pytest.mark.asyncio
-async def test_ask_agent_without_sender(mock_app):
+async def test_message_agent_without_sender(mock_app):
     """When no sender is specified (legacy), prompt should pass through unchanged."""
     bob = MockAgent("bob")
     mock_app.agent_mgr.add(bob)
 
-    # Create ask_agent tool without caller name
-    ask_agent = _make_ask_agent()
+    # Create message_agent tool without caller name
+    message_agent = _make_message_agent()
 
-    await ask_agent.handler({"name": "bob", "message": "What's the weather?"})
+    await message_agent.handler({"name": "bob", "message": "What's the weather?"})
 
     # Let the event loop run the fire-and-forget task
     await asyncio.sleep(0)
@@ -101,15 +101,15 @@ async def test_ask_agent_without_sender(mock_app):
 
 
 @pytest.mark.asyncio
-async def test_ask_agent_nonexistent_returns_error(mock_app):
+async def test_message_agent_nonexistent_returns_error(mock_app):
     """Asking a non-existent agent should return an error with isError=True."""
     alice = MockAgent("alice")
     mock_app.agent_mgr.add(alice)
 
-    ask_agent = _make_ask_agent(caller_name="alice")
+    message_agent = _make_message_agent(caller_name="alice")
 
     # Ask a non-existent agent
-    result = await ask_agent.handler({"name": "ghost", "message": "Hello?"})
+    result = await message_agent.handler({"name": "ghost", "message": "Hello?"})
 
     # Should return error response with isError flag
     assert result["isError"] is True

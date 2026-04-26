@@ -1045,9 +1045,9 @@ YOUR PERSPECTIVE: {perspective_description}
 1. RESEARCH: Launch 2-3 Explore subagents in parallel to understand the codebase.
 
 2. PROPOSE: Send your plan to peers and orchestrator:
-   ask_agent("{peer1}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
-   ask_agent("{peer2}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
-   ask_agent("{orchestrator}", "PROPOSAL SENT: [1-sentence summary]")
+   message_agent("{peer1}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
+   message_agent("{peer2}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
+   message_agent("{orchestrator}", "PROPOSAL SENT: [1-sentence summary]")
 
 3. DEBATE: When you receive peer proposals, respond directly:
    - Challenge assumptions with evidence from the codebase
@@ -1055,7 +1055,7 @@ YOUR PERSPECTIVE: {perspective_description}
    - You CAN change your mind if convinced
 
 4. CONCLUDE: After 2-3 rounds, send final position:
-   ask_agent("{orchestrator}", "FINAL POSITION: [refined plan, noting changes from debate]")
+   message_agent("{orchestrator}", "FINAL POSITION: [refined plan, noting changes from debate]")
 
 == DEBATE STYLE ==
 
@@ -1108,7 +1108,7 @@ They will research, propose plans to each other, debate, and send you final posi
 
 2. Monitor: You'll receive PROPOSAL SENT and FINAL POSITION messages
 
-3. If stuck: ask_agent("{swarm_id}-conservative", "What's your status?")
+3. If stuck: message_agent("{swarm_id}-conservative", "What's your status?")
 
 4. Synthesize: Once you have final positions, write synthesis to your plan file
 

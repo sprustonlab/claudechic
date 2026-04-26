@@ -510,7 +510,7 @@ class AgentListWidget(Static):
 
 
 class AgentToolWidget(BaseToolWidget):
-    """Widget for displaying chic agent MCP tool calls (spawn_agent, ask_agent, etc.)."""
+    """Widget for displaying chic agent MCP tool calls (spawn_agent, message_agent, etc.)."""
 
     class GoToAgent(Message):
         """Message posted when user clicks 'Go to agent' button."""
@@ -580,20 +580,13 @@ class AgentToolWidget(BaseToolWidget):
                     yield Markdown(prompt)
                 yield Button(f"Go to {self._agent_name}", classes="go-btn")
 
-        elif tool_short == "ask_agent":
+        elif tool_short in ("message_agent", "ask_agent", "tell_agent"):
+            # message_agent is the current tool; ask_agent and tell_agent
+            # are legacy names kept for display of old sessions.
             if not self.result:
                 yield Spinner()
             with QuietCollapsible(
-                title=self._make_title("Ask", prompt), collapsed=True
-            ):
-                yield Markdown(prompt)
-                yield Button(f"Go to {self._agent_name}", classes="go-btn")
-
-        elif tool_short == "tell_agent":
-            # Legacy: tell_agent was merged into ask_agent but keep display
-            # support for old sessions that still reference this tool name.
-            with QuietCollapsible(
-                title=self._make_title("Tell", prompt), collapsed=True
+                title=self._make_title("Message", prompt), collapsed=True
             ):
                 yield Markdown(prompt)
                 yield Button(f"Go to {self._agent_name}", classes="go-btn")

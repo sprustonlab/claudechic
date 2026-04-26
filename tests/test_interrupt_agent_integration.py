@@ -483,7 +483,7 @@ class TestDrainRace:
         # Put agent in streaming state
         task = _put_agent_in_streaming(agent)
 
-        # Queue a pending inter-agent message (as if ask_agent was called while busy)
+        # Queue a pending inter-agent message (as if message_agent was called while busy)
         agent._pending_messages.append(("queued message from earlier", None))
         assert len(agent._pending_messages) == 1
 

@@ -15,7 +15,7 @@ pytestmark = [pytest.mark.asyncio]
 
 
 # ---------------------------------------------------------------------------
-# Mock helpers (follows test_mcp_ask_agent.py patterns)
+# Mock helpers (follows test_mcp_message_agent.py patterns)
 # ---------------------------------------------------------------------------
 
 

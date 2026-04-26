@@ -15,7 +15,7 @@ class ToolWidget(Protocol):
     Implemented by:
     - ToolUseWidget: Standard tool display with collapsible details
     - TaskWidget: Nested subagent display
-    - AgentToolWidget: MCP chic agent tools (spawn_agent, ask_agent, etc.)
+    - AgentToolWidget: MCP chic agent tools (spawn_agent, message_agent, etc.)
 
     This protocol enables ChatView to treat all tool widgets uniformly
     for operations like collapse() and set_result().

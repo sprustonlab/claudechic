@@ -323,12 +323,12 @@ Agent status indicators: (idle), gray (busy), orange (needs input)
 
 These tools let agents communicate programmatically:
 
-- **`ask_agent`** -- Send a message to another agent. By default expects a reply (target is nudged if idle without responding). Set `requires_answer=false` for fire-and-forget messages (status updates, results, answering questions).
+- **`message_agent`** -- Send a message to another agent. By default expects a reply (target is nudged if idle without responding). Set `requires_answer=false` for fire-and-forget messages (status updates, results, answering questions).
 - **`interrupt_agent`** -- Interrupt an agent's current task immediately. Optionally redirect with a new prompt. Use when you need to stop or redirect a busy agent in real-time.
 
 **When to use which:**
-- Need a response? Use `ask_agent` (default: `requires_answer=true`).
-- Sending info, no reply needed? Use `ask_agent` with `requires_answer=false`.
+- Need a response? Use `message_agent` (default: `requires_answer=true`).
+- Sending info, no reply needed? Use `message_agent` with `requires_answer=false`.
 - Need to stop/redirect NOW? Use `interrupt_agent` (cuts through immediately).
 
 ### Session Management
