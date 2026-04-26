@@ -37,13 +37,27 @@ phases:
     advance_checks:
       - type: manual-confirm
         prompt: "All Leadership agents approve implementation?"
-  - id: testing
-    file: testing
+  - id: testing-vision
+    file: testing_vision
+    advance_checks:
+      - type: command-output-check
+        command: "ls $STATE_DIR/userprompt_testing.md 2>/dev/null"
+        pattern: "userprompt_testing\\.md"
+      - type: manual-confirm
+        prompt: "Testing vision approved by user?"
+  - id: testing-specification
+    file: testing_specification
+    advance_checks:
+      - type: command-output-check
+        command: "ls $STATE_DIR/specification/TEST_SPECIFICATION.md 2>/dev/null"
+        pattern: "TEST_SPECIFICATION\\.md"
+      - type: manual-confirm
+        prompt: "Test specification approved by user?"
+  - id: testing-implementation
+    file: testing_implementation
     advance_checks:
       - type: manual-confirm
-        prompt: "All tests passing?"
-      - type: manual-confirm
-        prompt: "Ready to proceed to sign-off?"
+        prompt: "All tests passing and compliant with testing standard?"
   - id: documentation
     file: documentation
     advance_checks:
@@ -69,7 +83,7 @@ rules:
     detect:
       pattern: "git push"
     message: "No pushing before testing phase"
-    exclude_phases: [testing, documentation, signoff]
+    exclude_phases: [testing-implementation, documentation, signoff]
 
   - id: no_force_push
     trigger: PreToolUse/Bash
