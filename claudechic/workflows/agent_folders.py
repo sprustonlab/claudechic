@@ -16,18 +16,6 @@ from claude_agent_sdk.types import HookMatcher
 
 logger = logging.getLogger(__name__)
 
-# Sentinel role for agents with no workflow-specific role wiring.
-# The main agent starts with this role and is promoted to the workflow's
-# main_role on activation. Sub-agents spawned without an explicit type=
-# also get this role. Reserved — workflow role folders must not use it.
-#
-# Forward-ported from abast/main as a minimal prerequisite for cherry-pick
-# 003408a (guardrail/advance-check messaging fix). The constant was
-# introduced in an earlier abast commit not part of the SPEC §6.1 cherry-pick
-# set but is referenced by 003408a's mcp.py edits. Surfaced as a SPEC gap;
-# see commit message for details.
-DEFAULT_ROLE = "default"
-
 
 def _find_workflow_dir(workflows_dir: Path, workflow_id: str) -> Path | None:
     """Find the workflow directory for a given workflow_id.

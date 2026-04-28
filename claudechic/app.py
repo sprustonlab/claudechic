@@ -1561,6 +1561,7 @@ class ChatApp(App):
             from claudechic.guardrails.tokens import OverrideTokenStore
             from claudechic.workflows.loader import ManifestLoader
 
+            self._token_store = OverrideTokenStore()
             self._hit_logger = HitLogger(self._cwd / ".claudechic" / "hits.jsonl")
             self._workflows_dir = workflows_dir or _PKG_DIR / "defaults" / "workflows"
             self._manifest_loader = ManifestLoader(
