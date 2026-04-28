@@ -20,7 +20,7 @@ from typing import Any
 
 from claudechic.checks.protocol import CheckDecl
 from claudechic.hints.types import HintDecl
-from claudechic.workflow_engine.phases import Phase
+from claudechic.workflows.phases import Phase
 
 logger = logging.getLogger(__name__)
 

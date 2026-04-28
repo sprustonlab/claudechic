@@ -3,7 +3,7 @@
 Checks real state of facets (cluster, git, codebase) against ProjectConfig
 toggles, and determines whether the welcome screen should appear.
 
-LEAF MODULE: stdlib + yaml only. No imports from workflow_engine/, checks/, or
+LEAF MODULE: stdlib + yaml only. No imports from workflows/, checks/, or
 guardrails/.
 """
 
@@ -272,7 +272,7 @@ def check_onboarding(project_root: Path) -> list[FacetStatus] | None:
     # Map of (workflow_id, directory_name) -- only show facets whose
     # workflow manifest actually exists. Bundled workflows live in the
     # package directory, not in the project root.
-    workflows_dir = _PKG_DIR / "workflows"
+    workflows_dir = _PKG_DIR / "defaults" / "workflows"
 
     facets: list[FacetStatus] = []
 

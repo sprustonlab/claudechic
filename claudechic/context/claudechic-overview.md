@@ -31,7 +31,7 @@ Key seam objects:
 
 ## Parser Registration
 
-All manifest section parsers are registered via `register_default_parsers()` in `workflow_engine/__init__.py`. Add new section types by implementing `ManifestSection[T]` and registering with the loader.
+All manifest section parsers are registered via `register_default_parsers()` in `workflows/__init__.py`. Add new section types by implementing `ManifestSection[T]` and registering with the loader.
 
 ## Import Boundaries
 

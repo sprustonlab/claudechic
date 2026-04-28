@@ -51,8 +51,8 @@ Also verify the ManifestLoader picks it up:
 ```bash
 python -c "
 from pathlib import Path
-from claudechic.workflow_engine.loader import ManifestLoader
-from claudechic.workflow_engine import register_default_parsers
+from claudechic.workflows.loader import ManifestLoader
+from claudechic.workflows import register_default_parsers
 loader = ManifestLoader(Path('global'), Path('workflows'))
 register_default_parsers(loader)
 result = loader.load()

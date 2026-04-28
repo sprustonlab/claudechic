@@ -7,7 +7,7 @@ paths:
 
 # Hints System
 
-LEAF MODULE: imports only stdlib. Never import from workflow_engine/, checks/, or guardrails/.
+LEAF MODULE: imports only stdlib. Never import from workflows/, checks/, or guardrails/.
 
 ## Two Patterns for Hints
 

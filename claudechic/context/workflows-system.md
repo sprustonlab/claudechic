@@ -1,6 +1,6 @@
 ---
 paths:
-  - claudechic/workflow_engine/**
+  - claudechic/workflows/**
   - workflows/**/*.yaml
   - workflows/**/identity.md
   - workflows/**/*.md

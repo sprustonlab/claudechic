@@ -207,10 +207,14 @@ def _make_spawn_agent(caller_name: str | None = None):
         # provided, the agent gets no role wiring (generic agent).
         if agent_type and _app._workflow_engine:
             try:
-                from claudechic.workflow_engine.agent_folders import _find_workflow_dir
+                from claudechic.workflows.agent_folders import _find_workflow_dir
 
                 wf_dir = _find_workflow_dir(
-                    (_app._workflows_dir if _app else _PKG_DIR / "workflows"),
+                    (
+                        _app._workflows_dir
+                        if _app
+                        else _PKG_DIR / "defaults" / "workflows"
+                    ),
                     _app._workflow_engine.workflow_id,
                 )
                 if wf_dir and not (wf_dir / agent_type).is_dir():
@@ -278,12 +282,16 @@ def _make_spawn_agent(caller_name: str | None = None):
             full_prompt = prompt
             if _app._workflow_engine and agent_type:
                 try:
-                    from claudechic.workflow_engine.agent_folders import (
+                    from claudechic.workflows.agent_folders import (
                         assemble_phase_prompt,
                     )
 
                     folder_prompt = assemble_phase_prompt(
-                        workflows_dir=(_app._workflows_dir if _app else _PKG_DIR / "workflows"),
+                        workflows_dir=(
+                            _app._workflows_dir
+                            if _app
+                            else _PKG_DIR / "defaults" / "workflows"
+                        ),
                         workflow_id=_app._workflow_engine.workflow_id,
                         role_name=agent_type,
                         current_phase=_app._workflow_engine.get_current_phase(),
@@ -850,13 +858,17 @@ def _make_advance_phase(caller_name: str | None = None):
                 main_role = getattr(engine.manifest, "main_role", None)
                 if main_role:
                     try:
-                        from claudechic.workflow_engine.agent_folders import (
+                        from claudechic.workflows.agent_folders import (
                             assemble_phase_prompt,
                         )
 
                         phase_content = (
                             assemble_phase_prompt(
-                                workflows_dir=(_app._workflows_dir if _app else _PKG_DIR / "workflows"),
+                                workflows_dir=(
+                                    _app._workflows_dir
+                                    if _app
+                                    else _PKG_DIR / "defaults" / "workflows"
+                                ),
                                 workflow_id=engine.workflow_id,
                                 role_name=main_role,
                                 current_phase=next_phase,
@@ -877,7 +889,7 @@ def _make_advance_phase(caller_name: str | None = None):
 
                 # Broadcast phase prompt to typed sub-agents
                 if _app.agent_mgr:
-                    from claudechic.workflow_engine.agent_folders import (
+                    from claudechic.workflows.agent_folders import (
                         assemble_phase_prompt as _broadcast_assemble,
                     )
 
@@ -893,7 +905,11 @@ def _make_advance_phase(caller_name: str | None = None):
                             continue
                         try:
                             agent_prompt = _broadcast_assemble(
-                                workflows_dir=(_app._workflows_dir if _app else _PKG_DIR / "workflows"),
+                                workflows_dir=(
+                                    _app._workflows_dir
+                                    if _app
+                                    else _PKG_DIR / "defaults" / "workflows"
+                                ),
                                 workflow_id=engine.workflow_id,
                                 role_name=agent.agent_type,
                                 current_phase=next_phase,

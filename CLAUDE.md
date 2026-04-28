@@ -62,7 +62,7 @@ claudechic/
 │       ├── __init__.py   # Public API (list_worktrees, handle_worktree_command)
 │       ├── commands.py   # /worktree command handlers
 │       └── git.py        # Git worktree operations
-├── workflow_engine/   # Workflow orchestration (Python code)
+├── workflows/   # Workflow orchestration (Python code)
 │   ├── __init__.py    # Parser registration, public API
 │   ├── engine.py      # WorkflowEngine - phase state, advance checks
 │   ├── loader.py      # ManifestLoader - universal YAML parser
@@ -150,9 +150,9 @@ docs/
 └── dev/               # Developer documentation (from .ai-docs)
 ```
 
-## Important: workflow_engine/ vs workflows/
+## Important: workflows/ vs workflows/
 
-- `claudechic/workflow_engine/` -- Python code (engine, loader, parsers). This is a Python package.
+- `claudechic/workflows/` -- Python code (engine, loader, parsers). This is a Python package.
 - `workflows/` -- Content data directories (YAML manifests, role identity files, phase docs). These are NOT Python packages. Placed at project root for project-local customization.
 
 ## Architecture

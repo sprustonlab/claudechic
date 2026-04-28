@@ -5,7 +5,7 @@ of YAML manifests into ``HintDecl`` objects.
 
 Fail-open per item: bad entries are skipped with a warning, valid ones returned.
 
-LEAF MODULE: Only imports from hints.types. No imports from workflow_engine/, checks/,
+LEAF MODULE: Only imports from hints.types. No imports from workflows/, checks/,
 or guardrails/.
 """
 

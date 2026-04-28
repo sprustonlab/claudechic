@@ -3,7 +3,7 @@
 Contains trigger implementations beyond the basic AlwaysTrue.
 Each trigger checks disk/config state and returns bool.
 
-LEAF MODULE: stdlib only. No imports from workflow_engine/, checks/, or guardrails/.
+LEAF MODULE: stdlib only. No imports from workflows/, checks/, or guardrails/.
 """
 
 from __future__ import annotations

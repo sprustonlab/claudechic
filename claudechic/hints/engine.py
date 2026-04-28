@@ -7,7 +7,7 @@ wrapped in try-except. Template-side trigger code can have bugs --
 evaluation catches runtime errors.
 
 LEAF MODULE: Only imports from hints.types and hints.state.
-No imports from workflow_engine/, checks/, or guardrails/.
+No imports from workflows/, checks/, or guardrails/.
 """
 
 from __future__ import annotations

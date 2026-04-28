@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from claudechic.config import ProjectConfig
     from claudechic.screens.chat import ChatScreen
-    from claudechic.workflow_engine.loader import LoadResult
+    from claudechic.workflows.loader import LoadResult
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -154,7 +154,7 @@ def _filter_load_result(result: LoadResult, config: ProjectConfig) -> LoadResult
     (namespace match), disabled_ids (individual ID match), and system toggles
     (guardrails, hints).
     """
-    from claudechic.workflow_engine.loader import LoadResult
+    from claudechic.workflows.loader import LoadResult
 
     def keep(item: Any) -> bool:
         ns = getattr(item, "namespace", "")
@@ -165,7 +165,9 @@ def _filter_load_result(result: LoadResult, config: ProjectConfig) -> LoadResult
 
     return LoadResult(
         rules=([r for r in result.rules if keep(r)] if config.guardrails else []),
-        injections=[i for i in result.injections if keep(i)],  # filtered by namespace/ID, not by guardrails toggle
+        injections=[
+            i for i in result.injections if keep(i)
+        ],  # filtered by namespace/ID, not by guardrails toggle
         checks=[c for c in result.checks if keep(c)],
         hints=([h for h in result.hints if keep(h)] if config.hints else []),
         phases=[p for p in result.phases if keep(p)],
@@ -913,7 +915,7 @@ class ChatApp(App):
 
         # PostCompact hook — re-injects phase context after /compact
         if self._workflow_engine:
-            from claudechic.workflow_engine.agent_folders import (
+            from claudechic.workflows.agent_folders import (
                 create_post_compact_hook,
             )
 
@@ -1486,17 +1488,17 @@ class ChatApp(App):
         try:
             from claudechic.guardrails.hits import HitLogger
             from claudechic.guardrails.tokens import OverrideTokenStore
-            from claudechic.workflow_engine.loader import ManifestLoader
+            from claudechic.workflows.loader import ManifestLoader
 
             self._token_store = OverrideTokenStore()
             self._hit_logger = HitLogger(self._cwd / ".claude" / "hits.jsonl")
-            self._workflows_dir = workflows_dir or _PKG_DIR / "workflows"
+            self._workflows_dir = workflows_dir or _PKG_DIR / "defaults" / "workflows"
             self._manifest_loader = ManifestLoader(
-                global_dir=global_dir or _PKG_DIR / "global",
+                global_dir=global_dir or _PKG_DIR / "defaults" / "global",
                 workflows_dir=self._workflows_dir,
             )
             # Register all built-in section parsers before first load()
-            from claudechic.workflow_engine import register_default_parsers
+            from claudechic.workflows import register_default_parsers
 
             register_default_parsers(self._manifest_loader)
         except Exception:
@@ -1580,7 +1582,7 @@ class ChatApp(App):
             return
 
         try:
-            from claudechic.workflow_engine.engine import (
+            from claudechic.workflows.engine import (
                 WorkflowEngine,
                 WorkflowManifest,
             )
@@ -1837,7 +1839,7 @@ class ChatApp(App):
         keeping phase instructions out of the chat conversation.
         """
         try:
-            from claudechic.workflow_engine.agent_folders import assemble_phase_prompt
+            from claudechic.workflows.agent_folders import assemble_phase_prompt
 
             prompt = assemble_phase_prompt(
                 workflows_dir=self._workflows_dir,
@@ -1993,7 +1995,7 @@ class ChatApp(App):
             if not wf_data:
                 return
 
-            from claudechic.workflow_engine.engine import (
+            from claudechic.workflows.engine import (
                 WorkflowEngine,
                 WorkflowManifest,
             )
@@ -2495,7 +2497,6 @@ class ChatApp(App):
         # FilesSection: border-top(1) + files-header row(3) = 4 lines overhead
         # (title + DiffButton share one Horizontal row, not stacked vertically)
         FILES_OVERHEAD = 4
-        FILES_ITEM = 1
 
         # Start with fixed costs: chicsession label + agent section title always present
         used = chicsession_overhead + AGENT_SECTION_TITLE

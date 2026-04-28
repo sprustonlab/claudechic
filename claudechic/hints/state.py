@@ -7,7 +7,7 @@ lifecycle -- one file, one atomic write.
 
 This module is the ONLY code that reads/writes ``.claude/hints_state.json``.
 
-LEAF MODULE: stdlib + config only. No imports from workflow_engine/, checks/,
+LEAF MODULE: stdlib + config only. No imports from workflows/, checks/,
 or guardrails/.
 """
 

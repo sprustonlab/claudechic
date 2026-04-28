@@ -27,7 +27,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 from claudechic.app import ChatApp
-from claudechic.workflow_engine.agent_folders import _assemble_agent_prompt
+from claudechic.workflows.agent_folders import _assemble_agent_prompt
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(30)]
 
@@ -809,8 +809,8 @@ async def test_close_leadership_rule_fires_on_coordinator(tmp_path: Path) -> Non
     """no_close_leadership rule must warn-block close_agent from coordinator."""
     from claudechic.guardrails.hits import HitLogger
     from claudechic.guardrails.hooks import create_guardrail_hooks
-    from claudechic.workflow_engine import register_default_parsers
-    from claudechic.workflow_engine.loader import ManifestLoader
+    from claudechic.workflows import register_default_parsers
+    from claudechic.workflows.loader import ManifestLoader
 
     # Load from the REAL repo manifests — rule must exist in production YAML
     repo_root = Path(__file__).resolve().parents[3]

@@ -8,11 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 from claudechic.checks.protocol import CheckDecl
-from claudechic.workflow_engine.engine import (
+from claudechic.workflows.engine import (
     WorkflowEngine,
     WorkflowManifest,
 )
-from claudechic.workflow_engine.phases import Phase
+from claudechic.workflows.phases import Phase
 
 pytestmark = [pytest.mark.fast, pytest.mark.asyncio]
 

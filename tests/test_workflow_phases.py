@@ -241,7 +241,7 @@ class TestWorkflowPhases:
                 assert state["current_phase"] == "proj:implement"
 
                 # Restore from state into a new engine
-                from claudechic.workflow_engine.engine import WorkflowEngine
+                from claudechic.workflows.engine import WorkflowEngine
 
                 restored = WorkflowEngine.from_session_state(
                     state=state,

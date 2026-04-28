@@ -6,7 +6,7 @@ paths:
 
 # Guardrails System
 
-LEAF MODULE: `rules.py` imports no other claudechic systems. `hooks.py` imports `ManifestLoader` under `TYPE_CHECKING` only. Never import from workflow_engine/, checks/, or hints/.
+LEAF MODULE: `rules.py` imports no other claudechic systems. `hooks.py` imports `ManifestLoader` under `TYPE_CHECKING` only. Never import from workflows/, checks/, or hints/.
 
 ## Terminology
 

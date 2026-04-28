@@ -18,7 +18,7 @@ from typing import Any, Protocol, TypeVar
 
 import yaml
 
-from claudechic.workflow_engine.phases import Phase
+from claudechic.workflows.phases import Phase
 
 logger = logging.getLogger(__name__)
 
