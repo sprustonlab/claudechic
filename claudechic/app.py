@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from claudechic.config import ProjectConfig
     from claudechic.screens.chat import ChatScreen
-    from claudechic.workflows.loader import LoadResult
+    from claudechic.workflows.loader import LoadResult, TierRoots
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -212,21 +212,70 @@ def _categorize_cli_error(e: CLIConnectionError) -> str:
     return "unknown"
 
 
-def _filter_load_result(result: LoadResult, config: ProjectConfig) -> LoadResult:
+def _filter_load_result(
+    result: LoadResult,
+    config: ProjectConfig,
+    *,
+    user_disabled_workflows: frozenset[str] | None = None,
+    user_disabled_ids: frozenset[str] | None = None,
+) -> LoadResult:
     """Filter loaded content by project config.
 
-    Applied after ManifestLoader.load() returns. Filters by disabled_workflows
-    (namespace match), disabled_ids (individual ID match), and system toggles
-    (guardrails, hints).
+    Applied after ``ManifestLoader.load()`` returns. Tier-targeted disable
+    entries (e.g. ``user:foo``) are applied INSIDE ``ManifestLoader.load()``
+    via the ``disabled_workflows_by_tier`` / ``disabled_ids_by_tier`` kwargs;
+    this function applies bare-id disables post-resolution and the
+    ``guardrails`` / ``hints`` toggles.
+
+    Args:
+        result: The post-resolution ``LoadResult``.
+        config: Project-tier config (read for ``guardrails``, ``hints``,
+            ``disabled_workflows``, ``disabled_ids``).
+        user_disabled_workflows: User-tier ``disabled_workflows`` list,
+            unioned with project-tier per §3.6.
+        user_disabled_ids: User-tier ``disabled_ids`` list, unioned with
+            project-tier per §3.6.
     """
-    from claudechic.workflows.loader import LoadResult
+    from claudechic.workflows.loader import LoadResult, parse_disable_entries
+
+    bare_wf_user, _ = parse_disable_entries(
+        user_disabled_workflows, config_key="disabled_workflows"
+    )
+    bare_wf_proj, _ = parse_disable_entries(
+        config.disabled_workflows, config_key="disabled_workflows"
+    )
+    bare_id_user, _ = parse_disable_entries(
+        user_disabled_ids, config_key="disabled_ids"
+    )
+    bare_id_proj, _ = parse_disable_entries(
+        config.disabled_ids, config_key="disabled_ids"
+    )
+
+    bare_workflows: frozenset[str] = bare_wf_user | bare_wf_proj
+    bare_ids: frozenset[str] = bare_id_user | bare_id_proj
+
+    # Unknown-id detection (warn, don't error). Consults provenance maps.
+    for iid in bare_workflows:
+        if iid not in result.workflow_provenance:
+            log.warning(
+                "disabled_workflows: unknown workflow_id '%s' (not defined at any tier)",
+                iid,
+            )
+    for iid in bare_ids:
+        if iid not in result.item_provenance:
+            log.warning(
+                "disabled_ids: unknown id '%s' (not defined at any tier)",
+                iid,
+            )
 
     def keep(item: Any) -> bool:
         ns = getattr(item, "namespace", "")
         iid = getattr(item, "id", "")
-        if ns in config.disabled_workflows:
+        # Bare-ID disable also removes records whose `namespace` matches
+        # the bare workflow id (preserves child-record disable).
+        if ns in bare_workflows:
             return False
-        return iid not in config.disabled_ids
+        return iid not in bare_ids
 
     return LoadResult(
         rules=([r for r in result.rules if keep(r)] if config.guardrails else []),
@@ -238,10 +287,10 @@ def _filter_load_result(result: LoadResult, config: ProjectConfig) -> LoadResult
         phases=[p for p in result.phases if keep(p)],
         errors=result.errors,
         workflows={
-            k: v
-            for k, v in result.workflows.items()
-            if k not in config.disabled_workflows
+            k: v for k, v in result.workflows.items() if k not in bare_workflows
         },
+        workflow_provenance=result.workflow_provenance,
+        item_provenance=result.item_provenance,
     )
 
 
@@ -980,18 +1029,20 @@ class ChatApp(App):
             hooks.setdefault(event, []).extend(matchers)
 
         # PostCompact hook — re-injects phase context after /compact
-        if self._workflow_engine:
+        if self._workflow_engine and self._load_result is not None:
             from claudechic.workflows.agent_folders import (
                 create_post_compact_hook,
             )
 
-            compact_hooks = create_post_compact_hook(
-                engine=self._workflow_engine,
-                agent_role=agent_type or "",
-                workflows_dir=self._workflows_dir,
-            )
-            for event, matchers in compact_hooks.items():
-                hooks.setdefault(event, []).extend(matchers)
+            wf_data = self._load_result.get_workflow(self._workflow_engine.workflow_id)
+            if wf_data is not None:
+                compact_hooks = create_post_compact_hook(
+                    engine=self._workflow_engine,
+                    agent_role=agent_type or "",
+                    workflow_dir=wf_data.path,
+                )
+                for event, matchers in compact_hooks.items():
+                    hooks.setdefault(event, []).extend(matchers)
 
         return hooks
 
@@ -1546,6 +1597,7 @@ class ChatApp(App):
         self,
         global_dir: Path | None = None,
         workflows_dir: Path | None = None,
+        tier_roots: TierRoots | None = None,
     ) -> None:
         """Initialize workflow guidance infrastructure (called from on_mount).
 
@@ -1553,21 +1605,49 @@ class ChatApp(App):
         independent of whether any workflow is active — global rules and
         the ack mechanism need them always.
 
-        Parameters allow tests to override content directories (defaults to
-        package-bundled content).
+        Args:
+            tier_roots: Three-tier roots (preferred). When ``None``, the
+                method constructs ``TierRoots(package=defaults/, user=...,
+                project=...)`` from the package directory + ``~/.claudechic/``
+                + ``<cwd>/.claudechic/``.
+            global_dir, workflows_dir: Backwards-compat shim for tests that
+                point ``ManifestLoader`` at synthetic content. When provided,
+                they synthesize a single-tier ``TierRoots`` whose ``package``
+                root is ``global_dir.parent`` (assumes the test laid out
+                ``<root>/global/`` and ``<root>/workflows/``).
         """
         try:
             from claudechic.guardrails.hits import HitLogger
             from claudechic.guardrails.tokens import OverrideTokenStore
-            from claudechic.workflows.loader import ManifestLoader
+            from claudechic.workflows.loader import ManifestLoader, TierRoots
 
             self._token_store = OverrideTokenStore()
             self._hit_logger = HitLogger(self._cwd / ".claudechic" / "hits.jsonl")
-            self._workflows_dir = workflows_dir or _PKG_DIR / "defaults" / "workflows"
-            self._manifest_loader = ManifestLoader(
-                global_dir=global_dir or _PKG_DIR / "defaults" / "global",
-                workflows_dir=self._workflows_dir,
-            )
+
+            if tier_roots is None:
+                if global_dir is not None or workflows_dir is not None:
+                    # Test shim: synthesize package-only TierRoots from the
+                    # parent of either provided dir. Both sides usually
+                    # share a parent (<root>/global, <root>/workflows).
+                    pkg_root = (
+                        global_dir.parent
+                        if global_dir is not None
+                        else (workflows_dir.parent if workflows_dir else None)
+                    )
+                    if pkg_root is None:
+                        pkg_root = _PKG_DIR / "defaults"
+                    tier_roots = TierRoots(package=pkg_root, user=None, project=None)
+                else:
+                    user_root = Path.home() / ".claudechic"
+                    project_root = self._cwd / ".claudechic"
+                    tier_roots = TierRoots(
+                        package=_PKG_DIR / "defaults",
+                        user=user_root if user_root.is_dir() else None,
+                        project=project_root if project_root.is_dir() else None,
+                    )
+
+            self._tier_roots = tier_roots
+            self._manifest_loader = ManifestLoader(tier_roots=tier_roots)
             # Register all built-in section parsers before first load()
             from claudechic.workflows import register_default_parsers
 
@@ -1585,12 +1665,65 @@ class ChatApp(App):
             return
 
         try:
-            self._load_result = self._manifest_loader.load()
+            from claudechic.workflows.loader import parse_disable_entries
+
+            # Build per-tier disable maps (tier-targeted entries thread into
+            # ManifestLoader.load(); bare ids are applied in _filter_load_result).
+            user_dw = (
+                CONFIG.get("disabled_workflows", []) if isinstance(CONFIG, dict) else []
+            )
+            user_di = CONFIG.get("disabled_ids", []) if isinstance(CONFIG, dict) else []
+            proj_dw = (
+                self._project_config.disabled_workflows
+                if self._project_config
+                else frozenset()
+            )
+            proj_di = (
+                self._project_config.disabled_ids
+                if self._project_config
+                else frozenset()
+            )
+
+            _, user_dw_targeted = parse_disable_entries(
+                user_dw, config_key="disabled_workflows"
+            )
+            _, proj_dw_targeted = parse_disable_entries(
+                proj_dw, config_key="disabled_workflows"
+            )
+            _, user_di_targeted = parse_disable_entries(
+                user_di, config_key="disabled_ids"
+            )
+            _, proj_di_targeted = parse_disable_entries(
+                proj_di, config_key="disabled_ids"
+            )
+
+            def _merge(
+                a: dict[str, frozenset[str]], b: dict[str, frozenset[str]]
+            ) -> dict[str, frozenset[str]]:
+                out: dict[str, frozenset[str]] = {}
+                for k in set(a) | set(b):
+                    out[k] = a.get(k, frozenset()) | b.get(k, frozenset())
+                return out
+
+            disabled_workflows_by_tier = _merge(user_dw_targeted, proj_dw_targeted)
+            disabled_ids_by_tier = _merge(user_di_targeted, proj_di_targeted)
+
+            self._load_result = self._manifest_loader.load(
+                disabled_workflows_by_tier=disabled_workflows_by_tier,  # type: ignore[arg-type]
+                disabled_ids_by_tier=disabled_ids_by_tier,  # type: ignore[arg-type]
+            )
 
             # Filter by project config (disabled workflows/IDs, system toggles)
             if self._project_config:
                 self._load_result = _filter_load_result(
-                    self._load_result, self._project_config
+                    self._load_result,
+                    self._project_config,
+                    user_disabled_workflows=frozenset(user_dw)
+                    if isinstance(user_dw, (list, tuple, set, frozenset))
+                    else None,
+                    user_disabled_ids=frozenset(user_di)
+                    if isinstance(user_di, (list, tuple, set, frozenset))
+                    else None,
                 )
 
             # Surface parse errors as toasts (not app failures)
@@ -1912,9 +2045,18 @@ class ChatApp(App):
         try:
             from claudechic.workflows.agent_folders import assemble_phase_prompt
 
+            wf_data = (
+                self._load_result.get_workflow(workflow_id)
+                if self._load_result is not None
+                else None
+            )
+            if wf_data is None:
+                log.debug(
+                    "No workflow data for '%s'; skipping phase context", workflow_id
+                )
+                return
             prompt = assemble_phase_prompt(
-                workflows_dir=self._workflows_dir,
-                workflow_id=workflow_id,
+                workflow_dir=wf_data.path,
                 role_name=main_role,
                 current_phase=current_phase,
             )

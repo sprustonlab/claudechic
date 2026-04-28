@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from claudechic.hints.types import HintDecl
+from claudechic.hints.types import HintDecl, Tier
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ class HintsParser:
         *,
         namespace: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[HintDecl]:
         """Parse raw YAML hint entries into HintDecl objects.
 
@@ -52,6 +53,7 @@ class HintsParser:
             raw: List of dicts from yaml.safe_load for the ``hints:`` key.
             namespace: ``'global'`` for global/*.yaml, workflow_id for workflow manifests.
             source_path: Path to manifest file (for error messages only).
+            tier: Provenance tier — stamped onto each parsed HintDecl.
 
         Returns:
             List of valid HintDecl objects. Invalid items are skipped with warnings.
@@ -67,7 +69,11 @@ class HintsParser:
 
             try:
                 decl = self._parse_item(
-                    item, namespace=namespace, source_path=source_path, idx=idx
+                    item,
+                    namespace=namespace,
+                    source_path=source_path,
+                    idx=idx,
+                    tier=tier,
                 )
             except _SkipItem as exc:
                 logger.warning("%s: hints[%d]: %s — skipping", source_path, idx, exc)
@@ -84,6 +90,7 @@ class HintsParser:
         namespace: str,
         source_path: str,
         idx: int,
+        tier: Tier = "package",
     ) -> HintDecl:
         """Parse a single hint dict into a HintDecl. Raises _SkipItem on validation failure."""
         # --- id: required, no colons in raw id ---
@@ -182,6 +189,7 @@ class HintsParser:
             trigger_type=trigger_type,
             severity=severity,
             priority=priority,
+            tier=tier,
         )
 
 

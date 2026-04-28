@@ -46,9 +46,7 @@ class AgentManager:
         self._options_factory = options_factory
 
         # Global permission state (applies to all agents)
-        self.global_permission_mode: str = CONFIG.get(
-            "default_permission_mode", "auto"
-        )
+        self.global_permission_mode: str = CONFIG.get("default_permission_mode", "auto")
 
         # Protocol-based observers (set by ChatApp)
         self.manager_observer: AgentManagerObserver | None = None

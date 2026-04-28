@@ -1,8 +1,9 @@
 """Agent folder utilities — prompt assembly and PostCompact hook.
 
-Reads project-side workflows/ directory (not claudechic/) to assemble
-agent prompts from identity.md + phase.md files. Pure file I/O — no
-UI dependencies.
+Reads a single resolved workflow directory (the winning-tier path on
+``LoadResult.workflows[wf_id].path``) to assemble agent prompts from
+identity.md + phase.md files. Multi-tier scanning is the loader's job;
+this module is post-resolution.
 """
 
 from __future__ import annotations
@@ -11,38 +12,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
 from claude_agent_sdk.types import HookMatcher
 
 logger = logging.getLogger(__name__)
-
-
-def _find_workflow_dir(workflows_dir: Path, workflow_id: str) -> Path | None:
-    """Find the workflow directory for a given workflow_id.
-
-    Scans subdirectories of workflows_dir and matches on the
-    workflow_id field in their YAML manifest. Handles kebab-case
-    workflow_id with snake_case directory names.
-
-    Returns the directory Path, or None if not found.
-    """
-    if not workflows_dir.is_dir():
-        return None
-
-    for child in sorted(workflows_dir.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
-            continue
-        manifest = child / f"{child.name}.yaml"
-        if not manifest.is_file():
-            continue
-        try:
-            with manifest.open(encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            if isinstance(data, dict) and data.get("workflow_id") == workflow_id:
-                return child
-        except (OSError, yaml.YAMLError):
-            continue
-    return None
 
 
 def _assemble_agent_prompt(
@@ -80,8 +52,7 @@ def _assemble_agent_prompt(
 
 
 def assemble_phase_prompt(
-    workflows_dir: Path,
-    workflow_id: str,
+    workflow_dir: Path,
     role_name: str,
     current_phase: str | None,
 ) -> str | None:
@@ -91,15 +62,14 @@ def assemble_phase_prompt(
     Returns None if no agent folder exists.
 
     Args:
-        workflows_dir: Project-side workflows/ directory path.
-        workflow_id: Kebab-case workflow ID (e.g. "project-team").
+        workflow_dir: Resolved workflow directory (the winning-tier path
+            from ``LoadResult.workflows[wf_id].path``). Multi-tier
+            resolution is the loader's job; this function is post-resolution.
         role_name: Agent role folder name (e.g. "coordinator").
         current_phase: Current phase ID, or None.
     """
-    workflow_dir = _find_workflow_dir(workflows_dir, workflow_id)
-    if workflow_dir is None:
+    if workflow_dir is None or not workflow_dir.is_dir():
         return None
-
     result = _assemble_agent_prompt(workflow_dir, role_name, current_phase)
     return result or None
 
@@ -107,18 +77,21 @@ def assemble_phase_prompt(
 def create_post_compact_hook(
     engine: Any,  # WorkflowEngine — avoid circular import
     agent_role: str,
-    workflows_dir: Path,
+    workflow_dir: Path,
 ) -> dict[str, Any]:
     """Create a per-agent PostCompact hook that re-injects phase context.
 
-    The hook closure captures the engine and role at creation time.
-    On /compact, it reads the current phase from the engine and
-    re-assembles identity.md + phase.md content.
+    The hook closure captures the engine, role, and resolved workflow
+    directory at creation time. On /compact, it reads the current phase
+    from the engine and re-assembles identity.md + phase.md content from
+    the captured directory.
 
     Args:
-        engine: WorkflowEngine instance (provides workflow_id and current phase).
+        engine: WorkflowEngine instance (provides current phase).
         agent_role: Role name for this agent (e.g. "coordinator").
-        workflows_dir: Project-side workflows/ directory path.
+        workflow_dir: Resolved workflow directory for this engine's
+            workflow_id. Single path; multi-tier resolution happens
+            upstream in the loader.
 
     Returns:
         Hook configuration dict for SDK hook registration.
@@ -129,11 +102,8 @@ def create_post_compact_hook(
     ) -> dict:
         """Re-inject phase context after /compact."""
         current_phase = engine.get_current_phase()
-        workflow_id = engine.workflow_id
 
-        prompt = assemble_phase_prompt(
-            workflows_dir, workflow_id, agent_role, current_phase
-        )
+        prompt = assemble_phase_prompt(workflow_dir, agent_role, current_phase)
         if prompt:
             logger.debug(
                 "PostCompact: re-injected phase context for %s (phase: %s)",

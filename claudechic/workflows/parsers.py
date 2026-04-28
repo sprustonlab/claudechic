@@ -20,7 +20,7 @@ from typing import Any
 
 from claudechic.checks.protocol import CheckDecl
 from claudechic.hints.types import HintDecl
-from claudechic.workflows.phases import Phase
+from claudechic.workflows.phases import Phase, Tier
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ class PhasesParser:
         *,
         namespace: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[Phase]:
         """Parse raw YAML phase entries into Phase objects.
 
@@ -49,6 +50,8 @@ class PhasesParser:
             namespace: workflow_id for workflow manifests (phases are not expected
                 in global/ manifests, but handled gracefully if present).
             source_path: Path to manifest file (for error messages only).
+            tier: Provenance tier — stamped onto each Phase and onto
+                phase-nested CheckDecl/HintDecl records.
 
         Returns:
             List of valid Phase objects. Invalid items are skipped with warnings.
@@ -64,7 +67,11 @@ class PhasesParser:
 
             try:
                 phase = self._parse_one(
-                    entry, namespace=namespace, source_path=source_path, idx=idx
+                    entry,
+                    namespace=namespace,
+                    source_path=source_path,
+                    idx=idx,
+                    tier=tier,
                 )
             except _SkipItem as exc:
                 logger.warning("%s: phases[%d]: %s — skipping", source_path, idx, exc)
@@ -81,6 +88,7 @@ class PhasesParser:
         namespace: str,
         source_path: str,
         idx: int,
+        tier: Tier = "package",
     ) -> Phase:
         """Parse a single phase dict into a Phase. Raises _SkipItem on failure."""
         # --- id: required, no colons in raw id ---
@@ -104,6 +112,7 @@ class PhasesParser:
             namespace=namespace,
             phase_id=raw_id,
             source_path=source_path,
+            tier=tier,
         )
 
         # --- hints: optional list of hint declarations ---
@@ -113,6 +122,7 @@ class PhasesParser:
             phase_id=raw_id,
             qualified_phase_id=qualified_id,
             source_path=source_path,
+            tier=tier,
         )
 
         return Phase(
@@ -121,6 +131,7 @@ class PhasesParser:
             file=file,
             advance_checks=advance_checks,
             hints=hints,
+            tier=tier,
         )
 
     def _parse_advance_checks(
@@ -130,6 +141,7 @@ class PhasesParser:
         namespace: str,
         phase_id: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[CheckDecl]:
         """Parse advance_checks list into CheckDecl objects."""
         if not isinstance(raw_checks, list):
@@ -179,6 +191,7 @@ class PhasesParser:
                     params=params,
                     on_failure=check_entry.get("on_failure"),
                     when=check_entry.get("when"),
+                    tier=tier,
                 )
             )
 
@@ -192,6 +205,7 @@ class PhasesParser:
         phase_id: str,
         qualified_phase_id: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[HintDecl]:
         """Parse phase-nested hints into HintDecl objects with phase scope.
 
@@ -270,6 +284,7 @@ class PhasesParser:
                     cooldown_seconds=cooldown_seconds,
                     phase=qualified_phase_id,
                     namespace=namespace,
+                    tier=tier,
                 )
             )
 

@@ -15,19 +15,36 @@ from claudechic.workflows.engine import (
     WorkflowEngine,
     WorkflowManifest,
 )
-from claudechic.workflows.loader import LoadResult, ManifestLoader
+from claudechic.workflows.loader import (
+    LoadError,
+    LoadResult,
+    ManifestLoader,
+    Tier,
+    TierRoots,
+    WorkflowData,
+    discover_manifests_single_tier,
+    parse_disable_entries,
+    walk_tiers,
+)
 from claudechic.workflows.phases import Phase
 
 __all__ = [
+    "LoadError",
     "LoadResult",
     "ManifestLoader",
     "Phase",
     "PhaseAdvanceResult",
+    "Tier",
+    "TierRoots",
+    "WorkflowData",
     "WorkflowEngine",
     "WorkflowManifest",
     "assemble_phase_prompt",
     "create_post_compact_hook",
+    "discover_manifests_single_tier",
+    "parse_disable_entries",
     "register_default_parsers",
+    "walk_tiers",
 ]
 
 

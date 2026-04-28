@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from claudechic.checks.protocol import CheckDecl
+from claudechic.checks.protocol import CheckDecl, Tier
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +35,14 @@ class ChecksParser:
         *,
         namespace: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[CheckDecl]:
         checks: list[CheckDecl] = []
         for i, entry in enumerate(raw):
             if not isinstance(entry, dict):
                 logger.warning("Skipping non-dict check #%d in %s", i, source_path)
                 continue
-            result = self._parse_one(entry, namespace, source_path)
+            result = self._parse_one(entry, namespace, source_path, tier)
             if isinstance(result, CheckDecl):
                 checks.append(result)
             else:
@@ -49,7 +50,7 @@ class ChecksParser:
         return checks
 
     def _parse_one(
-        self, entry: dict, namespace: str, source_path: str
+        self, entry: dict, namespace: str, source_path: str, tier: Tier
     ) -> CheckDecl | str:
         """Parse one check entry. Returns CheckDecl or error string."""
 
@@ -89,4 +90,5 @@ class ChecksParser:
             params=params,
             on_failure=on_failure,
             when=when,
+            tier=tier,
         )

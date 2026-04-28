@@ -13,7 +13,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from claudechic.guardrails.rules import Injection, Rule
+from claudechic.guardrails.rules import Injection, Rule, Tier
 
 logger = logging.getLogger(__name__)
 
@@ -75,20 +75,23 @@ class RulesParser:
         *,
         namespace: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[Rule]:
         rules: list[Rule] = []
         for i, entry in enumerate(raw):
             if not isinstance(entry, dict):
                 logger.warning("Skipping non-dict rule #%d in %s", i, source_path)
                 continue
-            result = self._parse_one(entry, namespace, source_path)
+            result = self._parse_one(entry, namespace, source_path, tier)
             if isinstance(result, Rule):
                 rules.append(result)
             else:
                 logger.warning("Skipping rule in %s: %s", source_path, result)
         return rules
 
-    def _parse_one(self, entry: dict, namespace: str, source_path: str) -> Rule | str:
+    def _parse_one(
+        self, entry: dict, namespace: str, source_path: str, tier: Tier
+    ) -> Rule | str:
         raw_id = entry.get("id")
         if not raw_id or not isinstance(raw_id, str):
             return "missing 'id' field"
@@ -157,6 +160,7 @@ class RulesParser:
             exclude_roles=_as_list(entry.get("exclude_roles", [])),
             phases=phases,
             exclude_phases=exclude_phases,
+            tier=tier,
         )
 
 
@@ -176,13 +180,14 @@ class InjectionsParser:
         *,
         namespace: str,
         source_path: str,
+        tier: Tier = "package",
     ) -> list[Injection]:
         injections: list[Injection] = []
         for i, entry in enumerate(raw):
             if not isinstance(entry, dict):
                 logger.warning("Skipping non-dict injection #%d in %s", i, source_path)
                 continue
-            result = self._parse_one(entry, namespace, source_path)
+            result = self._parse_one(entry, namespace, source_path, tier)
             if isinstance(result, Injection):
                 injections.append(result)
             else:
@@ -190,7 +195,7 @@ class InjectionsParser:
         return injections
 
     def _parse_one(
-        self, entry: dict, namespace: str, source_path: str
+        self, entry: dict, namespace: str, source_path: str, tier: Tier
     ) -> Injection | str:
         raw_id = entry.get("id")
         if not raw_id or not isinstance(raw_id, str):
@@ -246,4 +251,5 @@ class InjectionsParser:
             exclude_roles=_as_list(entry.get("exclude_roles", [])),
             phases=phases,
             exclude_phases=exclude_phases,
+            tier=tier,
         )

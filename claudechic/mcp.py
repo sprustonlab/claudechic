@@ -18,6 +18,7 @@ import importlib.util
 import logging
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +27,7 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 from claudechic.analytics import capture
 from claudechic.config import CONFIG
 from claudechic.enums import AgentStatus
+from claudechic.workflows.loader import Tier, TierRoots
 from claudechic.features.worktree.git import (
     FinishPhase,
     FinishState,
@@ -207,16 +209,12 @@ def _make_spawn_agent(caller_name: str | None = None):
         # provided, the agent gets no role wiring (generic agent).
         if agent_type and _app._workflow_engine:
             try:
-                from claudechic.workflows.agent_folders import _find_workflow_dir
-
-                wf_dir = _find_workflow_dir(
-                    (
-                        _app._workflows_dir
-                        if _app
-                        else _PKG_DIR / "defaults" / "workflows"
-                    ),
-                    _app._workflow_engine.workflow_id,
+                wf_data = (
+                    _app._load_result.get_workflow(_app._workflow_engine.workflow_id)
+                    if _app._load_result is not None
+                    else None
                 )
+                wf_dir = wf_data.path if wf_data is not None else None
                 if wf_dir and not (wf_dir / agent_type).is_dir():
                     available = sorted(
                         d.name
@@ -286,18 +284,21 @@ def _make_spawn_agent(caller_name: str | None = None):
                         assemble_phase_prompt,
                     )
 
-                    folder_prompt = assemble_phase_prompt(
-                        workflows_dir=(
-                            _app._workflows_dir
-                            if _app
-                            else _PKG_DIR / "defaults" / "workflows"
-                        ),
-                        workflow_id=_app._workflow_engine.workflow_id,
-                        role_name=agent_type,
-                        current_phase=_app._workflow_engine.get_current_phase(),
+                    wf_data = (
+                        _app._load_result.get_workflow(
+                            _app._workflow_engine.workflow_id
+                        )
+                        if _app._load_result is not None
+                        else None
                     )
-                    if folder_prompt:
-                        full_prompt = f"{folder_prompt}\n\n---\n\n{prompt}"
+                    if wf_data is not None:
+                        folder_prompt = assemble_phase_prompt(
+                            workflow_dir=wf_data.path,
+                            role_name=agent_type,
+                            current_phase=_app._workflow_engine.get_current_phase(),
+                        )
+                        if folder_prompt:
+                            full_prompt = f"{folder_prompt}\n\n---\n\n{prompt}"
                 except Exception:
                     log.debug(
                         "Agent folder prompt assembly failed for '%s'",
@@ -737,37 +738,75 @@ def _make_interrupt_agent(caller_name: str | None = None):
     return interrupt_agent
 
 
-def discover_mcp_tools(mcp_tools_dir: Path, **kwargs) -> list:
-    """Walk mcp_tools/, import each eligible .py, call get_tools()."""
-    tools = []
-    if not mcp_tools_dir.is_dir():
-        return tools
+@dataclass(frozen=True)
+class TieredMCPTool:
+    """An MCP tool plus the tier where it was discovered.
 
-    # Pre-load helper modules (underscore-prefixed) so tool files can import them
+    The SDK ships its own tool object type (``SdkMcpTool``); this wrapper
+    is the single source of tier-binding for MCP tools (which are
+    SDK-owned objects we cannot stamp a ``tier`` field on).
+    """
+
+    tool: Any  # claude_agent_sdk.SdkMcpTool — kept loose to avoid imports.
+    tier: Tier
+
+
+def _load_one_tier_mcp_tools(
+    tier: Tier,
+    mcp_tools_dir: Path,
+    **kwargs: Any,
+) -> list[TieredMCPTool]:
+    """Walk one tier's ``mcp_tools/`` and return tier-stamped tools."""
+    out: list[TieredMCPTool] = []
+    if not mcp_tools_dir.is_dir():
+        return out
+
+    # Pre-load helper modules (underscore-prefixed) so tool files can import
+    # them. Tier-namespaced sys.modules keys avoid collisions across tiers
+    # for the discovery isolation; we ALSO alias each helper under the
+    # legacy `mcp_tools.<stem>` key so existing bundled scripts that do
+    # `from mcp_tools._foo import bar` continue to resolve. The package
+    # tier is loaded first, so its helpers win the legacy namespace.
+    if "mcp_tools" not in sys.modules:
+        # Lightweight namespace package so attribute access works.
+        import types
+
+        sys.modules["mcp_tools"] = types.ModuleType("mcp_tools")
     for py_file in sorted(mcp_tools_dir.glob("_*.py")):
         if py_file.name == "__init__.py":
             continue
-        module_name = f"mcp_tools.{py_file.stem}"
+        module_name = f"mcp_tools.{tier}.{py_file.stem}"
+        legacy_name = f"mcp_tools.{py_file.stem}"
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
+                # Alias under the legacy key only if no other tier has
+                # already claimed it (highest-priority-wins for package).
+                sys.modules.setdefault(legacy_name, module)
                 spec.loader.exec_module(module)
         except Exception:
             log.warning(
-                "mcp_tools: failed to load helper %s", py_file.name, exc_info=True
+                "mcp_tools: failed to load helper %s (tier=%s)",
+                py_file.name,
+                tier,
+                exc_info=True,
             )
 
     for py_file in sorted(mcp_tools_dir.glob("*.py")):
         if py_file.name.startswith("_"):
             continue
 
-        module_name = f"mcp_tools.{py_file.stem}"
+        module_name = f"mcp_tools.{tier}.{py_file.stem}"
         try:
             spec = importlib.util.spec_from_file_location(module_name, py_file)
             if spec is None or spec.loader is None:
-                log.warning("mcp_tools: could not load spec for %s", py_file.name)
+                log.warning(
+                    "mcp_tools: could not load spec for %s (tier=%s)",
+                    py_file.name,
+                    tier,
+                )
                 continue
 
             module = importlib.util.module_from_spec(spec)
@@ -776,22 +815,73 @@ def discover_mcp_tools(mcp_tools_dir: Path, **kwargs) -> list:
 
             get_tools_fn = getattr(module, "get_tools", None)
             if get_tools_fn is None:
-                log.debug("mcp_tools: %s has no get_tools(), skipping", py_file.name)
+                log.debug(
+                    "mcp_tools: %s has no get_tools(), skipping (tier=%s)",
+                    py_file.name,
+                    tier,
+                )
                 continue
 
             file_tools = get_tools_fn(**kwargs)
-            tools.extend(file_tools)
+            for t in file_tools:
+                out.append(TieredMCPTool(tool=t, tier=tier))
             log.info(
-                "mcp_tools: loaded %d tool(s) from %s", len(file_tools), py_file.name
+                "mcp_tools: loaded %d tool(s) from %s (tier=%s)",
+                len(file_tools),
+                py_file.name,
+                tier,
             )
 
         except Exception:
             log.warning(
-                "mcp_tools: failed to load %s, skipping", py_file.name, exc_info=True
+                "mcp_tools: failed to load %s, skipping (tier=%s)",
+                py_file.name,
+                tier,
+                exc_info=True,
             )
             continue
 
-    return tools
+    return out
+
+
+def discover_mcp_tools(tier_roots: TierRoots, **kwargs: Any) -> list[TieredMCPTool]:
+    """Walk every tier's ``mcp_tools/`` and resolve overrides by tool name.
+
+    Iterates package -> user -> project. Within each tier, every ``*.py``
+    that exposes a ``get_tools(**kwargs)`` callable contributes tools.
+    Cross-tier collisions on ``tool.name`` resolve highest-priority-wins
+    (project > user > package); lower-tier tools of the same name are
+    silently dropped.
+
+    Returns:
+        Tier-stamped tools (one entry per resolved name). Caller registers
+        ``[t.tool for t in result]`` with the SDK and consumes ``t.tier``
+        for provenance.
+    """
+    by_tier: dict[Tier, list[TieredMCPTool]] = {}
+    # Iterate package -> user -> project so logs are deterministic.
+    for tier in ("package", "user", "project"):
+        root = tier_roots.get(tier)  # type: ignore[arg-type]
+        if root is None:
+            continue
+        by_tier[tier] = _load_one_tier_mcp_tools(  # type: ignore[arg-type]
+            tier,  # type: ignore[arg-type]
+            root / "mcp_tools",
+            **kwargs,
+        )
+
+    # Highest-priority-wins resolution by tool.name.
+    resolved: dict[str, TieredMCPTool] = {}
+    for tier in ("project", "user", "package"):
+        for tt in by_tier.get(tier, []):  # type: ignore[arg-type]
+            name = getattr(tt.tool, "name", None)
+            if name is None:
+                # Tool without a name attribute — keep it (no override possible).
+                resolved.setdefault(f"__unnamed:{id(tt.tool)}", tt)
+                continue
+            resolved.setdefault(name, tt)
+
+    return list(resolved.values())
 
 
 def _format_tool_input(tool_input: dict) -> str:
@@ -862,19 +952,20 @@ def _make_advance_phase(caller_name: str | None = None):
                             assemble_phase_prompt,
                         )
 
-                        phase_content = (
-                            assemble_phase_prompt(
-                                workflows_dir=(
-                                    _app._workflows_dir
-                                    if _app
-                                    else _PKG_DIR / "defaults" / "workflows"
-                                ),
-                                workflow_id=engine.workflow_id,
-                                role_name=main_role,
-                                current_phase=next_phase,
-                            )
-                            or ""
+                        wf_data = (
+                            _app._load_result.get_workflow(engine.workflow_id)
+                            if _app._load_result is not None
+                            else None
                         )
+                        if wf_data is not None:
+                            phase_content = (
+                                assemble_phase_prompt(
+                                    workflow_dir=wf_data.path,
+                                    role_name=main_role,
+                                    current_phase=next_phase,
+                                )
+                                or ""
+                            )
                     except Exception:
                         log.debug(
                             "Failed to assemble phase prompt for advance_phase response",
@@ -893,6 +984,11 @@ def _make_advance_phase(caller_name: str | None = None):
                         assemble_phase_prompt as _broadcast_assemble,
                     )
 
+                    wf_data_b = (
+                        _app._load_result.get_workflow(engine.workflow_id)
+                        if _app._load_result is not None
+                        else None
+                    )
                     for agent in list(_app.agent_mgr.agents.values()):
                         # Skip coordinator (already got content in tool response)
                         if main_role and agent.agent_type == main_role:
@@ -903,14 +999,11 @@ def _make_advance_phase(caller_name: str | None = None):
                         # Skip the calling agent (coordinator calling advance)
                         if caller_name and agent.name == caller_name:
                             continue
+                        if wf_data_b is None:
+                            continue
                         try:
                             agent_prompt = _broadcast_assemble(
-                                workflows_dir=(
-                                    _app._workflows_dir
-                                    if _app
-                                    else _PKG_DIR / "defaults" / "workflows"
-                                ),
-                                workflow_id=engine.workflow_id,
+                                workflow_dir=wf_data_b.path,
                                 role_name=agent.agent_type,
                                 current_phase=next_phase,
                             )
@@ -1098,12 +1191,18 @@ async def acknowledge_warning(args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def create_chic_server(caller_name: str | None = None):
+def create_chic_server(
+    caller_name: str | None = None,
+    tier_roots: TierRoots | None = None,
+):
     """Create the chic MCP server with all tools.
 
     Args:
         caller_name: Name of the agent that will use this server.
             Used to identify the sender in spawn/ask/tell agent calls.
+        tier_roots: Three-tier roots for ``mcp_tools/`` discovery. If
+            ``None``, falls back to ``_app._tier_roots`` (set at app
+            startup) — preserves the convenience API for tests.
     """
     tools = [
         _make_spawn_agent(caller_name),
@@ -1151,15 +1250,18 @@ def create_chic_server(caller_name: str | None = None):
     except ImportError:
         log.debug("Cluster tools not available (missing dependencies)")
 
-    # Discover mcp_tools/ plugins
-    mcp_tools_dir = Path.cwd() / "mcp_tools"
-    discovered_tools = discover_mcp_tools(
-        mcp_tools_dir,
-        caller_name=caller_name,
-        send_notification=_send_prompt_fire_and_forget,
-        find_agent=_find_agent_by_name,
-    )
-    tools.extend(discovered_tools)
+    # Discover mcp_tools/ plugins across all three tiers.
+    effective_tier_roots = tier_roots
+    if effective_tier_roots is None and _app is not None:
+        effective_tier_roots = getattr(_app, "_tier_roots", None)
+    if effective_tier_roots is not None:
+        discovered_tools = discover_mcp_tools(
+            effective_tier_roots,
+            caller_name=caller_name,
+            send_notification=_send_prompt_fire_and_forget,
+            find_agent=_find_agent_by_name,
+        )
+        tools.extend(t.tool for t in discovered_tools)
 
     return create_sdk_mcp_server(
         name="chic",
