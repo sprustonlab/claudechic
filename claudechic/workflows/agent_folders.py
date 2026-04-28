@@ -14,23 +14,9 @@ from typing import Any
 
 from claude_agent_sdk.types import HookMatcher
 
+from claudechic.workflows._substitute import substitute_artifact_dir
+
 logger = logging.getLogger(__name__)
-
-
-_ARTIFACT_DIR_TOKEN = "${CLAUDECHIC_ARTIFACT_DIR}"
-
-
-def _substitute_artifact_dir(content: str, artifact_dir: Path | None) -> str:
-    """Replace ``${CLAUDECHIC_ARTIFACT_DIR}`` with the resolved path.
-
-    Pure literal string-replace; no shell-style expansion (no ``$VAR``,
-    no ``~``); no other tokens. When ``artifact_dir`` is ``None`` the
-    token is replaced with the empty string — a deliberate, visible
-    failure mode (e.g., ``Write to ${CLAUDECHIC_ARTIFACT_DIR}/spec.md``
-    becomes ``Write to /spec.md``).
-    """
-    sub = str(artifact_dir) if artifact_dir is not None else ""
-    return content.replace(_ARTIFACT_DIR_TOKEN, sub)
 
 
 def _assemble_agent_prompt(
@@ -72,7 +58,7 @@ def _assemble_agent_prompt(
     else:
         combined = identity
 
-    return _substitute_artifact_dir(combined, artifact_dir)
+    return substitute_artifact_dir(combined, artifact_dir)
 
 
 def assemble_phase_prompt(

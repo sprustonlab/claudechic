@@ -22,6 +22,10 @@ from claudechic.checks.protocol import (
     CheckResult,
     OnFailureConfig,
 )
+from claudechic.workflows._substitute import (
+    ARTIFACT_DIR_TOKEN,
+    substitute_artifact_dir,
+)
 from claudechic.workflows.phases import Phase
 
 logger = logging.getLogger(__name__)
@@ -492,17 +496,11 @@ class WorkflowEngine:
             elif check_decl.type == "command-output-check":
                 # Substitute ${CLAUDECHIC_ARTIFACT_DIR} in the command
                 # string so workflow YAML can reference the run-bound
-                # path without hardcoding a prefix. Empty string when
-                # unset (deliberate, visible failure mode — matches the
-                # markdown substitution rule in §5.3).
+                # path without hardcoding a prefix. Shared helper —
+                # same logic as markdown content substitution.
                 cmd = params.get("command")
-                if isinstance(cmd, str) and "${CLAUDECHIC_ARTIFACT_DIR}" in cmd:
-                    sub = (
-                        str(self._artifact_dir)
-                        if self._artifact_dir is not None
-                        else ""
-                    )
-                    params["command"] = cmd.replace("${CLAUDECHIC_ARTIFACT_DIR}", sub)
+                if isinstance(cmd, str) and ARTIFACT_DIR_TOKEN in cmd:
+                    params["command"] = substitute_artifact_dir(cmd, self._artifact_dir)
 
             # Build check from registry using potentially modified params
             augmented_decl = CheckDecl(

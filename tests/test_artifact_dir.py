@@ -15,9 +15,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from claudechic.checks.builtins import ArtifactDirReadyCheck
 from claudechic.checks.protocol import CheckDecl
-from claudechic.workflows.agent_folders import (
-    _ARTIFACT_DIR_TOKEN,
-    _substitute_artifact_dir,
+from claudechic.workflows._substitute import (
+    ARTIFACT_DIR_TOKEN as _ARTIFACT_DIR_TOKEN,
+)
+from claudechic.workflows._substitute import (
+    substitute_artifact_dir as _substitute_artifact_dir,
 )
 from claudechic.workflows.engine import (
     WorkflowEngine,
