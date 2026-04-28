@@ -37,9 +37,6 @@ OverrideTokenConsumer = Callable[
 ]  # (rule_id, tool_name, tool_input, enforcement) -> consumed
 
 
-GetDisabledRulesCallback = Callable[[], set[str]]
-
-
 def create_guardrail_hooks(
     loader: ManifestLoader,
     hit_logger: HitLogger,
@@ -47,7 +44,6 @@ def create_guardrail_hooks(
     get_phase: GetPhaseCallback | None = None,
     get_active_wf: GetActiveWfCallback | None = None,
     consume_override: OverrideTokenConsumer | None = None,
-    get_disabled_rules: GetDisabledRulesCallback | None = None,
 ) -> dict[str, list[HookMatcher]]:
     """Create PreToolUse hooks that evaluate rules (all enforcement levels).
 
@@ -66,8 +62,6 @@ def create_guardrail_hooks(
         consume_override: Callback that checks and consumes a one-time override
                          token for a deny rule. Returns True if token was consumed.
                          If None, no overrides are possible.
-        get_disabled_rules: Callback returning the set of rule IDs disabled by
-                           the user at runtime. If None, no rules are disabled.
     """
 
     async def evaluate(hook_input: dict, match: str | None, ctx: object) -> dict:
@@ -91,12 +85,9 @@ def create_guardrail_hooks(
         active_wf = get_active_wf() if get_active_wf else None
         # Resolve agent_role: may be a callable for dynamic resolution
         resolved_role = agent_role() if callable(agent_role) else agent_role
-        disabled = get_disabled_rules() if get_disabled_rules else set()
 
         # Step 1: Apply injections (from `injections:` section)
         for injection in result.injections:
-            if injection.id in disabled:
-                continue
             if injection.namespace != "global" and injection.namespace != active_wf:
                 continue
             if not matches_trigger(injection, tool_name):
@@ -110,8 +101,6 @@ def create_guardrail_hooks(
 
         # Step 2: Evaluate enforcement rules
         for rule in result.rules:
-            if rule.id in disabled:
-                continue
             # Step 0: Skip rules from inactive workflows
             if rule.namespace != "global" and rule.namespace != active_wf:
                 continue
@@ -157,18 +146,8 @@ def create_guardrail_hooks(
                         "decision": "block",
                         "reason": (
                             f"{rule.message}\n"
-                            f"This warning was implemented by the user to signal "
-                            f"that in the vast majority of cases, they do not want "
-                            f"you to use the tool this way and would prefer another "
-                            f"approach. Before proceeding, reason about the user's "
-                            f"intent. In rare exceptional cases, you may "
-                            f"proceed with the command nevertheless by acknowledging "
-                            f"this warning.\n"
                             f'To acknowledge: acknowledge_warning(rule_id="{rule.id}", '
-                            f'tool_name="{tool_name}", tool_input={{...}})\n'
-                            f"Generally, you should use tools as intended by the "
-                            f"user. Before proceeding, think how you could follow "
-                            f"the user's intent."
+                            f'tool_name="{tool_name}", tool_input={{...}})'
                         ),
                     }
 

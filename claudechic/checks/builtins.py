@@ -36,39 +36,12 @@ def _build_check(decl: CheckDecl) -> Check:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_against(path: str | Path, base_dir: str | Path | None) -> Path:
-    """Resolve ``path`` against ``base_dir`` if it is relative.
-
-    Absolute paths are returned unchanged. This lets check manifests
-    use relative paths (e.g. ``.project_team/*/SPECIFICATION.md``)
-    while callers pin them to the workflow root. If ``base_dir`` is
-    None we fall back to the process cwd via ``Path(path)``.
-    """
-    p = Path(path)
-    if p.is_absolute() or base_dir is None:
-        return p
-    return Path(base_dir) / p
-
-
 class CommandOutputCheck:
-    """Passes when command stdout matches regex.
+    """Passes when command stdout matches regex."""
 
-    ``cwd`` pins the subprocess working directory. When the check is
-    executed via :class:`WorkflowEngine`, this is set to the workflow
-    root (the main agent's cwd) so relative paths in the shell command
-    resolve against a stable location — not whatever the Python process
-    happened to have as its cwd.
-    """
-
-    def __init__(
-        self,
-        command: str,
-        pattern: str,
-        cwd: str | Path | None = None,
-    ) -> None:
+    def __init__(self, command: str, pattern: str) -> None:
         self.command = command
         self.compiled_pattern = re.compile(pattern)
-        self.cwd = str(cwd) if cwd is not None else None
 
     async def check(self) -> CheckResult:
         try:
@@ -76,7 +49,6 @@ class CommandOutputCheck:
                 self.command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.cwd,
             )
             stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             stdout = stdout_bytes.decode("utf-8", errors="replace")
@@ -87,10 +59,9 @@ class CommandOutputCheck:
                     passed=True, evidence=f"Pattern matched: {match.group(0)[:200]}"
                 )
             excerpt = "\n".join(stdout.strip().splitlines()[:3])
-            where = f" (cwd={self.cwd})" if self.cwd else ""
             return CheckResult(
                 passed=False,
-                evidence=f"Pattern '{self.compiled_pattern.pattern}' not found in output{where}: {excerpt}"[
+                evidence=f"Pattern '{self.compiled_pattern.pattern}' not found in output: {excerpt}"[
                     :300
                 ],
             )
@@ -103,18 +74,10 @@ class CommandOutputCheck:
 
 
 class FileExistsCheck:
-    """Passes when file exists.
+    """Passes when file exists."""
 
-    ``base_dir`` pins relative ``path`` resolution to the workflow root
-    so checks don't silently depend on process cwd.
-    """
-
-    def __init__(
-        self,
-        path: str | Path,
-        base_dir: str | Path | None = None,
-    ) -> None:
-        self.path = _resolve_against(path, base_dir)
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
 
     async def check(self) -> CheckResult:
         if self.path.exists():
@@ -123,18 +86,10 @@ class FileExistsCheck:
 
 
 class FileContentCheck:
-    """Passes when file content matches regex.
+    """Passes when file content matches regex."""
 
-    ``base_dir`` pins relative ``path`` resolution to the workflow root.
-    """
-
-    def __init__(
-        self,
-        path: str | Path,
-        pattern: str,
-        base_dir: str | Path | None = None,
-    ) -> None:
-        self.path = _resolve_against(path, base_dir)
+    def __init__(self, path: str | Path, pattern: str) -> None:
+        self.path = Path(path)
         self.compiled_pattern = re.compile(pattern)
 
     async def check(self) -> CheckResult:
@@ -179,15 +134,7 @@ class ManualConfirm:
             confirmed = await self.confirm_fn(self.question, self.context)
             if confirmed:
                 return CheckResult(passed=True, evidence="User confirmed")
-            return CheckResult(
-                passed=False,
-                evidence=(
-                    f'User was asked "{self.question}" and declined. '
-                    f"Ask the user what needs to be addressed before advancing. "
-                    f"Do not rerun this tool in an attempt to advance before "
-                    f"having a conversation with the user."
-                ),
-            )
+            return CheckResult(passed=False, evidence="User declined")
         except Exception as e:
             return CheckResult(passed=False, evidence=f"Confirmation failed: {e}")
 
@@ -198,19 +145,15 @@ class ManualConfirm:
 
 register_check_type(
     "command-output-check",
-    lambda p: CommandOutputCheck(
-        command=p["command"], pattern=p["pattern"], cwd=p.get("cwd")
-    ),
+    lambda p: CommandOutputCheck(command=p["command"], pattern=p["pattern"]),
 )
 register_check_type(
     "file-exists-check",
-    lambda p: FileExistsCheck(path=p["path"], base_dir=p.get("base_dir")),
+    lambda p: FileExistsCheck(path=p["path"]),
 )
 register_check_type(
     "file-content-check",
-    lambda p: FileContentCheck(
-        path=p["path"], pattern=p["pattern"], base_dir=p.get("base_dir")
-    ),
+    lambda p: FileContentCheck(path=p["path"], pattern=p["pattern"]),
 )
 register_check_type(
     "manual-confirm",

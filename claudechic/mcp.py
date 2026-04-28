@@ -72,31 +72,6 @@ def _error_response(text: str) -> dict[str, Any]:
     return _text_response(text, is_error=True)
 
 
-def _get_workflows_dir() -> Path:
-    """Return the resolved workflows directory from the app, or fallback.
-
-    Adapted post-Group-A: uses Group A's ``_workflows_dir`` attribute as the
-    single source of truth (originally ``_resolved_workflows_dir``).
-    """
-    if _app is not None:
-        return getattr(_app, "_workflows_dir", None) or (
-            Path(__file__).parent / "defaults" / "workflows"
-        )
-    return Path(__file__).parent / "defaults" / "workflows"
-
-
-def _get_workflow_variables() -> dict[str, str] | None:
-    """Build template variable dict from the active workflow engine."""
-    if _app is None or _app._workflow_engine is None:
-        return None
-    engine = _app._workflow_engine
-    variables: dict[str, str] = {}
-    if engine.state_dir is not None:
-        variables["$STATE_DIR"] = str(engine.state_dir)
-    variables["$WORKFLOW_ROOT"] = str(_app._cwd)
-    return variables or None
-
-
 def _find_agent_by_name(name: str):
     """Find an agent by name. Returns (agent, error_message)."""
     if _app is None or _app.agent_mgr is None:
@@ -222,34 +197,24 @@ def _make_spawn_agent(caller_name: str | None = None):
         default_cwd = _app.agent_mgr.active.cwd if _app.agent_mgr.active else Path.cwd()
         path = Path(args.get("path", str(default_cwd))).resolve()
         prompt = args.get("prompt")
-        # Resolve the sub-agent's role. If the caller omits `type=` we
-        # fall back to DEFAULT_ROLE (sentinel: no workflow-specific role
-        # wiring). This makes "no role" explicit instead of silently
-        # inheriting the coordinator's rules via a main_role fallback.
-        from claudechic.workflows.agent_folders import DEFAULT_ROLE
-
-        raw_type = args.get("type")
-        type_defaulted = not raw_type
-        agent_type = raw_type or DEFAULT_ROLE
+        agent_type = args.get("type")
         requires_answer = args.get("requires_answer", False)
 
-        # DEFAULT_ROLE is reserved — it's a sentinel, not a real role folder.
-        if raw_type == DEFAULT_ROLE:
-            return _error_response(
-                f"Role name '{DEFAULT_ROLE}' is reserved — it is the sentinel "
-                "used for agents with no workflow-specific role. Omit `type=` "
-                "(or pick a workflow role folder name) instead."
-            )
-
-        # When a real role is provided and a workflow is active, validate
-        # that the role folder exists. DEFAULT_ROLE skips this check (it's
-        # the explicit "no role wiring" sentinel).
-        if agent_type != DEFAULT_ROLE and _app._workflow_engine:
+        # BUG #2 fix: When type is provided and a workflow is active,
+        # validate that the role folder exists.  The `type` parameter is
+        # the explicit link to the workflow role system — we never infer
+        # it from the agent name (that's fragile).  If type is not
+        # provided, the agent gets no role wiring (generic agent).
+        if agent_type and _app._workflow_engine:
             try:
                 from claudechic.workflows.agent_folders import _find_workflow_dir
 
                 wf_dir = _find_workflow_dir(
-                    _get_workflows_dir(),
+                    (
+                        _app._workflows_dir
+                        if _app
+                        else _PKG_DIR / "defaults" / "workflows"
+                    ),
                     _app._workflow_engine.workflow_id,
                 )
                 if wf_dir and not (wf_dir / agent_type).is_dir():
@@ -305,43 +270,31 @@ def _make_spawn_agent(caller_name: str | None = None):
 
         result = f"Created agent '{name}' in {path}"
 
-        # Warn when a workflow is active but the sub-agent has no role
-        # wiring (either `type=` was omitted and defaulted to DEFAULT_ROLE,
-        # or it was passed as empty). The agent will not receive
-        # role-specific phase instructions and is not subject to any
-        # role-scoped guardrail rules.
-        if _app._workflow_engine and agent_type == DEFAULT_ROLE:
-            if type_defaulted:
-                result += (
-                    "\n\n[WARNING] No type= specified — this agent defaulted to "
-                    f"'{DEFAULT_ROLE}'. It will not receive role-specific phase "
-                    "instructions and is not subject to role-scoped guardrail "
-                    "rules. Set type= to a role folder name to enable those."
-                )
-            else:
-                # Shouldn't reach here (we reject raw_type == DEFAULT_ROLE
-                # above) but guard for clarity.
-                result += (
-                    f"\n\n[WARNING] This agent has role '{DEFAULT_ROLE}' — no "
-                    "role-specific phase instructions or role-scoped rules."
-                )
+        if _app._workflow_engine and not agent_type:
+            result += (
+                "\n\n[WARNING] No type= specified. This agent will not receive "
+                "role-specific phase instructions. Set type= to a role folder "
+                "name to enable agent prompt injection."
+            )
 
         if prompt:
-            # Inject agent folder prompt at spawn time if workflow is active.
-            # DEFAULT_ROLE has no role folder, so skip injection for it.
+            # Inject agent folder prompt at spawn time if workflow is active
             full_prompt = prompt
-            if _app._workflow_engine and agent_type != DEFAULT_ROLE:
+            if _app._workflow_engine and agent_type:
                 try:
                     from claudechic.workflows.agent_folders import (
                         assemble_phase_prompt,
                     )
 
                     folder_prompt = assemble_phase_prompt(
-                        workflows_dir=_get_workflows_dir(),
+                        workflows_dir=(
+                            _app._workflows_dir
+                            if _app
+                            else _PKG_DIR / "defaults" / "workflows"
+                        ),
                         workflow_id=_app._workflow_engine.workflow_id,
                         role_name=agent_type,
                         current_phase=_app._workflow_engine.get_current_phase(),
-                        variables=_get_workflow_variables(),
                     )
                     if folder_prompt:
                         full_prompt = f"{folder_prompt}\n\n---\n\n{prompt}"
@@ -911,11 +864,14 @@ def _make_advance_phase(caller_name: str | None = None):
 
                         phase_content = (
                             assemble_phase_prompt(
-                                workflows_dir=_get_workflows_dir(),
+                                workflows_dir=(
+                                    _app._workflows_dir
+                                    if _app
+                                    else _PKG_DIR / "defaults" / "workflows"
+                                ),
                                 workflow_id=engine.workflow_id,
                                 role_name=main_role,
                                 current_phase=next_phase,
-                                variables=_get_workflow_variables(),
                             )
                             or ""
                         )
@@ -934,7 +890,6 @@ def _make_advance_phase(caller_name: str | None = None):
                 # Broadcast phase prompt to typed sub-agents
                 if _app.agent_mgr:
                     from claudechic.workflows.agent_folders import (
-                        DEFAULT_ROLE,
                         assemble_phase_prompt as _broadcast_assemble,
                     )
 
@@ -942,20 +897,22 @@ def _make_advance_phase(caller_name: str | None = None):
                         # Skip coordinator (already got content in tool response)
                         if main_role and agent.agent_type == main_role:
                             continue
-                        # Skip untyped agents (no role wiring: agent_type is
-                        # None or DEFAULT_ROLE sentinel).
-                        if not agent.agent_type or agent.agent_type == DEFAULT_ROLE:
+                        # Skip untyped agents
+                        if not agent.agent_type:
                             continue
                         # Skip the calling agent (coordinator calling advance)
                         if caller_name and agent.name == caller_name:
                             continue
                         try:
                             agent_prompt = _broadcast_assemble(
-                                workflows_dir=_get_workflows_dir(),
+                                workflows_dir=(
+                                    _app._workflows_dir
+                                    if _app
+                                    else _PKG_DIR / "defaults" / "workflows"
+                                ),
                                 workflow_id=engine.workflow_id,
                                 role_name=agent.agent_type,
                                 current_phase=next_phase,
-                                variables=_get_workflow_variables(),
                             )
                             if agent_prompt:
                                 _send_prompt_fire_and_forget(
@@ -1105,7 +1062,7 @@ def _make_request_override(caller_name: str | None = None):
 
 @tool(
     "acknowledge_warning",
-    "Acknowledge a warn-level rule to proceed past it. Stores a one-time token. Retry the exact same command to execute it. No user interaction required. Only acknowledge after considering whether the warning changes your approach.",
+    "Acknowledge a warn-level rule to proceed past it. Stores a one-time token. Retry the exact same command to execute it. No user interaction required.",
     {
         "type": "object",
         "properties": {
