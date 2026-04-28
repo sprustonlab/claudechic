@@ -290,15 +290,27 @@ def start_worktree(feature_name: str) -> tuple[bool, str, Path | None]:
             text=True,
         )
 
-        # Symlink .claude/ from main worktree so hooks, skills, and
-        # local settings carry over (they're typically gitignored).
+        # Symlink .claude/ and .claudechic/ from main worktree so hooks,
+        # skills, local settings, hint state, and project config carry over
+        # (they're typically gitignored). Race-safe via try/except FileExistsError
+        # per SPEC.md §10.2 — both blocks use the same pattern.
         main_wt_info = get_main_worktree()
         if main_wt_info:
             source_claude_dir = main_wt_info[0] / ".claude"
             if source_claude_dir.is_dir():
                 target = worktree_dir / ".claude"
-                if not target.exists():
+                try:
                     target.symlink_to(source_claude_dir.resolve())
+                except FileExistsError:
+                    pass
+
+            source_claudechic_dir = main_wt_info[0] / ".claudechic"
+            if source_claudechic_dir.is_dir():
+                target = worktree_dir / ".claudechic"
+                try:
+                    target.symlink_to(source_claudechic_dir.resolve())
+                except FileExistsError:
+                    pass
 
         return True, f"Created worktree at {worktree_dir}", worktree_dir
 
