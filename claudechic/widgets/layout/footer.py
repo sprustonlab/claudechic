@@ -34,6 +34,22 @@ class ComputerInfoLabel(ClickableLabel):
         self.post_message(self.Requested())
 
 
+class SettingsLabel(ClickableLabel):
+    """Clickable 'settings' label that opens SettingsScreen.
+
+    Mirrors DiagnosticsLabel and ComputerInfoLabel: posts a Requested
+    message on click. The handler in app.py routes to the shared
+    _handle_settings() entry point (parity with /settings command and
+    welcome-screen Settings action per SPEC §7.8).
+    """
+
+    class Requested(Message):
+        """Emitted when user clicks to open settings."""
+
+    def on_click(self, event) -> None:
+        self.post_message(self.Requested())
+
+
 class AgentLabel(ClickableLabel):
     """Clickable agent name label in the footer.
 
@@ -180,6 +196,8 @@ class StatusFooter(Static):
             yield ComputerInfoLabel(
                 "sys", id="computer-info-label", classes="footer-label"
             )
+            yield Static("·", classes="footer-sep")
+            yield SettingsLabel("settings", id="settings-label", classes="footer-label")
             yield Static("", id="footer-spacer")
             yield ProcessIndicator(id="process-indicator", classes="hidden")
             yield AgentLabel("", id="agent-label", classes="footer-label hidden")
@@ -213,7 +231,7 @@ class StatusFooter(Static):
                 label.set_class(True, "plan-mode")
                 label.set_class(False, "plan-swarm-mode")
             elif value == "auto":
-                label.update("Auto: classifier-gated")
+                label.update("Auto: safe tools auto-approved")
                 label.set_class(True, "active")
                 label.set_class(False, "plan-mode")
                 label.set_class(False, "plan-swarm-mode")

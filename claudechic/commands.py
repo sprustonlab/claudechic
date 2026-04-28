@@ -84,6 +84,7 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
     ("/clearui", "Clear UI widgets (keeps history)", []),
     ("/diff", "Review changes vs target (default HEAD)", []),
     ("/resume", "Resume a previous session", []),
+    ("/settings", "Open settings", []),
     (
         "/worktree",
         "Create git worktree with agent",
@@ -260,6 +261,11 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
     if cmd.startswith("/shell"):
         _track_command(app, "shell")
         return _handle_shell(app, cmd)
+
+    if cmd == "/settings":
+        _track_command(app, "settings")
+        app._handle_settings()
+        return True
 
     if cmd == "/theme":
         _track_command(app, "theme")

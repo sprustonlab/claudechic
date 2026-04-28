@@ -357,6 +357,31 @@ class AgentManager:
         """Check if agent exists."""
         return agent_id in self.agents
 
+    def refresh_guardrails(self) -> None:
+        """Re-bind guardrail enforcement state.
+
+        Per SPEC §7.5: invoked when project-tier ``guardrails`` toggles or
+        ``disabled_ids`` changes. Applies to NEW agents only — already-running
+        SDK clients are not re-connected here (re-connection is disruptive
+        and out of scope for the settings UI). Existing agents re-pick up
+        rules when they connect or restart.
+
+        The actual rule loading is performed by the per-agent connect path
+        which reads ``ProjectConfig.disabled_ids`` and the current
+        ``LoadResult`` at connection time. This method is the documented
+        notification hook so future reactive callers have a single seam.
+        """
+        # No active-agent re-bind today; this is a forward-compatible seam.
+        # Surface to the manager_observer so external instrumentation
+        # (analytics, telemetry) can see the event.
+        if self.manager_observer and hasattr(
+            self.manager_observer, "on_guardrails_refreshed"
+        ):
+            try:
+                self.manager_observer.on_guardrails_refreshed()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+
     async def set_global_permission_mode(self, mode: str) -> None:
         """Update permission mode for all agents.
 

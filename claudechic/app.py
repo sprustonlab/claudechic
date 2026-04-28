@@ -117,6 +117,7 @@ from claudechic.widgets.layout.footer import (
     DiagnosticsLabel,
     ModelLabel,
     PermissionModeLabel,
+    SettingsLabel,
     StatusFooter,
 )
 from claudechic.widgets.prompts import ModelPrompt
@@ -1289,11 +1290,16 @@ class ChatApp(App):
         from claudechic.screens.welcome import (
             RESULT_DISMISS,
             RESULT_PICKER,
+            RESULT_SETTINGS,
             RESULT_TUTORIAL,
         )
 
         if result is None:
             log.info("Onboarding welcome screen skipped")
+            return
+
+        if result == RESULT_SETTINGS:
+            self._handle_settings()
             return
 
         if result == RESULT_DISMISS:
@@ -3546,6 +3552,44 @@ class ChatApp(App):
         cwd = agent.cwd if agent else None
         self.push_screen(ComputerInfoModal(cwd=cwd))
 
+    def on_settings_label_requested(self, event: SettingsLabel.Requested) -> None:  # noqa: ARG002
+        """Handle settings label press — open SettingsScreen.
+
+        Shared parity contract per SPEC §7.8: footer button, ``/settings``
+        command, and welcome-screen Settings action all converge on
+        :meth:`_handle_settings`.
+        """
+        self._handle_settings()
+
+    def _handle_settings(self) -> None:
+        """Push the SettingsScreen — single entry point for all 3 surfaces.
+
+        Per SPEC §7.8: footer ``SettingsLabel.Requested``, the ``/settings``
+        command dispatch in ``commands.handle_command``, and the welcome
+        screen's ``RESULT_SETTINGS`` branch all call this method.
+        """
+        from claudechic.screens.settings import SettingsScreen
+
+        self.push_screen(SettingsScreen())
+
+    def _refresh_hints(self) -> None:
+        """Re-evaluate hints with the current ``disabled_ids`` filter.
+
+        Per SPEC §7.5 + Leadership correction: lightweight reload that
+        re-applies the disable filter against in-memory hint records and
+        then re-runs the pipeline. Does NOT re-parse manifests; that is the
+        responsibility of :meth:`_discover_workflows`.
+        """
+        try:
+            from claudechic.tasks import create_safe_task
+
+            create_safe_task(
+                self._run_hints(is_startup=False, budget=2),
+                name="hints-refresh",
+            )
+        except Exception:
+            log.debug("hints refresh scheduling failed", exc_info=True)
+
     def on_chicsession_actions_workflow_picker_requested(
         self,
         event: ChicsessionActions.WorkflowPickerRequested,  # noqa: ARG002
@@ -3605,6 +3649,13 @@ class ChatApp(App):
                 "phase_count": phase_count,
                 "is_active": bool(
                     self._workflow_engine and self._workflow_engine.workflow_id == wf_id
+                ),
+                # Per SPEC §7.9: tier badge + (defined at: ...) overrides line.
+                "tier": wf_data.tier if wf_data else "package",
+                "defined_at": (
+                    wf_data.defined_at
+                    if wf_data and wf_data.defined_at
+                    else frozenset({wf_data.tier if wf_data else "package"})
                 ),
             }
         self.push_screen(WorkflowPickerScreen(picker_data), on_dismiss)

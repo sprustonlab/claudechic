@@ -23,6 +23,7 @@ from claudechic.onboarding import FacetStatus
 RESULT_DISMISS = "dismiss"
 RESULT_TUTORIAL = "tutorial"
 RESULT_PICKER = "picker"
+RESULT_SETTINGS = "settings"
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +202,7 @@ class WelcomeScreen(Screen[str | None]):
                 )
 
             items.append(_ActionItem(RESULT_PICKER, "▸ Browse workflows"))
+            items.append(_ActionItem(RESULT_SETTINGS, "▸ Settings (/settings)"))
             items.append(_ActionItem(RESULT_DISMISS, "▸ Dismiss permanently"))
 
             yield ListView(*items, id="welcome-list")

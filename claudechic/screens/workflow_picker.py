@@ -6,14 +6,37 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
+# Per SPEC §7.9 + §7.11: user-facing prose uses "level"; the three level
+# badges are short tokens. Lowest priority -> highest priority sort key.
+_TIER_BADGE = {
+    "package": "[pkg]",
+    "user": "[user]",
+    "project": "[proj]",
+}
+_TIER_PRIORITY = {"project": 2, "user": 1, "package": 0}
+
 
 class WorkflowItem(ListItem):
-    """A workflow entry in the picker list."""
+    """A workflow entry in the picker list.
+
+    Per SPEC §7.9, each row carries the workflow's winning tier and the
+    full set of tiers where it is defined (``defined_at``). The picker
+    sorts by tier priority (project > user > package) and shows a level
+    badge per row plus a secondary "(defined at: ...)" line for
+    workflows with overrides at lower levels.
+    """
 
     DEFAULT_CSS = """
     WorkflowItem {
         pointer: pointer;
     }
+    WorkflowItem .tier-badge {
+        width: auto;
+        margin: 0 1;
+    }
+    WorkflowItem .tier-package { color: $text-muted; }
+    WorkflowItem .tier-user { color: $secondary; }
+    WorkflowItem .tier-project { color: $primary; }
     """
 
     def __init__(
@@ -22,15 +45,21 @@ class WorkflowItem(ListItem):
         main_role: str = "",
         phase_count: int = 0,
         is_active: bool = False,
+        tier: str = "package",
+        defined_at: frozenset[str] | None = None,
     ) -> None:
         super().__init__()
         self.workflow_id = workflow_id
         self.main_role = main_role
         self.phase_count = phase_count
         self.is_active = is_active
+        self.tier = tier
+        self.defined_at = defined_at or frozenset({tier})
 
     def compose(self) -> ComposeResult:
         yield Label(self.workflow_id, classes="workflow-name")
+        badge_text = _TIER_BADGE.get(self.tier, f"[{self.tier}]")
+        yield Label(badge_text, classes=f"tier-badge tier-{self.tier}")
         parts = []
         if self.main_role:
             parts.append(f"role: {self.main_role}")
@@ -40,6 +69,19 @@ class WorkflowItem(ListItem):
         else:
             parts.append("available")
         yield Label(" . ".join(parts), classes="workflow-meta")
+        # Show "(defined at: ...)" line if the workflow has overrides at
+        # lower levels (per SPEC §7.9 + §7.11 canonical phrasing).
+        also = self.defined_at - {self.tier}
+        if also:
+            ordered = sorted(
+                also,
+                key=lambda t: _TIER_PRIORITY.get(t, -1),
+                reverse=True,
+            )
+            yield Label(
+                f"(defined at: {', '.join(ordered)})",
+                classes="workflow-meta",
+            )
 
 
 class WorkflowPickerScreen(Screen[str | None]):
@@ -144,27 +186,43 @@ class WorkflowPickerScreen(Screen[str | None]):
 
         title = self.query_one("#workflow-picker-title", Static)
 
-        filtered = sorted(self._workflows.keys())
+        ids = list(self._workflows.keys())
         if search_lower:
-            filtered = [wf for wf in filtered if search_lower in wf.lower()]
+            ids = [wf for wf in ids if search_lower in wf.lower()]
 
-        if not filtered:
+        if not ids:
             title.update("Select Workflow (0 matches)")
             return
 
-        title.update(f"Select Workflow ({len(filtered)} available)")
+        # Sort: tier priority (project > user > package), then alphabetic
+        # within tier — per SPEC §7.9.
+        def _sort_key(wf_id: str) -> tuple[int, str]:
+            data = self._workflows.get(wf_id) or {}
+            tier = data.get("tier", "package") if isinstance(data, dict) else "package"
+            # Lower number == higher priority for ascending sort.
+            priority = -_TIER_PRIORITY.get(tier, -1)
+            return (priority, wf_id)
 
-        for wf_id in filtered:
+        sorted_ids = sorted(ids, key=_sort_key)
+
+        title.update(f"Select Workflow ({len(sorted_ids)} available)")
+
+        for wf_id in sorted_ids:
             data = self._workflows[wf_id]
             if isinstance(data, dict):
+                defined_at = data.get("defined_at")
+                if defined_at is not None and not isinstance(defined_at, frozenset):
+                    defined_at = frozenset(defined_at)
                 item = WorkflowItem(
                     workflow_id=wf_id,
                     main_role=data.get("main_role", ""),
                     phase_count=data.get("phase_count", 0),
                     is_active=data.get("is_active", False),
+                    tier=data.get("tier", "package"),
+                    defined_at=defined_at,
                 )
             else:
-                # Simple path-based entry
+                # Path-based entry — defaults to package tier.
                 item = WorkflowItem(workflow_id=wf_id)
             list_view.append(item)
 
