@@ -139,6 +139,35 @@ class ManualConfirm:
             return CheckResult(passed=False, evidence=f"Confirmation failed: {e}")
 
 
+class ArtifactDirReadyCheck:
+    """Passes when the engine has an artifact directory bound.
+
+    Reads ``engine.artifact_dir``. Returns failure when ``None`` (i.e.,
+    ``set_artifact_dir`` has not yet been called for this run); success
+    otherwise — whether the value came from a fresh ``set_artifact_dir``
+    call or from a chicsession resume.
+
+    The engine reference is injected at check-build time by
+    ``WorkflowEngine._run_single_check`` so this leaf module does not
+    import the engine class.
+    """
+
+    def __init__(self, engine: Any) -> None:
+        self.engine = engine
+
+    async def check(self) -> CheckResult:
+        artifact_dir = getattr(self.engine, "artifact_dir", None)
+        if artifact_dir is None:
+            return CheckResult(
+                passed=False,
+                evidence=(
+                    "Artifact directory not set — call "
+                    "`set_artifact_dir(...)` MCP tool before advancing."
+                ),
+            )
+        return CheckResult(passed=True, evidence=f"artifact_dir set: {artifact_dir}")
+
+
 # ---------------------------------------------------------------------------
 # Register built-in types at module level
 # ---------------------------------------------------------------------------
@@ -162,4 +191,8 @@ register_check_type(
         confirm_fn=p["confirm_fn"],
         context=p.get("context"),
     ),
+)
+register_check_type(
+    "artifact-dir-ready-check",
+    lambda p: ArtifactDirReadyCheck(engine=p["engine"]),
 )

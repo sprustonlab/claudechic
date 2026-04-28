@@ -282,6 +282,9 @@ async def test_inv_aw_9_post_compact_returns_reason_when_prompt(
         def get_current_phase(self) -> str:
             return "implement"
 
+        def get_artifact_dir(self):
+            return None
+
     hook_dict = create_post_compact_hook(
         engine=FakeEngine(),
         agent_role="coordinator",
@@ -307,6 +310,9 @@ async def test_inv_aw_9_post_compact_returns_empty_when_none(
         def get_current_phase(self) -> str | None:
             return None
 
+        def get_artifact_dir(self):
+            return None
+
     # Point at a missing workflow dir so assemble_phase_prompt returns None
     hook_dict = create_post_compact_hook(
         engine=FakeEngine(),
@@ -327,6 +333,9 @@ async def test_inv_aw_9_post_compact_no_file_io(tmp_path: Path) -> None:
 
         def get_current_phase(self) -> str:
             return "design"
+
+        def get_artifact_dir(self):
+            return None
 
     hook_dict = create_post_compact_hook(
         engine=FakeEngine(),
@@ -414,16 +423,29 @@ async def test_e2e_activation_delivers_prompt_to_real_agent(
 
 
 # ---------------------------------------------------------------------------
-# Sanity: assembler signature matches the post-Group-C 3-arg form
+# Sanity: assembler signature
 # ---------------------------------------------------------------------------
 
 
 def test_assemble_phase_prompt_signature() -> None:
-    """``assemble_phase_prompt(workflow_dir, role_name, current_phase)`` — 3 args."""
+    """Signature: ``(workflow_dir, role_name, current_phase, artifact_dir=None)``.
+
+    Group E (artifact directories) added the optional ``artifact_dir``
+    parameter for ``${CLAUDECHIC_ARTIFACT_DIR}`` substitution. The first
+    three parameters and their order are pinned; ``artifact_dir`` MUST
+    have a default value so existing 3-arg callers continue to work.
+    """
     import inspect
 
     sig = inspect.signature(assemble_phase_prompt)
     params = list(sig.parameters.keys())
-    assert params == ["workflow_dir", "role_name", "current_phase"], (
-        f"Signature drift: got {params}"
+    assert params[:3] == ["workflow_dir", "role_name", "current_phase"], (
+        f"Signature drift on required positional params: got {params}"
     )
+    if len(params) > 3:
+        assert params[3] == "artifact_dir", (
+            f"Group E added 'artifact_dir' as 4th param; got {params}"
+        )
+        assert sig.parameters["artifact_dir"].default is None, (
+            "artifact_dir must default to None"
+        )

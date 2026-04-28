@@ -1842,6 +1842,7 @@ class ChatApp(App):
                 manifest=manifest,
                 persist_fn=self._make_persist_fn(),
                 confirm_callback=self._make_confirm_callback(),
+                cwd=self._cwd,
             )
             phase = self._workflow_engine.get_current_phase()
 
@@ -1866,6 +1867,7 @@ class ChatApp(App):
                     workflow_dir=wf_data.path,
                     role_name=wf_data.main_role,
                     current_phase=phase,
+                    artifact_dir=self._workflow_engine.get_artifact_dir(),
                 )
 
             if kickoff_prompt:
@@ -2090,6 +2092,11 @@ class ChatApp(App):
                 workflow_dir=wf_data.path,
                 role_name=main_role,
                 current_phase=current_phase,
+                artifact_dir=(
+                    self._workflow_engine.get_artifact_dir()
+                    if self._workflow_engine is not None
+                    else None
+                ),
             )
             if prompt:
                 self._send_to_active_agent(prompt)
@@ -2247,6 +2254,7 @@ class ChatApp(App):
                 manifest=manifest,
                 persist_fn=self._make_persist_fn(),
                 confirm_callback=self._make_confirm_callback(),
+                cwd=self._cwd,
             )
             phase = self._workflow_engine.get_current_phase()
             self.notify(f"Restored workflow '{wf_id}' — phase: {phase or 'none'}")

@@ -296,6 +296,7 @@ def _make_spawn_agent(caller_name: str | None = None):
                             workflow_dir=wf_data.path,
                             role_name=agent_type,
                             current_phase=_app._workflow_engine.get_current_phase(),
+                            artifact_dir=_app._workflow_engine.get_artifact_dir(),
                         )
                         if folder_prompt:
                             full_prompt = f"{folder_prompt}\n\n---\n\n{prompt}"
@@ -963,6 +964,7 @@ def _make_advance_phase(caller_name: str | None = None):
                                     workflow_dir=wf_data.path,
                                     role_name=main_role,
                                     current_phase=next_phase,
+                                    artifact_dir=engine.get_artifact_dir(),
                                 )
                                 or ""
                             )
@@ -1009,6 +1011,7 @@ def _make_advance_phase(caller_name: str | None = None):
                                 workflow_dir=wf_data_b.path,
                                 role_name=agent.agent_type,
                                 current_phase=next_phase,
+                                artifact_dir=engine.get_artifact_dir(),
                             )
                             if agent_prompt:
                                 _send_prompt_fire_and_forget(
@@ -1033,6 +1036,71 @@ def _make_advance_phase(caller_name: str | None = None):
             engine._confirm_callback = original_cb
 
     return advance_phase
+
+
+@tool(
+    "set_artifact_dir",
+    (
+        "Bind an artifact directory to the active workflow run. Coordinator "
+        "agents call this once during a Setup-style phase to choose the "
+        "on-disk location where workflow artifacts (specs, plans, status, "
+        "hand-off material) are written. Accepts an absolute path, or a "
+        "relative path resolved against the launched-repo root. Rejects "
+        "paths inside any '.claude/' directory. Idempotent on the same "
+        "resolved path; raises on a different path once one is set. "
+        "Returns the resolved absolute path string."
+    ),
+    {"path": str},
+)
+async def set_artifact_dir(args: dict[str, Any]) -> dict[str, Any]:
+    """Bind an artifact directory to the active workflow."""
+    if _app is None or _app._workflow_engine is None:
+        return _error_response(
+            "No active workflow. set_artifact_dir requires an active workflow run."
+        )
+    _track_mcp_tool("set_artifact_dir")
+
+    path = args.get("path")
+    if not isinstance(path, str):
+        return _error_response("set_artifact_dir requires a string 'path' argument")
+
+    try:
+        resolved = await _app._workflow_engine.set_artifact_dir(path)
+    except (ValueError, RuntimeError) as e:
+        return _error_response(str(e))
+    except Exception as e:
+        log.exception("set_artifact_dir failed")
+        return _error_response(f"set_artifact_dir failed: {e}")
+
+    return _text_response(str(resolved))
+
+
+@tool(
+    "get_artifact_dir",
+    (
+        "Return the active workflow's artifact directory as an absolute "
+        "path string, or JSON null if no artifact directory has been set "
+        "yet. Any agent may call this at any time during their turn."
+    ),
+    {},
+)
+async def get_artifact_dir(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
+    """Return the active workflow's artifact directory or null."""
+    if _app is None or _app._workflow_engine is None:
+        return _error_response(
+            "No active workflow. get_artifact_dir requires an active workflow run."
+        )
+    _track_mcp_tool("get_artifact_dir")
+
+    artifact_dir = _app._workflow_engine.get_artifact_dir()
+    if artifact_dir is None:
+        # JSON null on the wire — separate content type from text so
+        # callers can distinguish "not set" from the literal string "null".
+        return {
+            "content": [{"type": "text", "text": "null"}],
+            "structuredContent": None,
+        }
+    return _text_response(str(artifact_dir))
 
 
 @tool(
@@ -1219,6 +1287,8 @@ def create_chic_server(
         # Workflow guidance tools
         _make_advance_phase(caller_name),
         get_phase,
+        set_artifact_dir,
+        get_artifact_dir,
         _make_request_override(caller_name),
         acknowledge_warning,
     ]

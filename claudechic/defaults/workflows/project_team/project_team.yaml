@@ -10,12 +10,15 @@ phases:
   - id: setup
     file: setup
     advance_checks:
+      - type: artifact-dir-ready-check
+        on_failure:
+          message: "Artifact directory not set — call `set_artifact_dir(...)` MCP tool before advancing."
       - type: command-output-check
-        command: "python -c \"import glob; print('\\n'.join(glob.glob('.project_team/*/STATUS.md')))\""
-        pattern: "STATUS\\.md"
+        command: "test -f \"${CLAUDECHIC_ARTIFACT_DIR}/STATUS.md\" && echo PRESENT"
+        pattern: "PRESENT"
       - type: command-output-check
-        command: "python -c \"import glob; print('\\n'.join(glob.glob('.project_team/*/userprompt.md')))\""
-        pattern: "userprompt\\.md"
+        command: "test -f \"${CLAUDECHIC_ARTIFACT_DIR}/userprompt.md\" && echo PRESENT"
+        pattern: "PRESENT"
   - id: leadership
     file: leadership
   - id: specification

@@ -17,10 +17,27 @@ from claude_agent_sdk.types import HookMatcher
 logger = logging.getLogger(__name__)
 
 
+_ARTIFACT_DIR_TOKEN = "${CLAUDECHIC_ARTIFACT_DIR}"
+
+
+def _substitute_artifact_dir(content: str, artifact_dir: Path | None) -> str:
+    """Replace ``${CLAUDECHIC_ARTIFACT_DIR}`` with the resolved path.
+
+    Pure literal string-replace; no shell-style expansion (no ``$VAR``,
+    no ``~``); no other tokens. When ``artifact_dir`` is ``None`` the
+    token is replaced with the empty string — a deliberate, visible
+    failure mode (e.g., ``Write to ${CLAUDECHIC_ARTIFACT_DIR}/spec.md``
+    becomes ``Write to /spec.md``).
+    """
+    sub = str(artifact_dir) if artifact_dir is not None else ""
+    return content.replace(_ARTIFACT_DIR_TOKEN, sub)
+
+
 def _assemble_agent_prompt(
     workflow_dir: Path,
     role_name: str,
     current_phase: str | None,
+    artifact_dir: Path | None = None,
 ) -> str:
     """Read identity.md + phase.md, return concatenated content.
 
@@ -28,6 +45,10 @@ def _assemble_agent_prompt(
         workflow_dir: e.g. workflows/project_team/
         role_name: folder name, e.g. "coordinator"
         current_phase: e.g. "specification" -> reads specification.md
+        artifact_dir: Resolved absolute path bound via
+            ``WorkflowEngine.set_artifact_dir`` for this run, or ``None``
+            if unset. Substituted into the assembled markdown wherever
+            the literal token ``${CLAUDECHIC_ARTIFACT_DIR}`` appears.
     """
     role_dir = workflow_dir / role_name
 
@@ -47,14 +68,18 @@ def _assemble_agent_prompt(
             phase_content = phase_path.read_text(encoding="utf-8")
 
     if phase_content:
-        return f"{identity}\n\n---\n\n{phase_content}"
-    return identity
+        combined = f"{identity}\n\n---\n\n{phase_content}"
+    else:
+        combined = identity
+
+    return _substitute_artifact_dir(combined, artifact_dir)
 
 
 def assemble_phase_prompt(
     workflow_dir: Path,
     role_name: str,
     current_phase: str | None,
+    artifact_dir: Path | None = None,
 ) -> str | None:
     """Get full system prompt content for an agent.
 
@@ -67,10 +92,16 @@ def assemble_phase_prompt(
             resolution is the loader's job; this function is post-resolution.
         role_name: Agent role folder name (e.g. "coordinator").
         current_phase: Current phase ID, or None.
+        artifact_dir: Resolved absolute path bound via
+            ``WorkflowEngine.set_artifact_dir`` for this run, or ``None``
+            if unset. Substituted into the assembled markdown wherever
+            the literal token ``${CLAUDECHIC_ARTIFACT_DIR}`` appears.
     """
     if workflow_dir is None or not workflow_dir.is_dir():
         return None
-    result = _assemble_agent_prompt(workflow_dir, role_name, current_phase)
+    result = _assemble_agent_prompt(
+        workflow_dir, role_name, current_phase, artifact_dir
+    )
     return result or None
 
 
@@ -102,8 +133,11 @@ def create_post_compact_hook(
     ) -> dict:
         """Re-inject phase context after /compact."""
         current_phase = engine.get_current_phase()
+        artifact_dir = engine.get_artifact_dir()
 
-        prompt = assemble_phase_prompt(workflow_dir, agent_role, current_phase)
+        prompt = assemble_phase_prompt(
+            workflow_dir, agent_role, current_phase, artifact_dir
+        )
         if prompt:
             logger.debug(
                 "PostCompact: re-injected phase context for %s (phase: %s)",
