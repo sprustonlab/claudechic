@@ -531,3 +531,204 @@ def test_tier_provenance_maps_use_frozenset(tmp_path: Path) -> None:
     result = _load(pkg, user=user)
 
     assert isinstance(result.workflow_provenance["foo"], frozenset)
+
+
+# ---------------------------------------------------------------------------
+# §12.4 — INV-DF-1/2/3/7 (bare-ID disable behaviors via _filter_load_result)
+# ---------------------------------------------------------------------------
+#
+# The tier-targeted disable invariants (INV-DF-4/5/6) live in the loader
+# itself and are covered above. The bare-ID invariants exercise
+# ``app._filter_load_result``, which post-processes ``LoadResult`` with the
+# union of user-config and project-config bare-ID disable lists per §3.6.
+
+
+def _make_project_config(
+    *,
+    disabled_workflows: list[str] | None = None,
+    disabled_ids: list[str] | None = None,
+    guardrails: bool = True,
+    hints: bool = True,
+):
+    """Build a ProjectConfig with the requested disable lists.
+
+    Local helper to keep INV-DF tests self-contained — avoids reaching
+    into the full ``claudechic.config.ProjectConfig.load()`` path which
+    requires an on-disk YAML file.
+    """
+    from claudechic.config import ProjectConfig
+
+    return ProjectConfig(
+        guardrails=guardrails,
+        hints=hints,
+        disabled_workflows=disabled_workflows or [],
+        disabled_ids=disabled_ids or [],
+    )
+
+
+def test_inv_df_1_bare_id_disable_removes_workflow_and_namespaced_records(
+    tmp_path: Path,
+) -> None:
+    """INV-DF-1: bare-ID disable applies across ALL tiers, including any
+    rules/hints/checks whose namespace matches the disabled workflow_id.
+    """
+    from claudechic.app import _filter_load_result
+
+    pkg = _mkdir(tmp_path / "package")
+    # Workflow `foo` plus an in-workflow rule whose namespace == workflow_id.
+    _write_workflow(pkg, "foo")
+    foo_yaml = pkg / "workflows" / "foo" / "foo.yaml"
+    foo_yaml.write_text(
+        yaml.safe_dump(
+            {
+                "workflow_id": "foo",
+                "main_role": "coordinator",
+                "phases": [{"id": "setup"}, {"id": "build"}],
+                "rules": [
+                    {
+                        "id": "foo_rule",
+                        "trigger": "PreToolUse/Bash",
+                        "enforcement": "warn",
+                        "message": "namespace=foo",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    # An unrelated workflow `bar` so we can confirm it survives.
+    _write_workflow(pkg, "bar")
+
+    result = _load(pkg)
+    assert "foo" in result.workflows
+    assert "bar" in result.workflows
+    foo_rules_pre = [r for r in result.rules if r.namespace == "foo"]
+    assert foo_rules_pre, (
+        "Pre-filter sanity: namespace=foo rule must be present before disable"
+    )
+
+    config = _make_project_config(disabled_workflows=["foo"])
+    filtered = _filter_load_result(result, config)
+
+    # Workflow removed
+    assert "foo" not in filtered.workflows
+    # Sibling workflow untouched
+    assert "bar" in filtered.workflows
+    # Rules whose namespace matches the disabled workflow are also pruned
+    assert not [r for r in filtered.rules if r.namespace == "foo"]
+    # Phases keyed under that namespace are pruned (mirrors workflow scope)
+    assert not [p for p in filtered.phases if p.namespace == "foo"]
+
+
+def test_inv_df_2_unknown_bare_workflow_id_warns_no_error(
+    tmp_path: Path, caplog
+) -> None:
+    """INV-DF-2: unknown bare workflow_id in ``disabled_workflows`` → WARN
+    log, no error/exception, LoadResult.errors unchanged."""
+    import logging
+
+    from claudechic.app import _filter_load_result
+
+    pkg = _mkdir(tmp_path / "package")
+    _write_workflow(pkg, "foo")
+
+    result = _load(pkg)
+    config = _make_project_config(disabled_workflows=["nonexistent_workflow"])
+
+    with caplog.at_level(logging.WARNING, logger="claudechic.app"):
+        filtered = _filter_load_result(result, config)
+
+    # No exception; foo still present (filter ran cleanly).
+    assert "foo" in filtered.workflows
+    # WARN was emitted referencing the unknown id.
+    assert any(
+        "nonexistent_workflow" in rec.message and rec.levelname == "WARNING"
+        for rec in caplog.records
+    ), f"No WARN for unknown workflow_id: {[r.message for r in caplog.records]}"
+    # LoadResult.errors does NOT contain a related entry (per §3.6 +
+    # spec wording: "LoadResult.errors does NOT contain a related entry").
+    assert all("nonexistent_workflow" not in (e.item_id or "") for e in filtered.errors)
+
+
+def test_inv_df_3_unknown_bare_id_in_disabled_ids_warns_no_error(
+    tmp_path: Path, caplog
+) -> None:
+    """INV-DF-3: unknown bare id in ``disabled_ids`` → WARN log, no error.
+
+    Symmetric to INV-DF-2 but for individual rule/hint/check IDs rather
+    than workflow_ids.
+    """
+    import logging
+
+    from claudechic.app import _filter_load_result
+
+    pkg = _mkdir(tmp_path / "package")
+    _write_workflow(pkg, "foo")
+    _write_global_rules(
+        pkg,
+        [{"id": "real_rule", "trigger": "PreToolUse/Bash", "enforcement": "warn"}],
+    )
+
+    result = _load(pkg)
+    config = _make_project_config(disabled_ids=["global:does_not_exist"])
+
+    with caplog.at_level(logging.WARNING, logger="claudechic.app"):
+        filtered = _filter_load_result(result, config)
+
+    # The real rule is still present.
+    assert any(r.id == "global:real_rule" for r in filtered.rules)
+    # WARN was emitted referencing the unknown id.
+    assert any(
+        "global:does_not_exist" in rec.message and rec.levelname == "WARNING"
+        for rec in caplog.records
+    ), f"No WARN for unknown disabled_id: {[r.message for r in caplog.records]}"
+    # LoadResult.errors does NOT contain a related entry.
+    assert all("does_not_exist" not in (e.item_id or "") for e in filtered.errors)
+
+
+def test_inv_df_7_union_user_and_project_disable_lists(tmp_path: Path) -> None:
+    """INV-DF-7: union of user-config and project-config disable lists.
+
+    User-config ``disabled_workflows = ["foo"]`` AND project-config
+    ``disabled_workflows = ["bar"]`` — both honored additively. Symmetric
+    for ``disabled_ids``.
+    """
+    from claudechic.app import _filter_load_result
+
+    pkg = _mkdir(tmp_path / "package")
+    _write_workflow(pkg, "foo")
+    _write_workflow(pkg, "bar")
+    _write_workflow(pkg, "baz")  # control: should survive
+    _write_global_rules(
+        pkg,
+        [
+            {"id": "rule_a", "trigger": "PreToolUse/Bash", "enforcement": "warn"},
+            {"id": "rule_b", "trigger": "PreToolUse/Bash", "enforcement": "warn"},
+            {"id": "rule_c", "trigger": "PreToolUse/Bash", "enforcement": "warn"},
+        ],
+    )
+
+    result = _load(pkg)
+    assert {"foo", "bar", "baz"}.issubset(result.workflows.keys())
+
+    # Project config disables "foo"; user config disables "bar". Both
+    # honored additively; baz survives.
+    config = _make_project_config(
+        disabled_workflows=["foo"], disabled_ids=["global:rule_a"]
+    )
+    filtered = _filter_load_result(
+        result,
+        config,
+        user_disabled_workflows=frozenset({"bar"}),
+        user_disabled_ids=frozenset({"global:rule_b"}),
+    )
+
+    # Workflows: foo + bar gone; baz remains.
+    assert "foo" not in filtered.workflows
+    assert "bar" not in filtered.workflows
+    assert "baz" in filtered.workflows
+    # Rules: rule_a + rule_b gone; rule_c remains.
+    rule_ids_after = {r.id for r in filtered.rules}
+    assert "global:rule_a" not in rule_ids_after
+    assert "global:rule_b" not in rule_ids_after
+    assert "global:rule_c" in rule_ids_after

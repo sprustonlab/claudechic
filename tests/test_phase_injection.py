@@ -812,10 +812,12 @@ async def test_close_leadership_rule_fires_on_coordinator(tmp_path: Path) -> Non
     from claudechic.workflows import register_default_parsers
     from claudechic.workflows.loader import ManifestLoader
 
-    # Load from the REAL repo manifests — rule must exist in production YAML
-    repo_root = Path(__file__).resolve().parents[3]
-    global_dir = repo_root / "global"
-    workflows_dir = repo_root / "workflows"
+    # Load from the REAL repo manifests — rule must exist in production YAML.
+    # Paths updated post-Group-A restructure: bundled content lives under
+    # claudechic/defaults/{global,workflows}/.
+    repo_root = Path(__file__).resolve().parents[1]
+    global_dir = repo_root / "claudechic" / "defaults" / "global"
+    workflows_dir = repo_root / "claudechic" / "defaults" / "workflows"
 
     loader = ManifestLoader(global_dir=global_dir, workflows_dir=workflows_dir)
     register_default_parsers(loader)
@@ -851,6 +853,69 @@ async def test_close_leadership_rule_fires_on_coordinator(tmp_path: Path) -> Non
     assert "no_close_leadership" in hook_result.get("reason", ""), (
         f"Block reason should reference no_close_leadership rule, "
         f"got: {hook_result.get('reason', '')}"
+    )
+
+
+# ===========================================================================
+# Test 12b: no_close_leadership scope — does NOT fire for non-coordinator
+#
+# Locks the role-scope contract: the rule is coordinator-scoped (per the
+# YAML role filter on no_close_leadership). A non-coordinator agent
+# (researcher / implementer / sub-agent) calling close_agent must NOT be
+# blocked by this rule. Same scaffolding as the coordinator-fires test
+# above; the only difference is agent_role passed into the hook factory.
+# ===========================================================================
+
+
+async def test_close_leadership_rule_does_not_fire_for_non_coordinator(
+    tmp_path: Path,
+) -> None:
+    """no_close_leadership must NOT block close_agent from a non-coordinator role."""
+    from claudechic.guardrails.hits import HitLogger
+    from claudechic.guardrails.hooks import create_guardrail_hooks
+    from claudechic.workflows import register_default_parsers
+    from claudechic.workflows.loader import ManifestLoader
+
+    repo_root = Path(__file__).resolve().parents[1]
+    global_dir = repo_root / "claudechic" / "defaults" / "global"
+    workflows_dir = repo_root / "claudechic" / "defaults" / "workflows"
+
+    loader = ManifestLoader(global_dir=global_dir, workflows_dir=workflows_dir)
+    register_default_parsers(loader)
+
+    # Sanity-check: the rule must be present (else the assertion below
+    # would trivially pass for the wrong reason).
+    load_result = loader.load()
+    rule_ids = [r.id for r in load_result.rules]
+    assert any("no_close_leadership" in rid for rid in rule_ids), (
+        "no_close_leadership rule not found in loaded rules; "
+        "non-coordinator scope assertion would be vacuous"
+    )
+
+    hit_logger = HitLogger(hits_path=tmp_path / "hits.jsonl")
+    hooks = create_guardrail_hooks(
+        loader=loader,
+        hit_logger=hit_logger,
+        agent_role="researcher",  # NOT a leadership role
+        get_phase=lambda: "project-team:specification",
+        get_active_wf=lambda: "project-team",
+    )
+
+    evaluate_fn = hooks["PreToolUse"][0].hooks[0]
+    hook_result = await evaluate_fn(
+        {"tool_name": "mcp__chic__close_agent", "tool_input": {"name": "SomeAgent"}},
+        None,
+        None,
+    )
+
+    # The rule is coordinator-scoped via the YAML role filter; a researcher
+    # calling close_agent must not be blocked by it. Other rules might
+    # still apply, but the no_close_leadership reason MUST NOT be present.
+    decision = hook_result.get("decision")
+    reason = hook_result.get("reason", "")
+    assert decision != "block" or "no_close_leadership" not in reason, (
+        f"no_close_leadership fired for non-coordinator role 'researcher'; "
+        f"role-scope contract broken. decision={decision!r} reason={reason!r}"
     )
 
 

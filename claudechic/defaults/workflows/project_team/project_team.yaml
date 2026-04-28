@@ -93,4 +93,5 @@ rules:
     message: >-
       Do not close agents during active workflow phases. Agents carry context
       that is lost on close. Wait until signoff phase.
+    roles: [coordinator]
     exclude_phases: [signoff]
