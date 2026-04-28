@@ -193,6 +193,11 @@ class HintSpec:
 # ---------------------------------------------------------------------------
 
 
+# Tier identity for parsed-record provenance. Kept in sync with
+# claudechic/workflows/loader.py (this leaf module cannot import from there).
+Tier = Literal["package", "user", "project"]
+
+
 @dataclass(frozen=True)
 class HintDecl:
     """Manifest declaration of a hint. Parsed from YAML, later converted to HintSpec.
@@ -212,6 +217,8 @@ class HintDecl:
     trigger_type: str | None = None  # e.g. "context-docs-drift", None = AlwaysTrue
     severity: str = "info"
     priority: int = 3
+    # Tier provenance — opaque metadata for engine; UI-only consumption.
+    tier: Tier = "package"
 
 
 # ---------------------------------------------------------------------------

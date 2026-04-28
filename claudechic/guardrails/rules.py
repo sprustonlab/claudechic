@@ -9,9 +9,13 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
+
+# Tier identity for parsed-record provenance. Kept in sync with
+# claudechic/workflows/loader.py (this leaf module cannot import from there).
+Tier = Literal["package", "user", "project"]
 
 
 @dataclass(frozen=True)
@@ -30,6 +34,8 @@ class Rule:
     exclude_roles: list[str] = field(default_factory=list)
     phases: list[str] = field(default_factory=list)
     exclude_phases: list[str] = field(default_factory=list)
+    # Tier provenance — opaque metadata for engine; UI-only consumption.
+    tier: Tier = "package"
 
 
 @dataclass(frozen=True)
@@ -50,6 +56,8 @@ class Injection:
     exclude_roles: list[str] = field(default_factory=list)
     phases: list[str] = field(default_factory=list)
     exclude_phases: list[str] = field(default_factory=list)
+    # Tier provenance — opaque metadata for engine; UI-only consumption.
+    tier: Tier = "package"
 
 
 # DEPRECATED: This function is unused. Rules are now loaded via ManifestLoader

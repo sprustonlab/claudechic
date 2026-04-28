@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
+
+# Tier identity for parsed-record provenance. Kept in sync with
+# claudechic/workflows/loader.py (this leaf module cannot import from there).
+Tier = Literal["package", "user", "project"]
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,8 @@ class CheckDecl:
     params: dict[str, Any]
     on_failure: dict | None = None
     when: dict | None = None
+    # Tier provenance — opaque metadata for engine; UI-only consumption.
+    tier: Tier = "package"
 
 
 @dataclass(frozen=True)
