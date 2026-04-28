@@ -2,10 +2,10 @@
 
 Owns all persistent state: project context, feature config, hint lifecycle
 history, and activation preferences. The single state file lives at
-``.claude/hints_state.json`` with independent sections for activation and
+``.claudechic/hints_state.json`` with independent sections for activation and
 lifecycle -- one file, one atomic write.
 
-This module is the ONLY code that reads/writes ``.claude/hints_state.json``.
+This module is the ONLY code that reads/writes ``.claudechic/hints_state.json``.
 
 LEAF MODULE: stdlib + config only. No imports from workflows/, checks/,
 or guardrails/.
@@ -124,12 +124,12 @@ _DEFAULT_LAST_SHOWN_TS = None
 _DEFAULT_DISMISSED = False
 
 # State file location relative to project root
-_STATE_FILE = ".claude/hints_state.json"
+_STATE_FILE = ".claudechic/hints_state.json"
 _CURRENT_VERSION = 1
 
 
 class HintStateStore:
-    """Manages the lifecycle section of .claude/hints_state.json.
+    """Manages the lifecycle section of .claudechic/hints_state.json.
 
     This is the ONLY class that reads/writes hint lifecycle state.
     Triggers, presenters, and activation logic access state through

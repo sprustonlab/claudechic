@@ -1,6 +1,6 @@
 """Theme definitions for Claude Chic.
 
-Custom themes can be defined in ~/.claude/.claudechic.yaml:
+Custom themes can be defined in ~/.claudechic/config.yaml:
 
     themes:
       moonfly:
@@ -84,7 +84,7 @@ def get_available_theme_names() -> set[str]:
 def load_custom_themes() -> list[Theme]:
     """Load custom themes from config file.
 
-    Returns list of Theme objects defined in ~/.claude/.claudechic.yaml
+    Returns list of Theme objects defined in ~/.claudechic/config.yaml
     Missing values inherit from CHIC_THEME defaults.
     """
     themes_config = CONFIG.get("themes", {})

@@ -315,11 +315,11 @@ These tools let agents communicate programmatically:
 
 ## Configuration
 
-Configuration is stored in `~/.claude/.claudechic.yaml`.
+Configuration is stored in `~/.claudechic/config.yaml`.
 
 ### Worktree Path Templates
 
-Customize worktree locations in `~/.claude/.claudechic.yaml` using template variables:
+Customize worktree locations in `~/.claudechic/config.yaml` using template variables:
 
 ```yaml
 worktree:

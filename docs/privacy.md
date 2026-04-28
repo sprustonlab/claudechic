@@ -33,7 +33,7 @@ Claude Chic is open source. You can inspect exactly what we track here:
 
 ### Via config file
 
-Edit `~/.claude/.claudechic.yaml`:
+Edit `~/.claudechic/config.yaml`:
 
 ```yaml
 analytics:

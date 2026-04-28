@@ -175,7 +175,7 @@ class TestHintsInChatApp:
         _install_hints(tmp_path)
 
         # Pre-create state file with hints disabled
-        state_dir = tmp_path / ".claude"
+        state_dir = tmp_path / ".claudechic"
         state_dir.mkdir()
         (state_dir / "hints_state.json").write_text(
             json.dumps(

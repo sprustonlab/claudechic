@@ -41,7 +41,7 @@ class TestWorkflowHitsLogging:
         loader = ManifestLoader(global_dir, tmp_path / "workflows")
         register_default_parsers(loader)
 
-        hits_path = tmp_path / ".claude" / "hits.jsonl"
+        hits_path = tmp_path / ".claudechic" / "hits.jsonl"
         hit_logger = HitLogger(hits_path)
         token_store = OverrideTokenStore()
 
@@ -97,7 +97,7 @@ class TestWorkflowHitsLogging:
         loader = ManifestLoader(global_dir, tmp_path / "workflows")
         register_default_parsers(loader)
 
-        hits_path = tmp_path / ".claude" / "hits.jsonl"
+        hits_path = tmp_path / ".claudechic" / "hits.jsonl"
         hit_logger = HitLogger(hits_path)
 
         try:
@@ -146,7 +146,7 @@ class TestWorkflowHitsLogging:
         loader = ManifestLoader(global_dir, tmp_path / "workflows")
         register_default_parsers(loader)
 
-        hits_path = tmp_path / ".claude" / "hits.jsonl"
+        hits_path = tmp_path / ".claudechic" / "hits.jsonl"
         hit_logger = HitLogger(hits_path)
 
         try:

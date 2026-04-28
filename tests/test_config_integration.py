@@ -23,7 +23,7 @@ def _cwd_to_tmp(tmp_path, monkeypatch):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_default_config_loads_rules_and_hints(mock_sdk, _cwd_to_tmp):
-    """No .claudechic.yaml -> all bundled rules, hints, and injections load."""
+    """No .claudechic/config.yaml -> all bundled rules, hints, and injections load."""
     app = ChatApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
@@ -53,7 +53,9 @@ async def test_default_config_loads_rules_and_hints(mock_sdk, _cwd_to_tmp):
 async def test_all_toggles_off_skips_rules_and_hints(mock_sdk, _cwd_to_tmp, tmp_path):
     """guardrails:false + hints:false -> rules=[], hints=[], injections survive."""
     config_data = {"guardrails": False, "hints": False}
-    (tmp_path / ".claudechic.yaml").write_text(yaml.dump(config_data), encoding="utf-8")
+    config_path = tmp_path / ".claudechic" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.dump(config_data), encoding="utf-8")
 
     app = ChatApp()
     async with app.run_test(size=(120, 40)) as pilot:
@@ -77,7 +79,9 @@ async def test_disabled_workflow_and_ids_not_available(mock_sdk, _cwd_to_tmp, tm
         "disabled_workflows": ["audit", "tutorial"],
         "disabled_ids": ["global:no_bare_pytest"],
     }
-    (tmp_path / ".claudechic.yaml").write_text(yaml.dump(config_data), encoding="utf-8")
+    config_path = tmp_path / ".claudechic" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.dump(config_data), encoding="utf-8")
 
     app = ChatApp()
     async with app.run_test(size=(120, 40)) as pilot:

@@ -76,7 +76,7 @@ Control: `/hints off` disables pipeline hints. Event-driven hints always show.
 
 ## Configuration
 
-Stored in `~/.claude/.claudechic.yaml`:
+Stored in `~/.claudechic/config.yaml`:
 
 ```yaml
 guardrails:

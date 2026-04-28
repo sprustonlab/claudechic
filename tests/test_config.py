@@ -246,22 +246,24 @@ class TestConfigLoadFunction:
             "_load() should use setdefault to preserve existing values"
         )
 
-    def test_load_function_migrates_old_config_path(self):
-        """Verify _load() handles migration from old config path."""
+    def test_load_function_does_not_migrate_legacy_path(self):
+        """Per SPEC §2.1, the legacy _OLD_CONFIG_PATH migration is removed.
+
+        Pre-existing files at ``~/.claude/.claudechic.yaml`` or
+        ``~/.claude/claudechic.yaml`` are left in place; claudechic does NOT
+        rename, unlink, or warn about them. The user-config now lives at
+        ``~/.claudechic/config.yaml`` (file-form → directory-form move).
+        """
         from pathlib import Path
 
         config_source = Path(__file__).parent.parent / "claudechic" / "config.py"
         source_code = config_source.read_text()
 
-        # Verify old path migration logic exists
-        assert "_OLD_CONFIG_PATH" in source_code, (
-            "Should have _OLD_CONFIG_PATH for migration"
+        assert "_OLD_CONFIG_PATH" not in source_code, (
+            "Legacy _OLD_CONFIG_PATH constant must be removed (SPEC §2.1)"
         )
-        assert "_OLD_CONFIG_PATH.rename(CONFIG_PATH)" in source_code, (
-            "Should rename old config to new path"
-        )
-        assert "_OLD_CONFIG_PATH.unlink()" in source_code, (
-            "Should remove old config if both exist"
+        assert ".rename(CONFIG_PATH)" not in source_code, (
+            "Legacy migration rename() call must be removed (SPEC §2.1)"
         )
 
 

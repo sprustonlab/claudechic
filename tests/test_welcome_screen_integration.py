@@ -73,7 +73,7 @@ async def test_welcome_screen_appears_and_dismiss_persists(
                 break
 
     # Dismiss marker persisted to disk
-    state_file = tmp_path / ".claude" / "hints_state.json"
+    state_file = tmp_path / ".claudechic" / "hints_state.json"
     assert state_file.exists(), "Dismiss marker file should exist"
 
     # Re-checking onboarding returns None (won't show again)
@@ -109,7 +109,9 @@ async def test_welcome_screen_hidden_when_configured(
     import yaml
 
     config_data = {"disabled_workflows": ["cluster_setup"]}
-    (tmp_path / ".claudechic.yaml").write_text(yaml.dump(config_data), encoding="utf-8")
+    config_path = tmp_path / ".claudechic" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.dump(config_data), encoding="utf-8")
 
     app = ChatApp()
     async with app.run_test(size=(100, 30)) as pilot:

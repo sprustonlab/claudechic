@@ -65,7 +65,7 @@ class TestDetectFieldDefaults:
             }
         ]
         loader = _setup_rules(tmp_path, rules)
-        hit_logger = HitLogger(tmp_path / ".claude" / "hits.jsonl")
+        hit_logger = HitLogger(tmp_path / ".claudechic" / "hits.jsonl")
         token_store = OverrideTokenStore()
 
         try:
@@ -97,7 +97,7 @@ class TestDetectFieldDefaults:
             }
         ]
         loader = _setup_rules(tmp_path, rules)
-        hit_logger = HitLogger(tmp_path / ".claude" / "hits.jsonl")
+        hit_logger = HitLogger(tmp_path / ".claudechic" / "hits.jsonl")
         token_store = OverrideTokenStore()
 
         try:
@@ -129,7 +129,7 @@ class TestDetectFieldDefaults:
             }
         ]
         loader = _setup_rules(tmp_path, rules)
-        hit_logger = HitLogger(tmp_path / ".claude" / "hits.jsonl")
+        hit_logger = HitLogger(tmp_path / ".claudechic" / "hits.jsonl")
         token_store = OverrideTokenStore()
 
         try:
@@ -157,7 +157,7 @@ class TestDetectFieldDefaults:
             }
         ]
         loader = _setup_rules(tmp_path, rules)
-        hit_logger = HitLogger(tmp_path / ".claude" / "hits.jsonl")
+        hit_logger = HitLogger(tmp_path / ".claudechic" / "hits.jsonl")
         token_store = OverrideTokenStore()
 
         try:

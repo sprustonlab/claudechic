@@ -18,6 +18,10 @@ wheels/
 .claude/logs/
 .claude/hits.jsonl
 
+# Claudechic runtime state (post Group B boundary relocation; SPEC §2)
+.claudechic/hits.jsonl
+.claudechic/hints_state.json
+
 # Claudechic session state
 .chicsessions/
 

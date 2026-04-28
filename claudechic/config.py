@@ -1,4 +1,4 @@
-"""Configuration management for claudechic via ~/.claude/.claudechic.yaml."""
+"""Configuration management for claudechic via ~/.claudechic/config.yaml."""
 
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ import yaml
 
 log = logging.getLogger(__name__)
 
-CONFIG_PATH = Path.home() / ".claude" / ".claudechic.yaml"
-_OLD_CONFIG_PATH = Path.home() / ".claude" / "claudechic.yaml"
+CONFIG_PATH = Path.home() / ".claudechic" / "config.yaml"
 
 
 def _load() -> tuple[dict, bool]:
@@ -24,12 +23,6 @@ def _load() -> tuple[dict, bool]:
     Returns (config_dict, is_new_install).
     """
     new_install = False
-
-    # Migrate from old config path if it exists and new doesn't
-    if not CONFIG_PATH.exists() and _OLD_CONFIG_PATH.exists():
-        _OLD_CONFIG_PATH.rename(CONFIG_PATH)
-    elif _OLD_CONFIG_PATH.exists():
-        _OLD_CONFIG_PATH.unlink()
 
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, encoding="utf-8") as f:
@@ -106,8 +99,8 @@ class ProjectConfig:
 
     @classmethod
     def load(cls, project_dir: Path) -> ProjectConfig:
-        """Load from .claudechic.yaml, or return defaults if missing/corrupt."""
-        config_path = project_dir / ".claudechic.yaml"
+        """Load from <project_dir>/.claudechic/config.yaml, or return defaults if missing/corrupt."""
+        config_path = project_dir / ".claudechic" / "config.yaml"
         if not config_path.is_file():
             return cls()
         try:
@@ -129,8 +122,32 @@ class ProjectConfig:
             )
         except (yaml.YAMLError, OSError):
             log.debug(
-                "Corrupt or unreadable .claudechic.yaml at %s, using defaults",
+                "Corrupt or unreadable .claudechic/config.yaml at %s, using defaults",
                 config_path,
                 exc_info=True,
             )
             return cls()
+
+    def save(self, project_dir: Path) -> None:
+        """Atomically write this config to <project_dir>/.claudechic/config.yaml.
+
+        Symmetric with :meth:`load`. Creates the parent ``.claudechic/``
+        directory if absent.
+        """
+        config_path = project_dir / ".claudechic" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "guardrails": self.guardrails,
+            "hints": self.hints,
+            "disabled_workflows": sorted(self.disabled_workflows),
+            "disabled_ids": sorted(self.disabled_ids),
+        }
+        fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, suffix=".yaml")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.dump(data, f, default_flow_style=False)
+            os.replace(tmp_path, config_path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise

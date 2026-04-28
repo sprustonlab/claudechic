@@ -74,7 +74,7 @@ def setup_logging(level: int = logging.DEBUG) -> None:
     Configures the root 'claudechic' logger so all child loggers
     (claudechic.app, claudechic.widgets.*, etc.) inherit the handlers.
 
-    Reads configuration from ~/.claude/.claudechic.yaml:
+    Reads configuration from ~/.claudechic/config.yaml:
     - logging.file: Path to log file, or null to disable (default: ~/claudechic.log)
     - logging.notify-level: Min level for UI notifications (default: warning)
     """
