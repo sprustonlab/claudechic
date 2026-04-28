@@ -84,6 +84,7 @@ markers = [
     "fast: fast unit tests (default tier, under 1s each)",
     "integration: integration tests (may be slower, uses more complex mocking)",
     "slow: tests that take >30s (real timeouts, E2E flows)",
+    "live_sdk: live-SDK end-to-end test (per SPEC §12.2.3 INV-AW-SDK-1); default collection skips, set CLAUDECHIC_LIVE_SDK=1 to run",
 ]
 
 [tool.setuptools_scm]
