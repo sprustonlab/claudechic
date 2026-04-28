@@ -13,6 +13,7 @@ claudechic is a terminal UI for Claude Code with multi-agent support, workflows,
 | `/shell <cmd>` | Run shell command (suspends TUI) |
 | `/diff` | Review uncommitted changes |
 | `/resume` | Browse and resume sessions |
+| `/settings` | Open in-app settings editor |
 | `/compactish` | Compact session to save context |
 | `/usage` | Show API rate limit info |
 | `/clear` | Clear chat UI |
@@ -24,7 +25,7 @@ claudechic is a terminal UI for Claude Code with multi-agent support, workflows,
 - **Ctrl+C** (x2) -- Quit
 - **Ctrl+L** -- Clear chat
 - **Ctrl+R** -- Reverse history search
-- **Shift+Tab** -- Cycle permission mode (default / auto-edit / plan)
+- **Shift+Tab** -- Cycle permission mode (bypassPermissions / auto / acceptEdits / plan / default)
 - **Ctrl+N** -- New agent hint
 - **Ctrl+1-9** -- Switch to agent by position
 - **Ctrl+G** -- Agent switcher modal
@@ -76,17 +77,43 @@ Control: `/hints off` disables pipeline hints. Event-driven hints always show.
 
 ## Configuration
 
-Stored in `~/.claudechic/config.yaml`:
+Two layers:
+
+- `~/.claudechic/config.yaml` -- user-tier preferences.
+- `<launched_repo>/.claudechic/config.yaml` -- project-tier toggles.
+
+`disabled_workflows` and `disabled_ids` are FLAT top-level lists.
+Each entry is either a bare ID or `<tier>:<id>` (where `<tier>` is
+`package`, `user`, or `project`). Bare IDs disable across all tiers;
+tier-prefixed entries disable only the named tier's record. The
+`disabled_ids` list covers BOTH hint IDs and guardrail rule IDs (their
+namespacing keeps them disambiguated). The `guardrails` and `hints`
+keys are bool master switches.
 
 ```yaml
-guardrails:
-  disabled_ids: ["global:some_rule"]   # Disable specific rules
-hints:
-  disabled_ids: ["global:some_hint"]   # Disable specific hints
-disabled_workflows: ["tutorial"]        # Hide workflows from picker
+# Project-tier example: <launched_repo>/.claudechic/config.yaml
+guardrails: true                                # bool master switch
+hints: true                                     # bool master switch
+disabled_workflows:                             # flat list, bare or <tier>:<id>
+  - tutorial
+  - user:my_custom_flow
+  - project:team_specific
+disabled_ids:                                   # flat list, hints + rules together
+  - global:context-docs-outdated                # bare hint id
+  - user:lab/onboarding-rule                    # tier-targeted rule id
+  - project:my_workflow:setup-reminder          # tier-targeted (namespace nested)
+```
+
+```yaml
+# User-tier example: ~/.claudechic/config.yaml
+default_permission_mode: auto
+awareness:
+  install: true                                 # auto-install ~/.claude/rules/claudechic_*.md
 worktree:
   path_template: "$HOME/worktrees/${repo_name}/${branch_name}"
 ```
+
+See `docs/configuration.md` for the full reference.
 
 ## Cross-Platform Rules
 

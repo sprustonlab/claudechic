@@ -430,6 +430,12 @@ resolved path baked into their workflow markdown via substitution. The
 path persists in chicsession state, so resume restores it without
 coordinator re-call.
 
+The `ArtifactDirReadyCheck` advance check (registered in workflow YAML
+as `artifact-dir-ready-check`) blocks phase advancement until
+`set_artifact_dir(...)` has been called and the engine's `artifact_dir`
+is non-`None` — use it on Setup-style phases that produce the path so
+downstream phases never run with the token unresolved.
+
 ## Cross-references
 
 - `claudechic/context/claudechic-overview.md` — system overview.

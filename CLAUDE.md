@@ -38,9 +38,10 @@ claudechic/
 ├── analytics.py       # PostHog analytics - fire-and-forget event tracking
 ├── agent_manager.py   # AgentManager - coordinates multiple concurrent agents
 ├── app.py             # ChatApp - main application, event handlers
+├── awareness_install.py # claudechic-awareness install routine (~/.claude/rules/claudechic_*.md)
 ├── commands.py        # Slash command routing (/agent, /shell, /clear, etc.)
 ├── compact.py         # Session compaction - shrink old tool uses to save context
-├── config.py          # ProjectConfig - project configuration loading
+├── config.py          # CONFIG (user-tier) + ProjectConfig (project-tier) loading
 ├── errors.py          # Logging infrastructure, error handling
 ├── file_index.py      # Fuzzy file search using git ls-files
 ├── formatting.py      # Tool formatting, diff rendering (pure functions)
@@ -62,10 +63,10 @@ claudechic/
 │       ├── __init__.py   # Public API (list_worktrees, handle_worktree_command)
 │       ├── commands.py   # /worktree command handlers
 │       └── git.py        # Git worktree operations
-├── workflows/   # Workflow orchestration (Python code)
+├── workflows/   # Workflow orchestration ENGINE (Python code)
 │   ├── __init__.py    # Parser registration, public API
-│   ├── engine.py      # WorkflowEngine - phase state, advance checks
-│   ├── loader.py      # ManifestLoader - universal YAML parser
+│   ├── engine.py      # WorkflowEngine - phase state, advance checks, artifact_dir
+│   ├── loader.py      # ManifestLoader - 3-tier walk (package/user/project) + override resolution
 │   ├── parsers.py     # Section parsers for rules, hints, phases, etc.
 │   ├── phases.py      # Phase type, PhasesParser
 │   └── agent_folders.py # Agent prompt assembly from workflow role dirs
@@ -75,15 +76,26 @@ claudechic/
 │   ├── __init__.py    # Package marker
 │   ├── engine.py      # 6-stage hint evaluation pipeline
 │   ├── parsers.py     # Manifest section parser for hints YAML
-│   ├── state.py       # HintStateStore - persistence to .claude/hints_state.json
+│   ├── state.py       # HintStateStore - persistence to .claudechic/hints_state.json
 │   └── types.py       # HintSpec, HintDecl, HintRecord, HintLifecycle, TriggerCondition
-├── global/            # Always-active manifests (data, not Python)
-│   ├── rules.yaml     # Guardrail rules
-│   └── hints.yaml     # Hint definitions
+├── defaults/          # Bundled package-tier content (data, not Python)
+│   ├── global/        # Always-active manifests
+│   │   ├── rules.yaml # Guardrail rules
+│   │   └── hints.yaml # Hint definitions
+│   ├── workflows/     # Bundled workflow YAML directories (9 workflows)
+│   │   ├── audit/
+│   │   ├── cluster_setup/
+│   │   ├── codebase_setup/
+│   │   ├── git_setup/
+│   │   ├── onboarding/
+│   │   ├── project_team/
+│   │   ├── tutorial/
+│   │   ├── tutorial_extending/
+│   │   └── tutorial_toy_project/
+│   └── mcp_tools/     # MCP tool scripts (cluster dispatch, etc.)
 ├── context/           # Claude Code context docs (data, not Python)
-│   ├── CLAUDE.md      # User-facing quick reference
+│   ├── CLAUDE.md      # User-facing quick reference (installed as ~/.claude/rules/claudechic_CLAUDE.md)
 │   └── *.md           # System docs (checks, guardrails, hints, workflows, etc.)
-├── mcp_tools/         # MCP tool scripts (cluster dispatch, etc.)
 ├── audit/             # Audit pipeline scripts
 ├── processes.py       # BackgroundProcess dataclass, child process detection
 ├── screens/           # Full-page screens (navigation)
@@ -92,7 +104,11 @@ claudechic/
 │   ├── session.py     # SessionScreen - session browser for /resume
 │   ├── chicsession.py # ChicsessionScreen - chicsession picker and workflow activation
 │   ├── rewind.py      # RewindScreen - checkpoint selection
-│   └── workflow_picker.py # WorkflowPickerScreen - workflow selection UI
+│   ├── settings.py    # SettingsScreen - in-app config editor (per /settings)
+│   ├── disabled_workflows.py # DisabledWorkflowsScreen - per-(level, id) toggle subscreen
+│   ├── disabled_ids.py # DisabledIdsScreen - per-(level, id) toggle subscreen for hints + rules
+│   ├── welcome.py     # WelcomeScreen - first-install onboarding
+│   └── workflow_picker.py # WorkflowPickerScreen - workflow selection UI (with level badges)
 └── widgets/
     ├── __init__.py    # Re-exports all widgets for backward compat
     ├── prompts.py     # All prompt widgets (Selection, Question, Model, Worktree)
@@ -150,10 +166,22 @@ docs/
 └── dev/               # Developer documentation (from .ai-docs)
 ```
 
-## Important: workflows/ vs workflows/
+## Engine code vs bundled content
 
-- `claudechic/workflows/` -- Python code (engine, loader, parsers). This is a Python package.
-- `workflows/` -- Content data directories (YAML manifests, role identity files, phase docs). These are NOT Python packages. Placed at project root for project-local customization.
+The post-restructure layout splits workflow engine code from bundled
+content along these two paths:
+
+- `claudechic/workflows/` -- Python code (engine, loader, parsers). This
+  is a Python package.
+- `claudechic/defaults/workflows/` -- Bundled YAML manifests + role
+  identity files + phase markdown for the 9 default workflows. These are
+  NOT Python packages.
+
+The 3-tier loader (Group C) walks `claudechic/defaults/` (package tier),
+`~/.claudechic/` (user tier), and `<launched_repo>/.claudechic/`
+(project tier) to assemble the runtime registry of workflows, rules, and
+hints. Higher tiers override the same `id` from lower tiers; partial
+workflow overrides surface as a loader error.
 
 ## Architecture
 
@@ -276,7 +304,7 @@ async for message in client.receive_response():
 - Ctrl+C (x2): Quit
 - Ctrl+L: Clear chat (UI only)
 - Ctrl+R: Reverse history search
-- Shift+Tab: Cycle permission mode (default / auto-edit / plan)
+- Shift+Tab: Cycle permission mode (bypassPermissions / auto / acceptEdits / plan / default)
 - Ctrl+N: New agent (hint)
 - Ctrl+1-9: Switch to agent by position
 
@@ -307,6 +335,7 @@ These tools let agents communicate programmatically:
 ### Session Management
 - `/resume` - Show session picker
 - `/resume <id>` - Resume specific session
+- `/settings` - Open settings screen (also accessible via footer "settings" button or welcome screen)
 - `/compactish` - Compact session to reduce context (dry run with `-n`)
 - `/usage` - Show API rate limit usage
 - `/clear` - Clear chat UI
@@ -315,7 +344,24 @@ These tools let agents communicate programmatically:
 
 ## Configuration
 
-Configuration is stored in `~/.claudechic/config.yaml`.
+Configuration is stored in two layers:
+
+- `~/.claudechic/config.yaml` -- user-tier preferences (theme, vi-mode,
+  default permission mode, `awareness.install`, etc.).
+- `<launched_repo>/.claudechic/config.yaml` -- project-tier toggles
+  (`guardrails`, `hints`, `disabled_workflows`, `disabled_ids`).
+
+Edit interactively via `/settings`. See
+[docs/configuration.md](docs/configuration.md) for the full reference.
+
+### claudechic-awareness install
+
+The `awareness.install` user-tier toggle (default `true`) controls
+auto-install of bundled context docs from `claudechic/context/*.md` to
+`~/.claude/rules/claudechic_*.md` on every claudechic startup. The SDK
+loads these as Claude rules in every session. Disabling stops new
+installs but does NOT remove already-installed files; manage them
+manually via `rm ~/.claude/rules/claudechic_*.md`.
 
 ### Worktree Path Templates
 
