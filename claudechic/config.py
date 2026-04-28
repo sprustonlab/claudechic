@@ -38,6 +38,9 @@ def _load() -> tuple[dict, bool]:
         config.setdefault(
             "show_message_metadata", True
         )  # Show timestamp/tokens by default
+        # claudechic-awareness install toggle (per SPEC §4.3, default True)
+        config.setdefault("awareness", {})
+        config["awareness"].setdefault("install", True)
         # Migrate legacy vim key to vi-mode
         if "vim" in config:
             config["vi-mode"] = config.pop("vim")
@@ -49,6 +52,8 @@ def _load() -> tuple[dict, bool]:
             "recent-tools-expanded": 2,
             "default_permission_mode": "auto",
             "show_message_metadata": True,  # Show timestamp/tokens by default
+            # claudechic-awareness install toggle (per SPEC §4.3, default True)
+            "awareness": {"install": True},
         }
         new_install = True
         _save(config)

@@ -1,35 +1,48 @@
 # Context Docs Phase
 
-Install claudechic context docs into the project's `.claude/rules/` directory.
+Re-install claudechic's bundled context docs into the user's
+`~/.claude/rules/` directory by invoking the idempotent install routine.
+
+claudechic auto-runs this install routine on every startup. This phase
+is the **manual re-install primitive** — useful after the user disables
+the `awareness.install` config toggle and later wants to re-sync, or
+when explicitly walked through onboarding for the first time.
 
 ## Steps
 
-1. **Locate the package context directory:**
+1. **Run the install routine** via the Bash tool:
+
    ```bash
-   python -c "from pathlib import Path; print(Path(__import__('claudechic').__file__).parent / 'context')"
+   python -c "from claudechic.awareness_install import install_awareness_rules; r = install_awareness_rules(force=True); print(r)"
    ```
 
-2. **List available context docs** (all `.md` files in that directory).
+   The `force=True` argument bypasses the `awareness.install` config
+   toggle so the install runs even when the user has disabled the
+   automatic startup install.
 
-3. **Check `.claude/rules/`** for existing files with the same names. For each:
-   - If missing: mark as NEW.
-   - If present and identical: mark as SKIP.
-   - If present and different: mark as UPDATE.
+2. **Report the result** to the user. The printed `InstallResult`
+   carries five fields:
 
-4. **Present the installation plan** as a table:
-   ```
-   File                          Status
-   claudechic-overview.md        NEW (will create)
-   workflows-system.md           SKIP (identical)
-   hints-system.md               UPDATE (content changed)
-   ```
+   - `new=[...]` — files freshly installed
+   - `updated=[...]` — files overwritten because content drifted
+   - `skipped=[...]` — files already identical (no write)
+   - `deleted=[...]` — orphan `claudechic_*.md` files removed (no
+     longer in the bundled catalog)
+   - `skipped_disabled=False` — should be `False` here because of
+     `force=True`
 
-5. **Ask the user** if they want to proceed, or skip context docs entirely.
+   Summarize in plain language, e.g.: *"Installed 2 new context docs,
+   updated 1, skipped 5 already up-to-date, removed 1 obsolete file."*
 
-6. **If proceeding:** Create `.claude/rules/` if needed, then copy NEW and UPDATE
-   files using Read and Write tools. Report what was installed/updated/skipped.
+3. **Mention the symlink guard** if relevant. If the install routine
+   logged any WARNING about a symlink at a `~/.claude/rules/claudechic_*.md`
+   path, surface it to the user — claudechic deliberately did not touch
+   that file because it appears to be user-managed.
 
-7. **Tell the user** they can re-run `/onboarding` after upgrading claudechic to
-   pick up updated context docs.
+4. **Tell the user how to refresh later.** They can re-run
+   `/onboarding context_docs` after upgrading claudechic to pick up
+   newly-bundled context docs, or disable the `awareness.install`
+   config key (settings) to opt out of the automatic startup install.
 
-To advance: context docs installed, or user explicitly skips.
+To advance: install routine ran and the user has been informed of the
+results, or the user explicitly skips.

@@ -972,11 +972,14 @@ def _make_advance_phase(caller_name: str | None = None):
                             exc_info=True,
                         )
 
-                    # Still broadcast to OTHER agents asynchronously so they get
-                    # the phase update too (the caller already has it inline).
-                    _app._inject_phase_prompt_to_main_agent(
-                        engine.workflow_id, main_role, next_phase
-                    )
+                    # The coordinator (caller) already received the phase
+                    # prompt inline via the tool response above, and the
+                    # broadcast loop below delivers to typed sub-agents.
+                    # Skip _inject_phase_prompt_to_main_agent here to
+                    # avoid double-injection on the coordinator (per SPEC
+                    # §4.7 + test_advance_phase_no_double_agent_prompt_for_coordinator).
+                    # Sidebar phase label still needs refreshing.
+                    _app._update_sidebar_workflow_info()
 
                 # Broadcast phase prompt to typed sub-agents
                 if _app.agent_mgr:

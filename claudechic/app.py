@@ -1135,6 +1135,29 @@ class ChatApp(App):
         # Set cwd early — needed by workflow infrastructure and file index
         self._cwd = Path.cwd()
 
+        # claudechic-awareness install (per SPEC §4.4): copy bundled
+        # context/*.md into ~/.claude/rules/claudechic_*.md so every
+        # Claude Code session in every project auto-loads claudechic's
+        # bundled rules via the SDK setting_sources loader. Idempotent;
+        # gated by the awareness.install user-tier config toggle.
+        # Failure is logged WARNING but MUST NOT prevent app startup.
+        try:
+            from claudechic.awareness_install import install_awareness_rules
+
+            ai_result = install_awareness_rules()
+            if ai_result.skipped_disabled:
+                log.info("awareness install: disabled by config; skipped")
+            else:
+                log.info(
+                    "awareness install: NEW=%d UPDATE=%d SKIP=%d DELETE=%d",
+                    len(ai_result.new),
+                    len(ai_result.updated),
+                    len(ai_result.skipped),
+                    len(ai_result.deleted),
+                )
+        except Exception:
+            log.warning("awareness install: failed; continuing startup", exc_info=True)
+
         # Initialize workflow guidance infrastructure
         self._init_workflow_infrastructure()
 
@@ -1505,14 +1528,10 @@ class ChatApp(App):
                     ShowUntilResolved,
                 )
 
-                # Registry of trigger types (type string -> class)
+                # Registry of trigger types (type string -> class).
+                # ContextDocsDrift was removed in Group D (per SPEC §4.5);
+                # the registry stays for future custom triggers.
                 _trigger_registry: dict[str, type] = {}
-                try:
-                    from claudechic.hints.triggers import ContextDocsDrift
-
-                    _trigger_registry["context-docs-drift"] = ContextDocsDrift
-                except Exception:
-                    log.debug("Failed to import trigger classes", exc_info=True)
 
                 for decl in self._load_result.hints:
                     if decl.namespace != "global" and decl.namespace != active_wf:
@@ -1826,34 +1845,48 @@ class ChatApp(App):
             )
             phase = self._workflow_engine.get_current_phase()
 
-            # Write phase context to .claude/phase_context.md so it becomes
-            # part of the system prompt, rather than injecting into the chat.
-            if wf_data.main_role:
-                self._write_phase_context(workflow_id, wf_data.main_role, phase)
-
             self.notify(
                 f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
             )
             self._update_sidebar_workflow_info()
             self._position_right_sidebar()
 
-            # Send a short kick-off message so the agent responds.
-            # Full phase instructions are in .claude/phase_context.md.
-            self._send_to_active_agent(
-                f"Workflow '{workflow_id}' activated — you are in phase: "
-                f"{phase or 'none'}.\n\n"
-                "Explain to the user:\n"
-                "- A workflow is a guided, multi-phase process that structures "
-                "how you work together. Each phase has its own rules, checks, "
-                "and instructions.\n"
-                f"- This is the '{workflow_id}' workflow — "
-                "an example to learn how the system works.\n"
-                f"- We are currently in the '{phase or 'none'}' phase.\n"
-                "- They can check the current phase anytime using the "
-                "`get_phase` MCP tool, and advance with `advance_phase`.\n\n"
-                "Read .claude/phase_context.md for your full phase instructions, "
-                "then greet the user and guide them on what to do in this phase."
-            )
+            # Phase-prompt delivery (per SPEC §4.7): assemble the
+            # identity.md + phase.md prompt and send it directly to the
+            # active agent as the kickoff message body. No file is
+            # written to disk; the agent receives the phase-specific
+            # instructions inline.
+            kickoff_prompt: str | None = None
+            if wf_data.main_role:
+                from claudechic.workflows.agent_folders import (
+                    assemble_phase_prompt,
+                )
+
+                kickoff_prompt = assemble_phase_prompt(
+                    workflow_dir=wf_data.path,
+                    role_name=wf_data.main_role,
+                    current_phase=phase,
+                )
+
+            if kickoff_prompt:
+                self._send_to_active_agent(kickoff_prompt)
+            else:
+                # Spec §4.7 contract: kickoff body IS the assembled prompt.
+                # When assembly returns None (missing role folder, missing
+                # identity.md, etc.) the agent still needs a nudge —
+                # surface this loudly via WARNING so the configuration
+                # bug is visible, then send a minimal one-line notice.
+                log.warning(
+                    "Phase prompt assembled to None for workflow=%s role=%s "
+                    "phase=%s; sending fallback kickoff notice",
+                    workflow_id,
+                    wf_data.main_role,
+                    phase,
+                )
+                self._send_to_active_agent(
+                    f"Workflow '{workflow_id}' activated — you are in phase: "
+                    f"{phase or 'none'}. (No phase prompt content available.)"
+                )
             create_safe_task(
                 self._run_hints(is_startup=False, budget=2), name="hints-workflow-start"
             )
@@ -2023,24 +2056,20 @@ class ChatApp(App):
         main_role: str,
         current_phase: str | None,
     ) -> None:
-        """Update phase context file when phase advances.
+        """Send the new phase's prompt to the active agent on phase advance.
 
-        Writes phase prompt to .claude/phase_context.md so it becomes
-        part of the system prompt on the next turn.
-        """
-        self._write_phase_context(workflow_id, main_role, current_phase)
-        self._update_sidebar_workflow_info()
+        Per SPEC §4.7 and INV-AW-8: assembles the identity.md + phase.md
+        prompt for ``current_phase`` and delivers it directly to the
+        active agent via :meth:`_send_to_active_agent`. No file I/O —
+        phase-prompt delivery is in-memory and inline-to-chat.
 
-    def _write_phase_context(
-        self,
-        workflow_id: str,
-        main_role: str,
-        current_phase: str | None,
-    ) -> None:
-        """Write phase prompt to .claude/phase_context.md.
+        Sidebar phase label is refreshed regardless of whether a prompt
+        was sent.
 
-        This file is read by Claude Code as part of the system prompt,
-        keeping phase instructions out of the chat conversation.
+        On a ``None`` assembly result (missing role folder, missing
+        identity.md, etc.), logs WARNING with role + phase identifiers
+        so the underlying configuration bug is surfaced rather than
+        silently swallowed.
         """
         try:
             from claudechic.workflows.agent_folders import assemble_phase_prompt
@@ -2052,41 +2081,36 @@ class ChatApp(App):
             )
             if wf_data is None:
                 log.debug(
-                    "No workflow data for '%s'; skipping phase context", workflow_id
+                    "No workflow data for '%s'; skipping phase prompt delivery",
+                    workflow_id,
                 )
                 return
+
             prompt = assemble_phase_prompt(
                 workflow_dir=wf_data.path,
                 role_name=main_role,
                 current_phase=current_phase,
             )
-            claude_dir = Path.cwd() / ".claude"
-            phase_file = claude_dir / "phase_context.md"
-
             if prompt:
-                claude_dir.mkdir(exist_ok=True)
-                phase_file.write_text(
-                    f"# Active Workflow: {workflow_id}\n"
-                    f"# Phase: {current_phase or 'none'}\n\n"
-                    f"{prompt}\n",
-                    encoding="utf-8",
-                )
+                self._send_to_active_agent(prompt)
                 log.debug(
-                    "Wrote phase context to %s (phase: %s)",
-                    phase_file,
+                    "Sent phase prompt to active agent (workflow=%s role=%s phase=%s)",
+                    workflow_id,
+                    main_role,
                     current_phase,
                 )
             else:
-                # No prompt content — remove stale file
-                if phase_file.is_file():
-                    phase_file.unlink()
-                log.debug(
-                    "No phase prompt for role='%s' phase='%s'",
+                log.warning(
+                    "Phase prompt assembled to None for workflow=%s role=%s "
+                    "phase=%s; nothing sent to active agent",
+                    workflow_id,
                     main_role,
                     current_phase,
                 )
         except Exception:
-            log.debug("Failed to write phase context", exc_info=True)
+            log.debug("Failed to deliver phase prompt", exc_info=True)
+        finally:
+            self._update_sidebar_workflow_info()
 
     def _update_sidebar_workflow_info(self) -> None:
         """Update sidebar label with current workflow and phase info."""
@@ -2136,11 +2160,8 @@ class ChatApp(App):
             self._chicsession_name = None
             _update_sidebar_label(self, None)
 
-        # Remove phase context file
-        phase_file = self._cwd / ".claude" / "phase_context.md"
-        if phase_file.is_file():
-            with contextlib.suppress(OSError):
-                phase_file.unlink()
+        # Phase-prompt delivery is in-memory (per SPEC §4.7); nothing to
+        # unlink on deactivation.
 
         self.notify(f"Workflow '{wf_id}' deactivated")
         create_safe_task(

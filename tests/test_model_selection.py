@@ -8,12 +8,10 @@ the curated entries the CLI advertises via ``get_server_info()``.
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 from claudechic.app import (
     DEFAULT_EXTRA_MODEL_ENTRIES,
-    ChatApp,
     _merge_model_extras,
 )
 from claudechic.commands import _is_valid_model, _invalid_model_message

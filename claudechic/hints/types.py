@@ -214,7 +214,7 @@ class HintDecl:
     cooldown_seconds: int | None = None
     phase: str | None = None  # qualified phase ID, or None for unscoped
     namespace: str = ""
-    trigger_type: str | None = None  # e.g. "context-docs-drift", None = AlwaysTrue
+    trigger_type: str | None = None  # custom trigger registry key, None = AlwaysTrue
     severity: str = "info"
     priority: int = 3
     # Tier provenance — opaque metadata for engine; UI-only consumption.

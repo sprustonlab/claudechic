@@ -87,13 +87,3 @@
 - id: tip_processes
   message: "Tip: Use /processes to see all background processes running in the active agent."
   lifecycle: show-once
-
-# --- Upgrade drift detection ---
-
-- id: context_docs_outdated
-  message: "Context docs have been updated. Run /onboarding to update your .claude/rules/ files."
-  lifecycle: show-until-resolved
-  severity: info
-  priority: 5
-  trigger:
-    type: context-docs-drift

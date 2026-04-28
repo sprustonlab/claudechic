@@ -109,7 +109,11 @@ def mock_sdk():
         # (prevents developer's ~/.claudechic/config.yaml from leaking in).
         # Must come before the analytics patch since they share the same dict.
         stack.enter_context(
-            patch.dict("claudechic.agent_manager.CONFIG", {"default_permission_mode": "auto"}, clear=True)
+            patch.dict(
+                "claudechic.agent_manager.CONFIG",
+                {"default_permission_mode": "auto"},
+                clear=True,
+            )
         )
         # Disable analytics to avoid httpx AsyncClient connection leaks
         stack.enter_context(
