@@ -1143,12 +1143,36 @@ async def get_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
     loader = getattr(_app, "_manifest_loader", None)
     if loader:
         result = loader.load()
-        lines.append(f"Rules: {len(result.rules)}")
-        lines.append(f"Injections: {len(result.injections)}")
-        if result.injections:
-            for inj in result.injections:
-                phases_str = f" phases={inj.phases}" if inj.phases else ""
-                lines.append(f"  - {inj.id} [{', '.join(inj.trigger)}]{phases_str}")
+        # Mirror the runtime namespace filter from
+        # claudechic/guardrails/hooks.py:91 — items from inactive
+        # workflows are loaded into the global registry but cannot fire,
+        # so listing them here was misleading. Show only active items
+        # (global + currently-active workflow) and surface the inactive
+        # count in parentheses for diagnostic visibility.
+        active_wf = engine.workflow_id if engine is not None else None
+
+        def _is_active(item: Any) -> bool:
+            ns = getattr(item, "namespace", None)
+            return ns == "global" or (active_wf is not None and ns == active_wf)
+
+        active_rules = [r for r in result.rules if _is_active(r)]
+        active_injections = [i for i in result.injections if _is_active(i)]
+        inactive_rules = len(result.rules) - len(active_rules)
+        inactive_injections = len(result.injections) - len(active_injections)
+
+        rules_line = f"Rules: {len(active_rules)} active"
+        if inactive_rules:
+            rules_line += f" ({inactive_rules} inactive)"
+        lines.append(rules_line)
+
+        inj_line = f"Injections: {len(active_injections)} active"
+        if inactive_injections:
+            inj_line += f" ({inactive_injections} inactive)"
+        lines.append(inj_line)
+
+        for inj in active_injections:
+            phases_str = f" phases={inj.phases}" if inj.phases else ""
+            lines.append(f"  - {inj.id} [{', '.join(inj.trigger)}]{phases_str}")
         if result.errors:
             lines.append(f"Errors: {len(result.errors)}")
             for err in result.errors[:5]:

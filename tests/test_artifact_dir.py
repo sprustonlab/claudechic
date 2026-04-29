@@ -712,6 +712,184 @@ async def test_mcp_set_artifact_dir_propagates_validation_error(monkeypatch, tmp
 
 
 # ---------------------------------------------------------------------------
+# get_phase MCP tool — namespace filter (mirrors guardrails/hooks.py:91)
+# ---------------------------------------------------------------------------
+#
+# The MCP `get_phase` diagnostic must only list rules/injections that can
+# actually fire under the active workflow. The runtime hook filters by
+# ``namespace == "global" or namespace == active_wf``; the display now
+# applies the same predicate so non-active workflow items are not shown
+# (only counted as "inactive").
+
+
+def _make_loader_with(rules, injections):
+    """Build a stub loader whose ``load()`` returns a LoadResult.
+
+    Lightweight stand-in — the real ``ManifestLoader`` walks tier roots,
+    but ``get_phase`` only consumes ``LoadResult.rules`` /
+    ``LoadResult.injections`` / ``LoadResult.errors``.
+    """
+    from claudechic.workflows.loader import LoadResult
+
+    class _StubLoader:
+        def __init__(self, result: LoadResult) -> None:
+            self._result = result
+
+        def load(self, **_kwargs):
+            return self._result
+
+    return _StubLoader(LoadResult(rules=rules, injections=injections))
+
+
+def _injection(*, id_: str, namespace: str, trigger: str = "PreToolUse/Bash"):
+    """Build an Injection with the minimum required fields for display tests."""
+    from claudechic.guardrails.rules import Injection
+
+    return Injection(id=id_, namespace=namespace, trigger=[trigger])
+
+
+def _rule(
+    *,
+    id_: str,
+    namespace: str,
+    trigger: str = "PreToolUse/Bash",
+    enforcement: str = "warn",
+):
+    """Build a Rule with the minimum required fields for display tests."""
+    from claudechic.guardrails.rules import Rule
+
+    return Rule(id=id_, namespace=namespace, trigger=[trigger], enforcement=enforcement)
+
+
+async def test_get_phase_filters_inactive_workflow_injections(monkeypatch, tmp_path):
+    """get_phase must NOT list an injection from an inactive workflow."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)  # workflow_id="proj"
+    loader = _make_loader_with(
+        rules=[],
+        injections=[
+            _injection(id_="proj:active_inj", namespace="proj"),
+            _injection(id_="other:foreign_inj", namespace="other"),
+            _injection(id_="global:shared_inj", namespace="global"),
+        ],
+    )
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app._manifest_loader = loader
+    fake_app.agent_mgr = None
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.get_phase
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({})
+    text = response["content"][0]["text"]
+
+    # Active items appear in the listing.
+    assert "proj:active_inj" in text
+    assert "global:shared_inj" in text
+    # Inactive workflow's injection is NOT listed.
+    assert "other:foreign_inj" not in text
+    # Inactive count is surfaced for diagnostic visibility.
+    assert "Injections: 2 active (1 inactive)" in text
+
+
+async def test_get_phase_filters_inactive_workflow_rules(monkeypatch, tmp_path):
+    """get_phase rules count must mirror the runtime namespace filter."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)  # workflow_id="proj"
+    loader = _make_loader_with(
+        rules=[
+            _rule(id_="proj:active_rule", namespace="proj"),
+            _rule(id_="global:shared_rule", namespace="global"),
+            _rule(id_="other:foreign_rule_a", namespace="other"),
+            _rule(id_="other:foreign_rule_b", namespace="other"),
+        ],
+        injections=[],
+    )
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app._manifest_loader = loader
+    fake_app.agent_mgr = None
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.get_phase
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({})
+    text = response["content"][0]["text"]
+
+    assert "Rules: 2 active (2 inactive)" in text
+
+
+async def test_get_phase_no_inactive_suffix_when_all_active(monkeypatch, tmp_path):
+    """When every loaded item belongs to global or the active workflow,
+    the inactive suffix is omitted."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)  # workflow_id="proj"
+    loader = _make_loader_with(
+        rules=[_rule(id_="proj:r1", namespace="proj")],
+        injections=[_injection(id_="global:i1", namespace="global")],
+    )
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app._manifest_loader = loader
+    fake_app.agent_mgr = None
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.get_phase
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({})
+    text = response["content"][0]["text"]
+
+    # Exact-line match: no parenthetical suffix.
+    assert "Rules: 1 active\n" in text or text.endswith("Rules: 1 active")
+    # Allow either ordering by checking the substring without trailing newline.
+    assert "Rules: 1 active (" not in text
+    assert "Injections: 1 active (" not in text
+
+
+async def test_get_phase_no_engine_treats_all_workflow_items_as_inactive(
+    monkeypatch,
+):
+    """With no active workflow, only ``global``-namespace items are active."""
+    from claudechic import mcp as mcp_mod
+
+    loader = _make_loader_with(
+        rules=[
+            _rule(id_="global:r1", namespace="global"),
+            _rule(id_="proj:r2", namespace="proj"),
+        ],
+        injections=[
+            _injection(id_="proj:i1", namespace="proj"),
+        ],
+    )
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = None
+    fake_app._manifest_loader = loader
+    fake_app.agent_mgr = None
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.get_phase
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({})
+    text = response["content"][0]["text"]
+
+    assert "Workflow: none active" in text
+    # global rule active; project rule inactive (no active_wf).
+    assert "Rules: 1 active (1 inactive)" in text
+    # No active injection; one inactive.
+    assert "Injections: 0 active (1 inactive)" in text
+    # The inactive workflow injection must not be listed.
+    assert "proj:i1" not in text
+
+
+# ---------------------------------------------------------------------------
 # Smoke: project_team.yaml Setup phase parses and uses the new check
 # ---------------------------------------------------------------------------
 
