@@ -325,13 +325,15 @@ def test_inv_aw_11_symlink_target_untouched(
         result = install_awareness_rules()
 
     assert link.is_symlink(), "Symlink must remain"
-    # Compare resolved paths -- on Windows ``readlink()`` may return a
-    # normalized form (long-path prefix, drive-letter casing, separators)
-    # that differs from the literal ``external`` Path.  Resolving both
-    # sides reduces to the same target.
-    assert link.readlink().resolve() == external.resolve(), (
-        "Symlink target unchanged"
-    )
+    # On Windows ``readlink()`` returns the target with the long-path
+    # prefix ``\\?\`` while ``external`` is plain ``C:\\...`` -- the two
+    # paths are semantically the same file but compare unequal as Path
+    # objects, and ``.resolve()`` preserves the prefix.  ``os.path.samefile``
+    # compares by file identity (inode / NT object id), which works for
+    # both POSIX and Windows.
+    import os
+
+    assert os.path.samefile(link.readlink(), external), "Symlink target unchanged"
     assert external.read_text(encoding="utf-8") == external_content
     assert name not in result.new
     assert name not in result.updated
