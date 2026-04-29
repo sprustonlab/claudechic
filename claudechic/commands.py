@@ -1045,9 +1045,9 @@ YOUR PERSPECTIVE: {perspective_description}
 1. RESEARCH: Launch 2-3 Explore subagents in parallel to understand the codebase.
 
 2. PROPOSE: Send your plan to peers and orchestrator:
-   tell_agent("{peer1}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
-   tell_agent("{peer2}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
-   tell_agent("{orchestrator}", "PROPOSAL SENT: [1-sentence summary]")
+   ask_agent("{peer1}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
+   ask_agent("{peer2}", "PROPOSAL from {perspective}: [detailed plan with rationale]")
+   ask_agent("{orchestrator}", "PROPOSAL SENT: [1-sentence summary]")
 
 3. DEBATE: When you receive peer proposals, respond directly:
    - Challenge assumptions with evidence from the codebase
@@ -1055,7 +1055,7 @@ YOUR PERSPECTIVE: {perspective_description}
    - You CAN change your mind if convinced
 
 4. CONCLUDE: After 2-3 rounds, send final position:
-   tell_agent("{orchestrator}", "FINAL POSITION: [refined plan, noting changes from debate]")
+   ask_agent("{orchestrator}", "FINAL POSITION: [refined plan, noting changes from debate]")
 
 == DEBATE STYLE ==
 

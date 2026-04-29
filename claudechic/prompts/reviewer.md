@@ -1,6 +1,6 @@
 # Reviewer - Spawn a Critical Review Agent
 
-Start an agent to review our changes. The agent thinks critically and sends back its review using `tell_agent`.
+Start an agent to review our changes. The agent thinks critically and sends back its review using `ask_agent`.
 
 ## Implementation
 
@@ -11,7 +11,7 @@ When invoked:
    - Path: current working directory
    - Prompt should instruct the agent to:
      - Review recent changes and think critically
-     - Use `tell_agent("{agent_name}", ...)` to send its findings back to you when done
+     - Use `ask_agent("{agent_name}", ...)` to send its findings back to you when done
 
 2. If the user provided context, include it in the prompt to help focus the review.
 
@@ -19,7 +19,7 @@ When invoked:
 
 4. Let the reviewer determine what's important - don't prescribe specific things to check.
 
-5. After spawning the reviewer, you're done for now. The reviewer will send its findings back to you via `tell_agent` when it's ready — no need to check in on it.
+5. After spawning the reviewer, you're done for now. The reviewer will send its findings back to you via `ask_agent` when it's ready — no need to check in on it.
 
 ## Review Cycle
 
@@ -38,7 +38,7 @@ Review the recent changes in this repository. Think critically about what could 
 [Your context about what you've been working on]
 [User context if provided]
 
-When done, use `tell_agent` to send your review back to the agent named "{agent_name}".
+When done, use `ask_agent` to send your review back to the agent named "{agent_name}".
 If asked for a follow-up review, check that previous issues were addressed and look for any new concerns.
 When everything looks good, say so clearly so we can wrap up.
 ```

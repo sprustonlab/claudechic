@@ -36,8 +36,7 @@ SHORTCUTS = [
 MCP_TOOLS = [
     ("spawn_agent", "Create new Claude agent"),
     ("spawn_worktree", "Create git worktree with agent"),
-    ("ask_agent", "Send question to another agent"),
-    ("tell_agent", "Send message without expecting reply"),
+    ("ask_agent", "Send message to another agent (reply expected by default)"),
     ("list_agents", "List all running agents"),
     ("close_agent", "Close an agent by name"),
 ]

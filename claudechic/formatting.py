@@ -48,9 +48,9 @@ MAX_HEADER_WIDTH = 70  # Max width for tool headers
 # Inter-agent message patterns
 # Matches ask_agent: [Question from agent 'X' - please respond...]
 _AGENT_QUESTION_RE = re.compile(
-    r"^\[Question from agent '([^']+)' - please respond back using tell_agent, or ask_agent if you need more context\]\n\n"
+    r"^\[Question from agent '([^']+)' - please respond back using ask_agent, or ask_agent if you need more context\]\n\n"
 )
-# Matches tell_agent: [Message from agent 'X']
+# Matches ask_agent (requires_answer=false): [Message from agent 'X']
 _AGENT_MESSAGE_RE = re.compile(r"^\[Message from agent '([^']+)'\]\n\n")
 # Matches spawn_agent/spawn_worktree: [Spawned by agent 'X']
 _AGENT_SPAWNED_RE = re.compile(r"^\[Spawned by agent '([^']+)'\]\n\n")
@@ -59,7 +59,7 @@ _AGENT_SPAWNED_RE = re.compile(r"^\[Spawned by agent '([^']+)'\]\n\n")
 def format_agent_prompt(prompt: str) -> tuple[str, bool]:
     """Format inter-agent prompts for nicer display.
 
-    Detects messages from other agents (via spawn/ask/tell_agent) and
+    Detects messages from other agents (via spawn/ask_agent) and
     formats them with markdown styling.
 
     Returns:

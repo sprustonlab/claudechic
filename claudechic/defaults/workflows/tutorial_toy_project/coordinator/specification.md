@@ -36,7 +36,7 @@ Use absolute paths for all agent working directories.
 
 ## Step 3: Wait for Reports
 
-Run `list_agents` periodically to check status. Wait for all 4 agents to report back via `tell_agent`.
+Run `list_agents` periodically to check status. Wait for all 4 agents to report back via `ask_agent`.
 
 ## Step 4: Synthesize
 

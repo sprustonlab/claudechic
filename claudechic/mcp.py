@@ -3,8 +3,7 @@
 Exposes tools for Claude to manage agents within claudechic:
 - spawn_agent: Create new agent, optionally with initial prompt
 - spawn_worktree: Create git worktree + agent
-- ask_agent: Send question to existing agent (expects reply)
-- tell_agent: Send message to existing agent (no reply expected)
+- ask_agent: Send message to existing agent (expects reply by default; fire-and-forget with requires_answer=false)
 - interrupt_agent: Interrupt an agent, optionally redirect with new prompt
 - list_agents: List current agents and their status
 - close_agent: Close an agent by name
@@ -102,7 +101,7 @@ def _clear_pending_reply_if_matched(
 ) -> None:
     """Clear _pending_reply_to if the sender is replying to their caller.
 
-    Called from tell_agent. If the sending agent has
+    Called from ask_agent (requires_answer=False). If the sending agent has
     _pending_reply_to == recipient_name, it means the agent is delivering
     its required answer — clear the obligation.
     """
@@ -143,7 +142,7 @@ def _send_prompt_fire_and_forget(
     # Wrap prompt with caller info if provided
     if caller_name:
         if expect_reply:
-            prompt = f"[Question from agent '{caller_name}' - please respond back using tell_agent, or ask_agent if you need more context]\n\n{prompt}"
+            prompt = f"[Question from agent '{caller_name}' - please respond back using ask_agent, or ask_agent if you need more context]\n\n{prompt}"
         elif is_spawn:
             prompt = f"[Spawned by agent '{caller_name}']\n\n{prompt}"
         else:
@@ -182,7 +181,7 @@ def _make_spawn_agent(caller_name: str | None = None):
                 },
                 "requires_answer": {
                     "type": "boolean",
-                    "description": "If true, the spawned agent is expected to reply back to the caller using tell_agent. It will be nudged if idle without replying.",
+                    "description": "If true, the spawned agent is expected to reply back to the caller using ask_agent. It will be nudged if idle without replying.",
                 },
             },
             "required": ["name", "path", "prompt"],
@@ -367,66 +366,48 @@ def _make_ask_agent(caller_name: str | None = None):
 
     @tool(
         "ask_agent",
-        "Send a question to another agent. Returns immediately - the agent will respond back using tell_agent (or ask_agent if they need more context) when ready.",
-        {"name": str, "prompt": str},
+        "Send a message to another agent. By default, expects a reply (the target is nudged if idle without responding). Set requires_answer=false for fire-and-forget messages.",
+        {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "message": {"type": "string"},
+                "requires_answer": {
+                    "type": "boolean",
+                    "description": "If true (default), the target agent is expected to reply. Set to false for fire-and-forget messages.",
+                },
+            },
+            "required": ["name", "message"],
+        },
     )
     async def ask_agent(args: dict[str, Any]) -> dict[str, Any]:
-        """Send question to an agent. Non-blocking."""
+        """Send message to an agent. Non-blocking."""
         if _app is None or _app.agent_mgr is None:
             return _error_response("App not initialized")
         _track_mcp_tool("ask_agent")
 
         name = args["name"]
-        prompt = args["prompt"]
+        message = args["message"]
+        requires_answer = args.get("requires_answer", True)
 
         agent, error = _find_agent_by_name(name)
         if agent is None:
             return _error_response(error or "Agent not found")
 
         _send_prompt_fire_and_forget(
-            agent, prompt, caller_name=caller_name, expect_reply=True
+            agent, message, caller_name=caller_name, expect_reply=requires_answer
         )
 
-        # NOTE: Do NOT clear _pending_reply_to here. ask_agent is a
-        # follow-up question, not a final answer. The obligation is only
-        # fulfilled when the agent uses tell_agent to deliver a result.
-
-        preview = prompt[:80] + "..." if len(prompt) > 80 else prompt
-        return _text_response(f"→ {name}: {preview}")
-
-    return ask_agent
-
-
-def _make_tell_agent(caller_name: str | None = None):
-    """Create tell_agent tool with optional caller name bound."""
-
-    @tool(
-        "tell_agent",
-        "Send a message to another agent without expecting a reply. Use for status updates, results, or answering questions.",
-        {"name": str, "message": str},
-    )
-    async def tell_agent(args: dict[str, Any]) -> dict[str, Any]:
-        """Send message to an agent. Non-blocking, no reply expected."""
-        if _app is None or _app.agent_mgr is None:
-            return _error_response("App not initialized")
-        _track_mcp_tool("tell_agent")
-
-        name = args["name"]
-        message = args["message"]
-
-        agent, error = _find_agent_by_name(name)
-        if agent is None:
-            return _error_response(error or "Agent not found")
-
-        _send_prompt_fire_and_forget(agent, message, caller_name=caller_name)
-
-        # Clear pending reply if this agent is replying to its caller
-        _clear_pending_reply_if_matched(caller_name, name)
+        if not requires_answer:
+            # Fire-and-forget: clear pending reply if this agent is
+            # replying to its caller (same semantics as old tell_agent).
+            _clear_pending_reply_if_matched(caller_name, name)
 
         preview = message[:80] + "..." if len(message) > 80 else message
         return _text_response(f"→ {name}: {preview}")
 
-    return tell_agent
+    return ask_agent
+
 
 
 def _make_whoami(caller_name: str | None = None):
@@ -1294,7 +1275,7 @@ def create_chic_server(
 
     Args:
         caller_name: Name of the agent that will use this server.
-            Used to identify the sender in spawn/ask/tell agent calls.
+            Used to identify the sender in spawn/ask agent calls.
         tier_roots: Three-tier roots for ``mcp_tools/`` discovery. If
             ``None``, falls back to ``_app._tier_roots`` (set at app
             startup) — preserves the convenience API for tests.
@@ -1303,7 +1284,6 @@ def create_chic_server(
         _make_spawn_agent(caller_name),
         _make_spawn_worktree(caller_name),
         _make_ask_agent(caller_name),
-        _make_tell_agent(caller_name),
         _make_whoami(caller_name),
         list_agents,
         _make_close_agent(caller_name),

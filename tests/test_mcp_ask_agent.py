@@ -70,7 +70,7 @@ async def test_ask_agent_injects_sender(mock_app):
     ask_agent = _make_ask_agent(caller_name="alice")
 
     # Call the handler directly
-    await ask_agent.handler({"name": "bob", "prompt": "What's the weather?"})
+    await ask_agent.handler({"name": "bob", "message": "What's the weather?"})
 
     # Let the event loop run the fire-and-forget task
     await asyncio.sleep(0)
@@ -78,7 +78,7 @@ async def test_ask_agent_injects_sender(mock_app):
     # Bob should have received the prompt with alice's identity and reply instruction
     assert bob.received_prompt is not None
     assert "[Question from agent 'alice'" in bob.received_prompt
-    assert "please respond back using tell_agent" in bob.received_prompt
+    assert "please respond back using ask_agent" in bob.received_prompt
     assert "What's the weather?" in bob.received_prompt
 
 
@@ -91,7 +91,7 @@ async def test_ask_agent_without_sender(mock_app):
     # Create ask_agent tool without caller name
     ask_agent = _make_ask_agent()
 
-    await ask_agent.handler({"name": "bob", "prompt": "What's the weather?"})
+    await ask_agent.handler({"name": "bob", "message": "What's the weather?"})
 
     # Let the event loop run the fire-and-forget task
     await asyncio.sleep(0)
@@ -109,7 +109,7 @@ async def test_ask_agent_nonexistent_returns_error(mock_app):
     ask_agent = _make_ask_agent(caller_name="alice")
 
     # Ask a non-existent agent
-    result = await ask_agent.handler({"name": "ghost", "prompt": "Hello?"})
+    result = await ask_agent.handler({"name": "ghost", "message": "Hello?"})
 
     # Should return error response with isError flag
     assert result["isError"] is True

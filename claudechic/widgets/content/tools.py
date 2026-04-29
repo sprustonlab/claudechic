@@ -590,6 +590,8 @@ class AgentToolWidget(BaseToolWidget):
                 yield Button(f"Go to {self._agent_name}", classes="go-btn")
 
         elif tool_short == "tell_agent":
+            # Legacy: tell_agent was merged into ask_agent but keep display
+            # support for old sessions that still reference this tool name.
             with QuietCollapsible(
                 title=self._make_title("Tell", prompt), collapsed=True
             ):

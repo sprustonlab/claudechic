@@ -601,7 +601,7 @@ class Agent:
         self._drain_stale_on_next_response = True
 
         # Drain any queued inter-agent messages that were waiting while the
-        # interrupted response was in-flight.  Without this, tell_agent
+        # interrupted response was in-flight.  Without this, ask_agent
         # messages delivered during a busy period are silently lost.
         if self._pending_messages:
             log.info(
