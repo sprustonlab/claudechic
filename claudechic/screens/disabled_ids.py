@@ -15,6 +15,7 @@ SPEC §7.11 + §0.2 vocabulary).
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from textual.app import ComposeResult
@@ -25,6 +26,8 @@ from textual.widgets import Label, ListItem, ListView, Static
 
 if TYPE_CHECKING:
     from claudechic.app import ChatApp
+
+log = logging.getLogger(__name__)
 
 
 _TIER_BADGE = {
@@ -52,7 +55,7 @@ class _IdHeaderItem(ListItem):
         self._text = text
 
     def compose(self) -> ComposeResult:
-        yield Label(self._text, classes="bold")
+        yield Label(self._text, classes="bold", markup=False)
 
 
 class _TierIdItem(ListItem):
@@ -81,7 +84,7 @@ class _TierIdItem(ListItem):
         self._annotation = annotation
 
     def compose(self) -> ComposeResult:
-        yield Label(self._render_text())
+        yield Label(self._render_text(), markup=False)
 
     def _render_text(self) -> str:
         mark = "[x]" if self.checked else "[ ]"
@@ -93,8 +96,8 @@ class _TierIdItem(ListItem):
         self.checked = not self.checked
         try:
             self.query_one(Label).update(self._render_text())
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("toggle re-render failed: %s", e)
 
 
 class DisabledIdsScreen(Screen[frozenset[str] | None]):
@@ -107,7 +110,7 @@ class DisabledIdsScreen(Screen[frozenset[str] | None]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
         Binding("enter", "accept", "Accept"),
-        Binding("space", "toggle_row", "Toggle"),
+        Binding("space", "toggle_row", "Toggle", priority=True),
     ]
 
     DEFAULT_CSS = """
@@ -279,6 +282,11 @@ class DisabledIdsScreen(Screen[frozenset[str] | None]):
         item = lv.highlighted_child
         if isinstance(item, _TierIdItem):
             item.toggle()
+        else:
+            log.debug(
+                "action_toggle_row: highlighted_child is %r, not _TierIdItem",
+                type(item).__name__ if item is not None else None,
+            )
 
     def action_accept(self) -> None:
         self.dismiss(self._encode_result())

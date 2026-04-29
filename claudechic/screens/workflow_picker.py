@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
@@ -29,6 +29,13 @@ class WorkflowItem(ListItem):
     DEFAULT_CSS = """
     WorkflowItem {
         pointer: pointer;
+    }
+    WorkflowItem .workflow-header {
+        height: 1;
+        width: 1fr;
+    }
+    WorkflowItem .workflow-name {
+        width: auto;
     }
     WorkflowItem .tier-badge {
         width: auto;
@@ -57,9 +64,14 @@ class WorkflowItem(ListItem):
         self.defined_at = defined_at or frozenset({tier})
 
     def compose(self) -> ComposeResult:
-        yield Label(self.workflow_id, classes="workflow-name")
         badge_text = _TIER_BADGE.get(self.tier, f"[{self.tier}]")
-        yield Label(badge_text, classes=f"tier-badge tier-{self.tier}")
+        with Horizontal(classes="workflow-header"):
+            yield Label(self.workflow_id, classes="workflow-name")
+            yield Label(
+                badge_text,
+                classes=f"tier-badge tier-{self.tier}",
+                markup=False,
+            )
         parts = []
         if self.main_role:
             parts.append(f"role: {self.main_role}")
@@ -81,6 +93,7 @@ class WorkflowItem(ListItem):
             yield Label(
                 f"(defined at: {', '.join(ordered)})",
                 classes="workflow-meta",
+                markup=False,
             )
 
 
