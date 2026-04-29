@@ -104,6 +104,11 @@ def test_episode_lifecycle():
     s.async_metrics.record_lag(0.07)
     s._ep_peak_cpu = 0.85
 
+    # Ensure a measurable end-start delta on Windows, where time.time()
+    # has ~15 ms resolution and the test otherwise completes within one
+    # tick (duration would be 0.0).
+    time.sleep(0.02)
+
     # 3 cold cycles -> episode closes
     for _ in range(3):
         s._low_streak += 1

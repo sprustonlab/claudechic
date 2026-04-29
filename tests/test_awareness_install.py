@@ -325,7 +325,13 @@ def test_inv_aw_11_symlink_target_untouched(
         result = install_awareness_rules()
 
     assert link.is_symlink(), "Symlink must remain"
-    assert link.readlink() == external, "Symlink target unchanged"
+    # Compare resolved paths -- on Windows ``readlink()`` may return a
+    # normalized form (long-path prefix, drive-letter casing, separators)
+    # that differs from the literal ``external`` Path.  Resolving both
+    # sides reduces to the same target.
+    assert link.readlink().resolve() == external.resolve(), (
+        "Symlink target unchanged"
+    )
     assert external.read_text(encoding="utf-8") == external_content
     assert name not in result.new
     assert name not in result.updated
