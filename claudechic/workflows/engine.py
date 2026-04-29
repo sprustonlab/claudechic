@@ -411,6 +411,7 @@ class WorkflowEngine:
         persist_fn: PersistFn,
         confirm_callback: AsyncConfirmCallback,
         cwd: Path | None = None,
+        notify_fn: Callable[[str], None] | None = None,
     ) -> WorkflowEngine:
         """Restore engine from persisted session state.
 
@@ -421,6 +422,10 @@ class WorkflowEngine:
             confirm_callback: Callback for ManualConfirm checks.
             cwd: Launched-repo root for relative-path resolution. Forwarded
                 to ``__init__``.
+            notify_fn: Optional callable that surfaces a user-visible
+                warning toast. Invoked with a friendly message when the
+                saved ``artifact_dir`` is missing on disk; logging still
+                happens regardless.
 
         Returns:
             Restored WorkflowEngine with phase state from session.
@@ -461,6 +466,15 @@ class WorkflowEngine:
                     "re-create)",
                     resolved,
                 )
+                if notify_fn is not None:
+                    try:
+                        notify_fn(
+                            f"Saved artifact directory missing on disk: "
+                            f"{resolved}. Recreate it or set a new one."
+                        )
+                    except Exception as e:
+                        # Defensive — never let the UI hook break restore.
+                        logger.debug("notify_fn raised during restore: %s", e)
             engine._artifact_dir = resolved
 
         return engine
