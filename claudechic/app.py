@@ -403,6 +403,12 @@ class ChatApp(App):
         self._project_config: Any = None  # ProjectConfig
         self._workflow_registry: dict[str, Path] = {}  # workflow_id -> directory
         self._workflow_engine: Any = None  # WorkflowEngine
+        # Set by _prompt_chicsession_name when the user picks an existing
+        # chicsession that has saved workflow_state for the workflow being
+        # activated AND chooses "restore" in the resulting dialog. Read and
+        # consumed by _activate_workflow to choose between
+        # _restore_workflow_from_session() and a fresh WorkflowEngine.
+        self._workflow_should_restore: bool = False
 
         # Toast debounce state: toast_key -> last-shown monotonic timestamp
         self._toast_timestamps: dict[str, float] = {}
@@ -1826,35 +1832,90 @@ class ChatApp(App):
                 main_role=wf_data.main_role,
             )
 
+            # Snapshot which chicsession files exist on disk RIGHT NOW,
+            # before any picker / auto-create can write a new file.  After
+            # the chicsession is determined we can ask one simple question:
+            # "was this name already on disk?"  If yes -> existing session,
+            # show the dialog.  If no -> we just created it, skip the dialog.
+            from claudechic.chicsession_cmd import _get_manager as _get_cs_mgr
+
+            existing_chicsessions = set(_get_cs_mgr(self).list_chicsessions())
+
             # Prompt user to name/resume a chicsession so workflow state is
             # persisted.  Must happen BEFORE creating the engine, because
             # the engine's persist_fn checks self._chicsession_name and
             # exits early if it is None.
             if not self._chicsession_name:
                 if auto_name:
-                    # Welcome screen activation — skip interactive prompt
+                    # Welcome screen activation -- skip interactive prompt
                     session_name = await self._auto_create_chicsession(auto_name)
                 else:
                     session_name = await self._prompt_chicsession_name(workflow_id)
                 if session_name is None:
-                    # User cancelled the prompt — abort workflow activation
+                    # User cancelled the prompt -- abort workflow activation
                     self.notify(
                         f"Workflow '{workflow_id}' activation cancelled",
                         severity="warning",
                     )
                     return
 
-            self._workflow_engine = WorkflowEngine(
-                manifest=manifest,
-                persist_fn=self._make_persist_fn(),
-                confirm_callback=self._make_confirm_callback(),
-                cwd=self._cwd,
-            )
+            # Restore-vs-fresh-vs-cancel dialog.  Shown only when the
+            # chicsession existed on disk BEFORE this activation -- i.e.,
+            # we're attaching to a session that may already have data the
+            # user wants to preserve.  Brand-new sessions have nothing to
+            # confirm.
+            chicsession_existed = self._chicsession_name in existing_chicsessions
+
+            if not chicsession_existed:
+                # Brand-new session -- nothing to restore, no dialog needed.
+                should_restore = False
+                self._workflow_should_restore = False
+            else:
+                decision = await self._prompt_workflow_restore_or_fresh(
+                    workflow_id, self._chicsession_name
+                )
+                if decision is None:
+                    self.notify(
+                        f"Workflow '{workflow_id}' activation cancelled",
+                        severity="warning",
+                    )
+                    return
+                should_restore = decision == "restore"
+                self._workflow_should_restore = False  # consumed
+
+            if should_restore:
+                self._restore_workflow_from_session()
+                if self._workflow_engine is None:
+                    # Restore failed (state shape mismatch, missing
+                    # load_result, etc.).  Fall back to a fresh engine so
+                    # the user is not stranded mid-activation.
+                    log.warning(
+                        "Workflow restore failed for '%s'; creating fresh engine",
+                        workflow_id,
+                    )
+                    self._workflow_engine = WorkflowEngine(
+                        manifest=manifest,
+                        persist_fn=self._make_persist_fn(),
+                        confirm_callback=self._make_confirm_callback(),
+                        cwd=self._cwd,
+                    )
+                    should_restore = False
+            else:
+                self._workflow_engine = WorkflowEngine(
+                    manifest=manifest,
+                    persist_fn=self._make_persist_fn(),
+                    confirm_callback=self._make_confirm_callback(),
+                    cwd=self._cwd,
+                )
             phase = self._workflow_engine.get_current_phase()
 
-            self.notify(
-                f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
-            )
+            if not should_restore:
+                # _restore_workflow_from_session already emits a "Restored ..."
+                # toast, so only emit the activation toast on the fresh path
+                # to avoid duplicate notifications.
+                self.notify(
+                    f"Workflow '{workflow_id}' activated — phase: {phase or 'none'}"
+                )
             self._update_sidebar_workflow_info()
             self._position_right_sidebar()
 
@@ -1902,6 +1963,44 @@ class ChatApp(App):
             log.warning("Failed to activate workflow '%s': %s", workflow_id, e)
             self.notify(f"Failed to activate workflow: {e}", severity="error")
 
+    async def _prompt_workflow_restore_or_fresh(
+        self, workflow_id: str, session_name: str
+    ) -> str | None:
+        """Confirm action when activating a workflow in an EXISTING chicsession.
+
+        The user picked an existing chicsession.  By default the engine
+        would be rebuilt fresh and overwrite the chicsession's saved
+        workflow_state on the next persist -- which silently destroys
+        prior work.  The dialog hands the choice to the user instead.
+
+        We do NOT inspect chicsession state on disk to decide options:
+        the user, not stored state, decides the action.
+
+        Returns:
+            "restore": preserve the existing chicsession.  Caller should
+                       try _restore_workflow_from_session(), falling back
+                       to a fresh engine if there is nothing to restore.
+            "fresh":   start over -- caller creates a new WorkflowEngine
+                       which will overwrite chicsession.workflow_state.
+            None:      user cancelled (Escape or "cancel").  Abort.
+        """
+        choice = await self._show_agent_prompt(
+            title=f"Activate '{workflow_id}' in chicsession '{session_name}'",
+            options=[
+                ("restore", "Restore (preserve existing chicsession)"),
+                ("fresh", "Start fresh (overwrite this chicsession)"),
+                ("cancel", "Cancel"),
+            ],
+            subtitle=(
+                f"'{session_name}' is an existing chicsession. "
+                f"Starting fresh will overwrite its saved workflow state."
+            ),
+        )
+        # SelectionPrompt returns "" on Escape -- treat that as cancel.
+        if not choice or choice == "cancel":
+            return None
+        return choice  # "restore" or "fresh"
+
     async def _prompt_chicsession_name(self, workflow_id: str) -> str | None:
         """Prompt the user to name or resume a chicsession for workflow activation.
 
@@ -1946,13 +2045,6 @@ class ChatApp(App):
             session_name = result[len("resume:") :]
             try:
                 mgr.load(session_name)  # Validate it loads
-                self._chicsession_name = session_name
-                _update_sidebar_label(self, session_name)
-                log.info(
-                    "Resumed existing chicsession '%s' for workflow activation",
-                    session_name,
-                )
-                return session_name
             except (FileNotFoundError, ValueError) as exc:
                 log.warning("Failed to load chicsession '%s': %s", session_name, exc)
                 self.notify(
@@ -1961,7 +2053,19 @@ class ChatApp(App):
                 )
                 return None
 
-        # New session — extract name from "new:<name>" result
+            # The restore-vs-fresh dialog runs from _activate_workflow,
+            # which decides whether to show it by checking which chicsession
+            # files existed on disk BEFORE this activation began.
+            self._workflow_should_restore = False
+            self._chicsession_name = session_name
+            _update_sidebar_label(self, session_name)
+            log.info(
+                "Resumed existing chicsession '%s' for workflow activation",
+                session_name,
+            )
+            return session_name
+
+        # New session -- extract name from "new:<name>" result
         session_name = (
             result[len("new:") :].strip() if result.startswith("new:") else ""
         )
@@ -2261,6 +2365,7 @@ class ChatApp(App):
                 persist_fn=self._make_persist_fn(),
                 confirm_callback=self._make_confirm_callback(),
                 cwd=self._cwd,
+                notify_fn=lambda msg: self.notify(msg, severity="warning", timeout=10),
             )
             phase = self._workflow_engine.get_current_phase()
             self.notify(f"Restored workflow '{wf_id}' — phase: {phase or 'none'}")

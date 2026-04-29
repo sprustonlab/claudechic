@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import yaml
@@ -51,6 +51,10 @@ def _save_chicsession(
 
 
 async def _mock_prompt_chicsession_name(self, workflow_id: str) -> str | None:
+    # Pre-existing tests don't exercise the restore-vs-fresh dialog.
+    # _activate_workflow snapshots existing chicsessions BEFORE this runs,
+    # so by setting _chicsession_name to a fresh value here (no file on
+    # disk for it yet) the snapshot won't contain it -> dialog is skipped.
     self._chicsession_name = workflow_id
     return workflow_id
 
@@ -565,3 +569,476 @@ class TestFilesSectionAfterRestore:
                         "Check: does _async_refresh_files call _position_right_sidebar()?\n"
                         "Check: does _position_right_sidebar include files_section.item_count?"
                     )
+
+
+class TestPromptWorkflowRestoreOrFresh:
+    """The restore/fresh/cancel dialog helper: shape and return values."""
+
+    @staticmethod
+    def _common_app_setup(tmp_path):
+        """Build the common ExitStack: silenced background tasks etc."""
+        stack = ExitStack()
+        stack.enter_context(
+            patch("claudechic.tasks.create_safe_task", return_value=MagicMock())
+        )
+        stack.enter_context(patch("claudechic.sessions.count_sessions", return_value=1))
+        return stack
+
+    async def test_restore_choice_returns_restore(self, mock_sdk, tmp_path):
+        """Same-workflow prior state + 'restore' choice -> returns 'restore'."""
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "saved",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        app = ChatApp()
+        with self._common_app_setup(tmp_path):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                with patch.object(
+                    app,
+                    "_show_agent_prompt",
+                    new=AsyncMock(return_value="restore"),
+                ) as dialog:
+                    result = await app._prompt_workflow_restore_or_fresh(
+                        "proj", "saved"
+                    )
+
+                assert result == "restore"
+                # Dialog must have been shown with all three options.
+                opts = dialog.await_args.kwargs["options"]
+                values = [v for v, _ in opts]
+                assert values == ["restore", "fresh", "cancel"]
+
+    async def test_fresh_choice_returns_fresh(self, mock_sdk, tmp_path):
+        """Same-workflow prior state + 'fresh' choice -> returns 'fresh'."""
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "saved",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        app = ChatApp()
+        with self._common_app_setup(tmp_path):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                with patch.object(
+                    app,
+                    "_show_agent_prompt",
+                    new=AsyncMock(return_value="fresh"),
+                ):
+                    result = await app._prompt_workflow_restore_or_fresh(
+                        "proj", "saved"
+                    )
+
+                assert result == "fresh"
+
+    async def test_cancel_choice_returns_none(self, mock_sdk, tmp_path):
+        """User picks 'cancel' -> returns None to signal abort."""
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "saved",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        app = ChatApp()
+        with self._common_app_setup(tmp_path):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                with patch.object(
+                    app,
+                    "_show_agent_prompt",
+                    new=AsyncMock(return_value="cancel"),
+                ):
+                    result = await app._prompt_workflow_restore_or_fresh(
+                        "proj", "saved"
+                    )
+
+                assert result is None
+
+    async def test_escape_returns_none(self, mock_sdk, tmp_path):
+        """SelectionPrompt returns '' on Escape -> treat as cancel (None)."""
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "saved",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        app = ChatApp()
+        with self._common_app_setup(tmp_path):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                with patch.object(
+                    app, "_show_agent_prompt", new=AsyncMock(return_value="")
+                ):
+                    result = await app._prompt_workflow_restore_or_fresh(
+                        "proj", "saved"
+                    )
+
+                assert result is None
+
+    async def test_dialog_always_offers_three_options(self, mock_sdk, tmp_path):
+        """Dialog always presents restore / fresh / cancel for existing
+        chicsessions -- regardless of what is on disk.  The user, not
+        stored state, decides the action.
+        """
+        _setup_workflow(tmp_path)
+        _save_chicsession(tmp_path, "anything", workflow_state=None)
+
+        app = ChatApp()
+        with self._common_app_setup(tmp_path):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                with patch.object(
+                    app,
+                    "_show_agent_prompt",
+                    new=AsyncMock(return_value="fresh"),
+                ) as dialog:
+                    result = await app._prompt_workflow_restore_or_fresh(
+                        "proj", "anything"
+                    )
+
+                assert dialog.await_count == 1
+                opts = dialog.await_args.kwargs["options"]
+                values = [v for v, _ in opts]
+                # Always three options, in this order.
+                assert values == ["restore", "fresh", "cancel"]
+                assert result == "fresh"
+
+    async def test_dialog_does_not_read_chicsession_from_disk(self, mock_sdk, tmp_path):
+        """Helper does not load the chicsession to decide what to show --
+        a missing chicsession on disk is fine, the dialog still appears.
+        """
+        _setup_workflow(tmp_path)
+        # Deliberately NOT saving any chicsession -- file does not exist.
+
+        app = ChatApp()
+        with self._common_app_setup(tmp_path):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                with patch.object(
+                    app,
+                    "_show_agent_prompt",
+                    new=AsyncMock(return_value="restore"),
+                ) as dialog:
+                    result = await app._prompt_workflow_restore_or_fresh(
+                        "proj", "does-not-exist"
+                    )
+
+                # Dialog ran (no disk inspection short-circuited it).
+                assert dialog.await_count == 1
+                assert result == "restore"
+
+
+class TestActivateWorkflowRestorePath:
+    """_activate_workflow must consult _prompt_workflow_restore_or_fresh
+    and rebuild the engine from saved state when the user picks 'restore'
+    -- both when the chicsession is selected via the picker (case B) AND
+    when the chicsession was already attached at activation time (case A).
+    """
+
+    @staticmethod
+    def _common_patches(decision_value):
+        """Build the common patches: silenced background tasks plus a
+        mocked _prompt_workflow_restore_or_fresh that returns
+        `decision_value` ("restore", "fresh", or None for cancel).
+        """
+        stack = ExitStack()
+        stack.enter_context(
+            patch("claudechic.tasks.create_safe_task", return_value=MagicMock())
+        )
+        stack.enter_context(patch("claudechic.sessions.count_sessions", return_value=1))
+        stack.enter_context(
+            patch.object(
+                ChatApp,
+                "_prompt_workflow_restore_or_fresh",
+                new=AsyncMock(return_value=decision_value),
+            )
+        )
+        return stack
+
+    async def test_restore_choice_rebuilds_engine_at_saved_phase_via_picker(
+        self, mock_sdk, tmp_path
+    ):
+        """Case B: user picks chicsession via picker, then 'restore' in dialog.
+        Engine must resume at the saved phase, not start at first phase.
+        """
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "resumed",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        async def mock_picker(self, workflow_id):
+            self._chicsession_name = "resumed"
+            return "resumed"
+
+        app = ChatApp()
+        with self._common_patches("restore") as common:
+            common.enter_context(
+                patch.object(ChatApp, "_prompt_chicsession_name", mock_picker)
+            )
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
+                app._discover_workflows()
+
+                await app._activate_workflow("proj")
+                await pilot.pause()
+
+                assert app._workflow_engine is not None
+                assert app._workflow_engine.get_current_phase() == "proj:implement", (
+                    "Restore path must rebuild engine at saved phase, "
+                    "not start at the first phase."
+                )
+
+    async def test_restore_choice_works_when_chicsession_already_attached(
+        self, mock_sdk, tmp_path
+    ):
+        """Case A: chicsession already attached when /workflow invoked,
+        user picks 'restore' in dialog -> engine restores at saved phase.
+        Without the dialog the prior default would have silently overwritten
+        the saved state with a fresh engine.
+        """
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "preset",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        app = ChatApp()
+        with self._common_patches("restore"):
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
+                app._discover_workflows()
+                # Simulate "user already attached to chicsession" before
+                # /workflow was invoked.
+                app._chicsession_name = "preset"
+
+                await app._activate_workflow("proj")
+                await pilot.pause()
+
+                assert app._workflow_engine is not None
+                assert app._workflow_engine.get_current_phase() == "proj:implement"
+
+    async def test_fresh_choice_starts_engine_at_first_phase(self, mock_sdk, tmp_path):
+        """User picks 'fresh' -> engine starts at first phase, ignoring saved state."""
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "ignored",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        async def mock_picker(self, workflow_id):
+            self._chicsession_name = "ignored"
+            return "ignored"
+
+        app = ChatApp()
+        with self._common_patches("fresh") as common:
+            common.enter_context(
+                patch.object(ChatApp, "_prompt_chicsession_name", mock_picker)
+            )
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
+                app._discover_workflows()
+
+                await app._activate_workflow("proj")
+                await pilot.pause()
+
+                assert app._workflow_engine is not None
+                assert app._workflow_engine.get_current_phase() == "proj:design"
+
+    async def test_cancel_choice_aborts_activation(self, mock_sdk, tmp_path):
+        """User picks 'cancel' -> no engine created, activation aborts."""
+        _setup_workflow(tmp_path)
+        _save_chicsession(
+            tmp_path,
+            "saved",
+            workflow_state={
+                "workflow_id": "proj",
+                "current_phase": "proj:implement",
+            },
+        )
+
+        async def mock_picker(self, workflow_id):
+            self._chicsession_name = "saved"
+            return "saved"
+
+        app = ChatApp()
+        # decision_value=None signals cancel.
+        with self._common_patches(None) as common:
+            common.enter_context(
+                patch.object(ChatApp, "_prompt_chicsession_name", mock_picker)
+            )
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
+                app._discover_workflows()
+
+                await app._activate_workflow("proj")
+                await pilot.pause()
+
+                # Cancellation aborts -- no engine should exist.
+                assert app._workflow_engine is None
+
+    async def test_dialog_shown_for_existing_session_without_prior_state(
+        self, mock_sdk, tmp_path
+    ):
+        """Regression: user clicks /workflow -> project_team -> existing
+        chicsession with no prior workflow_state -> dialog MUST appear.
+
+        The decision is purely "did the chicsession file exist on disk
+        before activation?"  -- not "is there workflow state inside?"
+        """
+        _setup_workflow(tmp_path)
+        # Existing chicsession on disk with NO prior workflow_state -- the
+        # most common case: user activated a workflow once but never advanced
+        # phases, so persist_fn never fired.
+        _save_chicsession(tmp_path, "existing", workflow_state=None)
+
+        async def mock_picker(self, workflow_id):
+            # Picker resumed an existing chicsession -- file already on disk.
+            self._chicsession_name = "existing"
+            return "existing"
+
+        dialog = AsyncMock(return_value="fresh")
+
+        app = ChatApp()
+        with ExitStack() as common:
+            common.enter_context(
+                patch("claudechic.tasks.create_safe_task", return_value=MagicMock())
+            )
+            common.enter_context(
+                patch("claudechic.sessions.count_sessions", return_value=1)
+            )
+            common.enter_context(
+                patch.object(ChatApp, "_prompt_chicsession_name", mock_picker)
+            )
+            common.enter_context(
+                patch.object(ChatApp, "_show_agent_prompt", new=dialog)
+            )
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
+                app._discover_workflows()
+
+                await app._activate_workflow("proj")
+                await pilot.pause()
+
+                # Dialog MUST have been shown (this is the bug fix).
+                assert dialog.await_count == 1, (
+                    "Dialog must appear when user picks an existing chicsession, "
+                    "even when that chicsession has no prior workflow_state."
+                )
+
+    async def test_dialog_skipped_for_newly_created_chicsession(
+        self, mock_sdk, tmp_path
+    ):
+        """No dialog when the user picked 'new:<name>' in the picker --
+        the chicsession file did not exist before activation, so there is
+        nothing to preserve.
+        """
+        _setup_workflow(tmp_path)
+        # NOTE: NOT calling _save_chicsession -- "brand-new" is not on disk.
+
+        async def mock_picker(self, workflow_id):
+            # Simulate the "new:" path: just sets the name (the real new
+            # path also writes the file, but here we want to verify that
+            # _activate_workflow's "did this exist before?" snapshot is
+            # the thing controlling the dialog -- not the post-picker
+            # state).  The activation snapshot was taken before mock_picker
+            # ran, so "brand-new" was NOT in it.
+            self._chicsession_name = "brand-new"
+            return "brand-new"
+
+        dialog = AsyncMock(return_value="fresh")
+
+        app = ChatApp()
+        with ExitStack() as common:
+            common.enter_context(
+                patch("claudechic.tasks.create_safe_task", return_value=MagicMock())
+            )
+            common.enter_context(
+                patch("claudechic.sessions.count_sessions", return_value=1)
+            )
+            common.enter_context(
+                patch.object(ChatApp, "_prompt_chicsession_name", mock_picker)
+            )
+            common.enter_context(
+                patch.object(ChatApp, "_show_agent_prompt", new=dialog)
+            )
+            async with app.run_test(size=(120, 40)) as pilot:
+                await pilot.pause()
+                app._cwd = tmp_path
+                app._init_workflow_infrastructure(
+                    global_dir=tmp_path / "global",
+                    workflows_dir=tmp_path / "workflows",
+                )
+                app._discover_workflows()
+
+                await app._activate_workflow("proj")
+                await pilot.pause()
+
+                # No dialog for brand-new chicsession (file didn't exist
+                # before activation).
+                assert dialog.await_count == 0
+                # Engine should be created fresh.
+                assert app._workflow_engine is not None
+                assert app._workflow_engine.get_current_phase() == "proj:design"
