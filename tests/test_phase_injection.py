@@ -1026,13 +1026,18 @@ async def test_main_agent_role_resolves_to_main_role(
                 "No PreToolUse hooks after workflow activation"
             )
 
+            # Fire the SAME tool call as BEFORE (Bash + pytest, matching the
+            # rule's trigger PreToolUse/Bash and detect pattern "pytest").
+            # The only thing that changed is workflow activation -- so the
+            # SAME call must now block, proving the main agent's role
+            # resolved to the workflow's main_role ('coordinator').
             fired = False
             for matcher in post_hooks["PreToolUse"]:
                 for hook_fn in matcher.hooks:
                     post_result = await hook_fn(
                         {
-                            "tool_name": "mcp__chic__ask_agent",
-                            "tool_input": {"name": "Skeptic", "message": "test"},
+                            "tool_name": "Bash",
+                            "tool_input": {"command": "pytest tests/"},
                         },
                         None,
                         None,
