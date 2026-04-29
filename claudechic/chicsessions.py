@@ -110,7 +110,28 @@ class ChicsessionManager:
             raise ValueError(f"Corrupt chicsession file '{name}': {e}") from e
 
     def list_chicsessions(self) -> list[str]:
-        """List available chicsession names."""
+        """List available chicsession names (alphabetical)."""
         if not self._dir.exists():
             return []
         return sorted(p.stem for p in self._dir.glob("*.json") if p.is_file())
+
+    def list_chicsessions_with_mtime(self) -> list[tuple[str, float]]:
+        """List ``(name, mtime)`` tuples sorted by mtime descending.
+
+        Most-recently-modified chicsession comes first. mtime is a POSIX
+        timestamp (float seconds since epoch). Files whose ``stat()`` fails
+        (e.g., race with deletion) are skipped.
+        """
+        if not self._dir.exists():
+            return []
+        out: list[tuple[str, float]] = []
+        for p in self._dir.glob("*.json"):
+            if not p.is_file():
+                continue
+            try:
+                mtime = p.stat().st_mtime
+            except OSError:
+                continue
+            out.append((p.stem, mtime))
+        out.sort(key=lambda t: t[1], reverse=True)
+        return out
