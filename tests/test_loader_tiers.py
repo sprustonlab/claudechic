@@ -732,3 +732,69 @@ def test_inv_df_7_union_user_and_project_disable_lists(tmp_path: Path) -> None:
     assert "global:rule_a" not in rule_ids_after
     assert "global:rule_b" not in rule_ids_after
     assert "global:rule_c" in rule_ids_after
+
+
+def test_mixed_bare_and_tier_targeted_disable_workflows(tmp_path: Path) -> None:
+    """Mixed bare + tier-targeted entries co-exist in disabled_workflows.
+
+    Project config example::
+
+        disabled_workflows:
+          - audit              # bare → kills `audit` everywhere
+          - user:onboarding    # tier-targeted → only kills user-tier `onboarding`
+
+    Verifies the parser splits correctly and the two-stage filter
+    (loader by-tier + post-resolve bare-id filter) honors both forms.
+    """
+    from claudechic.app import _filter_load_result
+    from claudechic.workflows import parse_disable_entries
+
+    # --- 1) Parser splits correctly --------------------------------------
+    bare, targeted = parse_disable_entries(
+        frozenset({"audit", "user:onboarding"}),
+        config_key="disabled_workflows",
+    )
+    assert bare == frozenset({"audit"})
+    assert targeted == {"user": frozenset({"onboarding"})}
+
+    # --- 2) End-to-end: loader applies tier-targeted, filter applies bare.
+    pkg = _mkdir(tmp_path / "package")
+    user = _mkdir(tmp_path / "user")
+    _write_workflow(pkg, "audit")
+    # `onboarding` is defined at BOTH package + user; user:onboarding
+    # only disables the user-tier instance — the package-tier copy must
+    # be visible after the loader resolves overrides.
+    _write_workflow(pkg, "onboarding")
+    _write_workflow(user, "onboarding")
+
+    # First load WITHOUT any disable: confirms baseline.
+    baseline = _load(pkg, user=user)
+    assert "audit" in baseline.workflows
+    assert "onboarding" in baseline.workflows
+    assert baseline.workflows["onboarding"].tier == "user"
+
+    # Now load with the tier-targeted disable applied at the loader.
+    result = _load(
+        pkg,
+        user=user,
+        disabled_workflows_by_tier={"user": frozenset({"onboarding"})},
+    )
+    # `audit` is NOT filtered yet — bare-id disables apply post-resolve.
+    assert "audit" in result.workflows
+    # `onboarding` falls back to the package tier because the user-tier
+    # instance was disabled before override resolution.
+    assert "onboarding" in result.workflows
+    assert result.workflows["onboarding"].tier == "package"
+
+    # Apply the post-resolve bare-id filter using the same project config.
+    config = _make_project_config(
+        disabled_workflows=["audit", "user:onboarding"],
+    )
+    filtered = _filter_load_result(result, config)
+
+    # `audit` is gone (bare disable removes it everywhere).
+    assert "audit" not in filtered.workflows
+    # `onboarding` remains visible (only the user tier was disabled; the
+    # package-tier instance survives).
+    assert "onboarding" in filtered.workflows
+    assert filtered.workflows["onboarding"].tier == "package"
