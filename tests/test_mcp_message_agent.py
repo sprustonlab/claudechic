@@ -78,7 +78,7 @@ async def test_message_agent_injects_sender(mock_app):
     # Bob should have received the prompt with alice's identity and reply instruction
     assert bob.received_prompt is not None
     assert "[Question from agent 'alice'" in bob.received_prompt
-    assert "please respond back using message_agent" in bob.received_prompt
+    assert "respond using message_agent with requires_answer=false" in bob.received_prompt
     assert "What's the weather?" in bob.received_prompt
 
 

@@ -46,9 +46,11 @@ def get_context_window(model: str | None) -> int:
 MAX_HEADER_WIDTH = 70  # Max width for tool headers
 
 # Inter-agent message patterns
-# Matches message_agent: [Question from agent 'X' - please respond...]
+# Matches message_agent: [Question from agent 'X' - respond using message_agent ...]
 _AGENT_QUESTION_RE = re.compile(
-    r"^\[Question from agent '([^']+)' - please respond back using message_agent\]\n\n"
+    r"^\[Question from agent '([^']+)' - respond using message_agent "
+    r"with requires_answer=false, or message_agent \(default\) "
+    r"if you need more context first\]\n\n"
 )
 # Matches message_agent (requires_answer=false): [Message from agent 'X']
 _AGENT_MESSAGE_RE = re.compile(r"^\[Message from agent '([^']+)'\]\n\n")

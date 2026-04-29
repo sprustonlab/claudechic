@@ -119,10 +119,10 @@ Type at known offset; value requires length lookup.
 
 **Use `message_agent` as your default.** It guarantees a response -- the recipient will be nudged if they don't reply. Use it for requesting tasks and asking questions.
 
-**Use `message_agent` for reporting results and fire-and-forget updates** where you don't need a response.
+**Use `message_agent` with `requires_answer=false` for reporting results and fire-and-forget updates** where you don't need a response.
 
 **When to communicate:**
-- After completing your task -> `message_agent` with summary
-- After encountering blockers -> `message_agent` with diagnosis
-- When you need a decision -> `message_agent` with the question
-- When delegating a task -> `message_agent` to ensure it gets done
+- After completing your task -> `message_agent` with `requires_answer=false` (summary)
+- After encountering blockers -> `message_agent` (diagnosis, awaiting guidance)
+- When you need a decision -> `message_agent` (with the question)
+- When delegating a task -> `message_agent` (to ensure it gets done)

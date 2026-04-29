@@ -142,7 +142,7 @@ def _send_prompt_fire_and_forget(
     # Wrap prompt with caller info if provided
     if caller_name:
         if expect_reply:
-            prompt = f"[Question from agent '{caller_name}' - please respond back using message_agent]\n\n{prompt}"
+            prompt = f"[Question from agent '{caller_name}' - respond using message_agent with requires_answer=false, or message_agent (default) if you need more context first]\n\n{prompt}"
         elif is_spawn:
             prompt = f"[Spawned by agent '{caller_name}']\n\n{prompt}"
         else:
