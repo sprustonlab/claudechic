@@ -46,9 +46,13 @@ def _load() -> tuple[dict, bool]:
             config["vi-mode"] = config.pop("vim")
             _save(config)
     else:
-        # New install - create config with fresh ID and save
+        # New install - create config with fresh ID and save.  Keep this
+        # shape in sync with the setdefault block above so a fresh install
+        # produces the SAME keys as a long-lived config.
         config = {
             "analytics": {"enabled": True, "id": str(uuid.uuid4())},
+            "experimental": {},
+            "worktree": {"path_template": None},
             "recent-tools-expanded": 2,
             "default_permission_mode": "auto",
             "show_message_metadata": True,  # Show timestamp/tokens by default
