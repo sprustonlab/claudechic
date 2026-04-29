@@ -142,11 +142,23 @@ async def test_workflows_button_opens_picker_and_activates(mock_sdk, tmp_path):
             f"{[type(s).__name__ for s in screen_stack]}"
         )
 
-        # The picker should list "tutorial"
+        # The picker should list "tutorial".  On slower runners (Windows
+        # CI in particular) the picker screen is pushed but its compose()
+        # hasn't yet mounted child widgets after a single pilot.pause().
+        # Pump the event loop a few extra times.
         from claudechic.screens.workflow_picker import WorkflowItem
 
         items = app.screen.query(WorkflowItem)
-        assert len(items) >= 1
+        for _ in range(10):
+            if len(items) >= 1:
+                break
+            await pilot.pause()
+            items = app.screen.query(WorkflowItem)
+
+        assert len(items) >= 1, (
+            f"WorkflowItem widgets did not mount on the picker screen "
+            f"after 10 pump cycles (got {len(items)})"
+        )
         assert any(item.workflow_id == "tutorial" for item in items), (
             "tutorial workflow not found in picker"
         )
