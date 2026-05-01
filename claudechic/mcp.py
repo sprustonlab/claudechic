@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from claudechic.agent import DEFAULT_ROLE
 from claudechic.analytics import capture
 from claudechic.config import CONFIG
 from claudechic.enums import AgentStatus
@@ -275,27 +276,45 @@ def _make_spawn_agent(caller_name: str | None = None):
             )
 
         if prompt:
-            # Inject agent folder prompt at spawn time if workflow is active
+            # Inject agent folder prompt at spawn time if workflow is active.
+            # D5 inject site #1: route through assemble_agent_prompt so the
+            # spawn-time prompt embeds the role+phase scoped ## Constraints
+            # block. The helper IS the contract; the four inject sites do
+            # not concat by hand.
             full_prompt = prompt
             if _app._workflow_engine and agent_type:
                 try:
                     from claudechic.workflows.agent_folders import (
-                        assemble_phase_prompt,
+                        assemble_agent_prompt,
                     )
 
+                    engine = _app._workflow_engine
                     wf_data = (
-                        _app._load_result.get_workflow(
-                            _app._workflow_engine.workflow_id
-                        )
+                        _app._load_result.get_workflow(engine.workflow_id)
                         if _app._load_result is not None
                         else None
                     )
                     if wf_data is not None:
-                        folder_prompt = assemble_phase_prompt(
+                        # D6 alignment: pull the merged disabled_ids set
+                        # from the app so spawn-time constraints match
+                        # what the hook layer fires on and what the
+                        # registry tools (get_applicable_rules,
+                        # get_agent_info) report. Helper is exposed by
+                        # slot 4 in app.py.
+                        get_disabled = getattr(_app, "_get_disabled_rules", None)
+                        disabled_rules = (
+                            get_disabled() if callable(get_disabled) else None
+                        )
+                        folder_prompt = assemble_agent_prompt(
+                            agent_type,
+                            engine.get_current_phase(),
+                            getattr(_app, "_manifest_loader", None),
                             workflow_dir=wf_data.path,
-                            role_name=agent_type,
-                            current_phase=_app._workflow_engine.get_current_phase(),
-                            artifact_dir=_app._workflow_engine.get_artifact_dir(),
+                            artifact_dir=engine.get_artifact_dir(),
+                            project_root=getattr(engine, "project_root", None),
+                            engine=engine,
+                            active_workflow=engine.workflow_id,
+                            disabled_rules=disabled_rules,
                         )
                         if folder_prompt:
                             full_prompt = f"{folder_prompt}\n\n---\n\n{prompt}"
@@ -407,7 +426,6 @@ def _make_message_agent(caller_name: str | None = None):
         return _text_response(f"→ {name}: {preview}")
 
     return message_agent
-
 
 
 def _make_whoami(caller_name: str | None = None):
@@ -964,10 +982,15 @@ def _make_advance_phase(caller_name: str | None = None):
                     # Sidebar phase label still needs refreshing.
                     _app._update_sidebar_workflow_info()
 
-                # Broadcast phase prompt to typed sub-agents
+                # Broadcast phase prompt to typed sub-agents.
+                # D5 inject site #5: route through ``assemble_agent_prompt``
+                # so each sub-agent's phase-advance prompt embeds its
+                # role+phase scoped ``## Constraints`` block (symmetric
+                # with the spawn-time, activation, main-agent-advance, and
+                # post-compact inject sites).
                 if _app.agent_mgr:
                     from claudechic.workflows.agent_folders import (
-                        assemble_phase_prompt as _broadcast_assemble,
+                        assemble_agent_prompt,
                     )
 
                     wf_data_b = (
@@ -975,12 +998,24 @@ def _make_advance_phase(caller_name: str | None = None):
                         if _app._load_result is not None
                         else None
                     )
+                    loader_b = getattr(_app, "_manifest_loader", None)
+                    # D6 alignment: pull the merged disabled_ids set from
+                    # the app so phase-broadcast constraints match what
+                    # the hook layer fires on and what the registry tools
+                    # report. Computed once outside the loop -- the set
+                    # is invariant across recipients.
+                    get_disabled = getattr(_app, "_get_disabled_rules", None)
+                    disabled_rules_b = (
+                        get_disabled() if callable(get_disabled) else None
+                    )
                     for agent in list(_app.agent_mgr.agents.values()):
                         # Skip coordinator (already got content in tool response)
                         if main_role and agent.agent_type == main_role:
                             continue
-                        # Skip untyped agents
-                        if not agent.agent_type:
+                        # Skip untyped agents (agents with no workflow-specific
+                        # role get DEFAULT_ROLE as their sentinel; they should
+                        # not receive role-scoped phase broadcasts).
+                        if agent.agent_type == DEFAULT_ROLE:
                             continue
                         # Skip the calling agent (coordinator calling advance)
                         if caller_name and agent.name == caller_name:
@@ -988,11 +1023,16 @@ def _make_advance_phase(caller_name: str | None = None):
                         if wf_data_b is None:
                             continue
                         try:
-                            agent_prompt = _broadcast_assemble(
+                            agent_prompt = assemble_agent_prompt(
+                                agent.agent_type,
+                                next_phase,
+                                loader_b,
                                 workflow_dir=wf_data_b.path,
-                                role_name=agent.agent_type,
-                                current_phase=next_phase,
                                 artifact_dir=engine.get_artifact_dir(),
+                                project_root=getattr(engine, "project_root", None),
+                                engine=engine,
+                                active_workflow=engine.workflow_id,
+                                disabled_rules=disabled_rules_b,
                             )
                             if agent_prompt:
                                 _send_prompt_fire_and_forget(
@@ -1084,84 +1124,437 @@ async def get_artifact_dir(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG
     return _text_response(str(artifact_dir))
 
 
+def _render_phase_status_lines(engine: Any) -> list[str]:
+    """Return plain-text status lines describing the active workflow phase.
+
+    Shared between ``get_phase`` (narrow tool) and ``get_agent_info``
+    (aggregator) so both tools agree on what "current phase" means.
+    """
+    lines: list[str] = []
+    if engine is None:
+        lines.append("Workflow: none active")
+        return lines
+
+    current = engine.get_current_phase()
+    next_phase = engine.get_next_phase(current) if current else None
+    phase_order = getattr(engine, "_phase_order", None) or []
+
+    lines.append(f"Workflow: {engine.workflow_id}")
+    lines.append(f"Phase: {current or '(none)'}")
+    if next_phase:
+        lines.append(f"Next phase: {next_phase}")
+    if phase_order:
+        idx = (
+            phase_order.index(current) + 1 if current and current in phase_order else 0
+        )
+        lines.append(f"Progress: {idx}/{len(phase_order)} ({', '.join(phase_order)})")
+    artifact_dir = getattr(engine, "get_artifact_dir", lambda: None)()
+    if artifact_dir is not None:
+        lines.append(f"Artifact dir: {artifact_dir}")
+    return lines
+
+
+def _render_loader_error_lines(loader: Any) -> list[str]:
+    """Return plain-text loader-error lines, or a single status line.
+
+    Shared between ``get_phase`` and ``get_agent_info``. Reads
+    ``loader.load().errors`` and surfaces up to five errors. Uses the same
+    source of truth (``loader.load()``) the guardrail hook layer reads
+    from -- both layers see the same set of loader errors per the D6
+    source-of-truth alignment.
+    """
+    if loader is None:
+        return ["Loader: not initialized"]
+    try:
+        result = loader.load()
+    except Exception as e:
+        return [f"Loader: load() raised: {e}"]
+    if not result.errors:
+        return []
+    out: list[str] = [f"Errors: {len(result.errors)}"]
+    for err in result.errors[:5]:
+        out.append(f"  - {err.source}: {err.message}")
+    return out
+
+
 @tool(
     "get_phase",
-    "Get the current workflow state: active workflow, phase, phase list, loaded rules/injections, and errors. In-memory lookup, no file I/O.",
+    (
+        "Get the narrow workflow state: active workflow id, current phase, "
+        "next phase, progress index, artifact directory, and any loader "
+        "errors. The per-agent role+phase projection of rules and "
+        "advance-checks lives in mcp__chic__get_applicable_rules; this "
+        "tool stays narrow."
+    ),
     {},
 )
 async def get_phase(args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
-    """Get current workflow state with full diagnostic info."""
+    """Get current workflow state -- narrow shape (no rule projection)."""
     if _app is None:
         return _text_response("No app context.")
     _track_mcp_tool("get_phase")
 
-    lines: list[str] = []
-
-    # Workflow engine state
     engine = getattr(_app, "_workflow_engine", None)
-    if engine is None:
-        lines.append("Workflow: none active")
-    else:
-        current = engine.get_current_phase()
-        next_phase = engine.get_next_phase(current) if current else None
-        phase_order = engine._phase_order
-
-        lines.append(f"Workflow: {engine.workflow_id}")
-        lines.append(f"Phase: {current or '(none)'}")
-        if next_phase:
-            lines.append(f"Next phase: {next_phase}")
-        if phase_order:
-            idx = (
-                phase_order.index(current) + 1
-                if current and current in phase_order
-                else 0
-            )
-            lines.append(
-                f"Progress: {idx}/{len(phase_order)} ({', '.join(phase_order)})"
-            )
-
-    # Manifest loader state
     loader = getattr(_app, "_manifest_loader", None)
-    if loader:
-        result = loader.load()
-        # Mirror the runtime namespace filter from
-        # claudechic/guardrails/hooks.py:91 — items from inactive
-        # workflows are loaded into the global registry but cannot fire,
-        # so listing them here was misleading. Show only active items
-        # (global + currently-active workflow) and surface the inactive
-        # count in parentheses for diagnostic visibility.
-        active_wf = engine.workflow_id if engine is not None else None
 
-        def _is_active(item: Any) -> bool:
-            ns = getattr(item, "namespace", None)
-            return ns == "global" or (active_wf is not None and ns == active_wf)
-
-        active_rules = [r for r in result.rules if _is_active(r)]
-        active_injections = [i for i in result.injections if _is_active(i)]
-        inactive_rules = len(result.rules) - len(active_rules)
-        inactive_injections = len(result.injections) - len(active_injections)
-
-        rules_line = f"Rules: {len(active_rules)} active"
-        if inactive_rules:
-            rules_line += f" ({inactive_rules} inactive)"
-        lines.append(rules_line)
-
-        inj_line = f"Injections: {len(active_injections)} active"
-        if inactive_injections:
-            inj_line += f" ({inactive_injections} inactive)"
-        lines.append(inj_line)
-
-        for inj in active_injections:
-            phases_str = f" phases={inj.phases}" if inj.phases else ""
-            lines.append(f"  - {inj.id} [{', '.join(inj.trigger)}]{phases_str}")
-        if result.errors:
-            lines.append(f"Errors: {len(result.errors)}")
-            for err in result.errors[:5]:
-                lines.append(f"  - {err.source}: {err.message}")
-    else:
-        lines.append("Loader: not initialized")
+    lines: list[str] = list(_render_phase_status_lines(engine))
+    lines.extend(_render_loader_error_lines(loader))
 
     return _text_response("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Agent-self-awareness MCP surface (D4)
+#
+# Three tools compose to deliver "what applies to me right now?":
+# - ``whoami``             -- existing, narrow, retained verbatim.
+# - ``get_phase``          -- existing, narrow, just lost the rule-count line.
+# - ``get_applicable_rules``  -- NEW, narrow, per-agent rule + advance-check
+#   projection as the markdown ``## Constraints`` block.
+# - ``get_agent_info``     -- NEW, aggregator. Calls the three narrow tools
+#   internally and concatenates their output into a unified markdown report.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_agent_for_tool(agent_name: str | None, caller_name: str | None):
+    """Resolve which agent a tool is operating on.
+
+    Mirrors the closure-bound resolution pattern used by ``whoami`` /
+    ``spawn_agent``: when ``agent_name`` is omitted, falls back to the
+    calling agent's name; otherwise looks up via ``find_by_name``.
+
+    Returns ``(agent, name, error)`` -- ``agent`` may be ``None`` even
+    on success when the calling agent has not been registered yet.
+    """
+    if _app is None or _app.agent_mgr is None:
+        return None, None, "App not initialized"
+
+    target_name = agent_name or caller_name
+    if not target_name:
+        return None, None, "No agent name available (caller unknown)"
+
+    agent = _app.agent_mgr.find_by_name(target_name)
+    if agent is None:
+        return (
+            None,
+            target_name,
+            f"Agent '{target_name}' not found. Use list_agents to see "
+            "available agents.",
+        )
+    return agent, target_name, None
+
+
+def _read_last_compact_summary(jsonl_path: Path) -> str | None:
+    """Return the last ``isCompactSummary`` content from a session JSONL.
+
+    Local helper so this module does not import the
+    (about-to-be-deleted) ``widgets.modals.diagnostics`` module. Same
+    semantics as that module's reader.
+    """
+    import json
+
+    if not jsonl_path.is_file():
+        return None
+    try:
+        last_summary: str | None = None
+        with jsonl_path.open(encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or "isCompactSummary" not in line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if msg.get("isCompactSummary"):
+                    content = msg.get("message", {}).get("content", "")
+                    if isinstance(content, str) and content:
+                        last_summary = content
+        return last_summary
+    except OSError:
+        return None
+
+
+def _make_get_applicable_rules(caller_name: str | None = None):
+    """Create the ``get_applicable_rules`` tool with caller bound."""
+
+    @tool(
+        "get_applicable_rules",
+        (
+            "Return the role+phase scoped projection of guardrail rules and "
+            "advance-checks for an agent, rendered as the markdown ## Constraints "
+            "block. When agent_name is omitted, projects against the calling "
+            "agent. include_skipped=true adds a skip_reason column and inactive "
+            "rows for audit views."
+        ),
+        {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string",
+                    "description": (
+                        "Name of the agent to project against. Defaults to the "
+                        "calling agent."
+                    ),
+                },
+                "include_skipped": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, include inactive rules with a skip_reason "
+                        "column. Default false (active rules only)."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    )
+    async def get_applicable_rules(args: dict[str, Any]) -> dict[str, Any]:
+        if _app is None:
+            return _error_response("App not initialized")
+        _track_mcp_tool("get_applicable_rules")
+
+        agent_name = args.get("agent_name")
+        include_skipped = bool(args.get("include_skipped", False))
+
+        agent, _resolved, error = _resolve_agent_for_tool(agent_name, caller_name)
+        if error and agent is None:
+            return _error_response(error)
+
+        engine = getattr(_app, "_workflow_engine", None)
+        loader = getattr(_app, "_manifest_loader", None)
+        active_workflow = engine.workflow_id if engine is not None else None
+        current_phase = engine.get_current_phase() if engine is not None else None
+        role = (
+            getattr(agent, "agent_type", DEFAULT_ROLE)
+            if agent is not None
+            else DEFAULT_ROLE
+        )
+
+        try:
+            from claudechic.workflows.agent_folders import (
+                assemble_constraints_block,
+            )
+        except Exception as e:
+            log.exception("get_applicable_rules: failed to import helper")
+            return _error_response(f"assemble_constraints_block unavailable: {e}")
+
+        try:
+            # D6 alignment: pull the merged disabled_ids set from the
+            # app so this tool's projection matches what the hook layer
+            # fires on, what the four prompt-injection sites embed, and
+            # what get_agent_info aggregates. Helper is exposed by slot 4.
+            get_disabled = getattr(_app, "_get_disabled_rules", None)
+            disabled_rules_app = get_disabled() if callable(get_disabled) else None
+            block = assemble_constraints_block(
+                loader,
+                role,
+                current_phase,
+                engine=engine,
+                active_workflow=active_workflow,
+                include_skipped=include_skipped,
+                disabled_rules=disabled_rules_app,
+            )
+        except Exception as e:
+            log.exception("get_applicable_rules: assembly failed")
+            return _error_response(f"Failed to assemble constraints block: {e}")
+
+        return _text_response(block)
+
+    return get_applicable_rules
+
+
+def _render_identity_section(agent: Any, name: str) -> list[str]:
+    """Render the ``## Identity`` markdown lines for ``get_agent_info``."""
+    lines: list[str] = ["## Identity", ""]
+    if agent is None:
+        lines.append(f"- name: {name}")
+        lines.append("- (agent not registered)")
+        return lines
+
+    role = getattr(agent, "agent_type", DEFAULT_ROLE) or DEFAULT_ROLE
+    cwd = getattr(agent, "cwd", None)
+    model = getattr(agent, "model", None)
+    effort = getattr(agent, "effort", None)
+    worktree = getattr(agent, "worktree", None)
+    status = getattr(agent, "status", None)
+
+    lines.append(f"- name: {name}")
+    lines.append(f"- role (agent_type): {role}")
+    lines.append(f"- cwd: {cwd if cwd is not None else '(unknown)'}")
+    lines.append(f"- model: {model if model is not None else '(default)'}")
+    lines.append(f"- effort: {effort if effort is not None else '(default)'}")
+    lines.append(f"- worktree: {worktree if worktree else '(none)'}")
+    lines.append(f"- status: {status if status is not None else '(unknown)'}")
+    return lines
+
+
+def _render_session_section(agent: Any) -> list[str]:
+    """Render the ``## Session`` markdown lines for ``get_agent_info``."""
+    lines: list[str] = ["## Session", ""]
+    if agent is None:
+        lines.append("- (agent not registered)")
+        return lines
+
+    session_id = getattr(agent, "session_id", None)
+    cwd = getattr(agent, "cwd", None)
+
+    jsonl_path: Path | None = None
+    if session_id:
+        try:
+            from claudechic.sessions import get_project_sessions_dir
+
+            sessions_dir = get_project_sessions_dir(cwd)
+            if sessions_dir is not None:
+                jsonl_path = sessions_dir / f"{session_id}.jsonl"
+        except Exception:
+            log.debug("Failed to resolve session JSONL path", exc_info=True)
+            jsonl_path = None
+
+    lines.append(f"- session_id: {session_id or '(no active session)'}")
+    lines.append(
+        f"- jsonl_path: {jsonl_path if jsonl_path is not None else '(unknown)'}"
+    )
+
+    last_summary: str | None = None
+    if jsonl_path is not None:
+        last_summary = _read_last_compact_summary(jsonl_path)
+    if last_summary:
+        preview = last_summary[:200]
+        suffix = "..." if len(last_summary) > 200 else ""
+        lines.append(f"- last compaction: {preview}{suffix}")
+    else:
+        lines.append("- last compaction: (none)")
+    return lines
+
+
+def _make_get_agent_info(caller_name: str | None = None):
+    """Create the ``get_agent_info`` aggregator tool with caller bound."""
+
+    @tool(
+        "get_agent_info",
+        (
+            "Aggregator: returns a unified markdown report for an agent, "
+            "concatenating identity, session, active workflow + phase, the "
+            "## Constraints block (rules + advance-checks scoped to the "
+            "agent's role + phase), and loader errors. When agent_name is "
+            "omitted, reports on the calling agent. Owns no rule-resolution "
+            "logic of its own -- delegates to assemble_constraints_block, "
+            "the same helper get_applicable_rules and the prompt-injection "
+            "sites use."
+        ),
+        {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string",
+                    "description": (
+                        "Name of the agent to report on. Defaults to the calling agent."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    )
+    async def get_agent_info(args: dict[str, Any]) -> dict[str, Any]:
+        if _app is None:
+            return _error_response("App not initialized")
+        _track_mcp_tool("get_agent_info")
+
+        agent_name = args.get("agent_name")
+        agent, resolved_name, error = _resolve_agent_for_tool(agent_name, caller_name)
+        if error and agent is None:
+            return _error_response(error)
+        display_name = resolved_name or "(unknown)"
+
+        engine = getattr(_app, "_workflow_engine", None)
+        loader = getattr(_app, "_manifest_loader", None)
+        active_workflow = engine.workflow_id if engine is not None else None
+        current_phase = engine.get_current_phase() if engine is not None else None
+        role = (
+            getattr(agent, "agent_type", DEFAULT_ROLE)
+            if agent is not None
+            else DEFAULT_ROLE
+        )
+
+        sections: list[str] = []
+
+        # 1. # Agent: <name>
+        sections.append(f"# Agent: {display_name}")
+        sections.append("")
+
+        # 2. ## Identity
+        sections.extend(_render_identity_section(agent, display_name))
+        sections.append("")
+
+        # 3. ## Session
+        sections.extend(_render_session_section(agent))
+        sections.append("")
+
+        # 4. ## Active workflow + phase
+        sections.append("## Active workflow + phase")
+        sections.append("")
+        for line in _render_phase_status_lines(engine):
+            sections.append(f"- {line}")
+        sections.append("")
+
+        # 5. ## Constraints (rules + advance-checks)
+        # Delegate to ``assemble_constraints_block`` so the aggregator
+        # cannot fork on rule-projection logic. Same source of truth as
+        # ``get_applicable_rules`` and the four prompt-injection sites.
+        # Option (a) wrapper: keep the helper's outer ``## Constraints``
+        # heading and drop the three separate aggregator headings
+        # (Applicable guardrail rules / Applicable injections / Advance
+        # checks for the current phase). The constraints block already
+        # interleaves rules + injections in one table and surfaces the
+        # advance-checks subsection.
+        try:
+            from claudechic.workflows.agent_folders import (
+                assemble_constraints_block,
+            )
+
+            # D6 alignment: pull the merged disabled_ids set from the
+            # app so the get_agent_info aggregator surfaces the same
+            # active/inactive set as get_applicable_rules and the four
+            # prompt-injection sites. Helper is exposed by slot 4.
+            get_disabled = getattr(_app, "_get_disabled_rules", None)
+            disabled_rules_info = get_disabled() if callable(get_disabled) else None
+            constraints_block = assemble_constraints_block(
+                loader,
+                role,
+                current_phase,
+                engine=engine,
+                active_workflow=active_workflow,
+                disabled_rules=disabled_rules_info,
+            )
+        except Exception:
+            log.debug(
+                "get_agent_info: assemble_constraints_block failed", exc_info=True
+            )
+            constraints_block = ""
+
+        if constraints_block.strip():
+            sections.append(constraints_block.rstrip())
+        else:
+            # Degenerate: no rules and no advance-checks. Emit the
+            # outer heading so the section is visibly present.
+            sections.append("## Constraints")
+            sections.append("")
+            sections.append("_No rules apply and no advance checks for this phase._")
+        sections.append("")
+
+        # 6. ## Loader errors
+        sections.append("## Loader errors")
+        sections.append("")
+        err_lines = _render_loader_error_lines(loader)
+        if err_lines:
+            for line in err_lines:
+                sections.append(f"- {line}")
+        else:
+            sections.append("_No loader errors._")
+
+        return _text_response("\n".join(sections).rstrip() + "\n")
+
+    return get_agent_info
 
 
 def _make_request_override(caller_name: str | None = None):
@@ -1291,6 +1684,8 @@ def create_chic_server(
         # Workflow guidance tools
         _make_advance_phase(caller_name),
         get_phase,
+        _make_get_applicable_rules(caller_name),
+        _make_get_agent_info(caller_name),
         set_artifact_dir,
         get_artifact_dir,
         _make_request_override(caller_name),

@@ -119,12 +119,17 @@ def test_agent_accepts_agent_type_kwarg(tmp_path: Path) -> None:
     assert agent.agent_type == "skeptic"
 
 
-def test_agent_type_defaults_to_none(tmp_path: Path) -> None:
-    """Agent() without agent_type must have agent_type attribute set to None."""
-    from claudechic.agent import Agent
+def test_agent_type_defaults_to_default_sentinel(tmp_path: Path) -> None:
+    """Agent() without agent_type must default to the DEFAULT_ROLE sentinel.
+
+    Per B1/B2 of abast_accf332_sync: agents have a queryable runtime role,
+    and "no workflow-specific role" is represented by the DEFAULT_ROLE
+    sentinel ("default") rather than None or empty string.
+    """
+    from claudechic.agent import DEFAULT_ROLE, Agent
 
     agent = Agent(name="TestAgent", cwd=tmp_path)
-    assert agent.agent_type is None
+    assert agent.agent_type == DEFAULT_ROLE
 
 
 async def test_agent_manager_passes_agent_type_to_agent(

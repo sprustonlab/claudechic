@@ -761,8 +761,18 @@ def _rule(
     return Rule(id=id_, namespace=namespace, trigger=[trigger], enforcement=enforcement)
 
 
-async def test_get_phase_filters_inactive_workflow_injections(monkeypatch, tmp_path):
-    """get_phase must NOT list an injection from an inactive workflow."""
+async def test_get_applicable_rules_filters_inactive_workflow_injections(
+    monkeypatch, tmp_path
+):
+    """get_applicable_rules must NOT list an injection from an inactive workflow.
+
+    Migrated from the former ``test_get_phase_filters_inactive_workflow_injections``
+    after slot 3 narrowed ``get_phase`` (rule/injection projection moved to
+    ``get_applicable_rules``). The filter semantics being verified -- namespace
+    must equal "global" or the active workflow -- now live in
+    ``compute_digest`` and surface through the markdown ``## Constraints``
+    block this tool emits.
+    """
     from claudechic import mcp as mcp_mod
 
     engine = _make_engine(cwd=tmp_path)  # workflow_id="proj"
@@ -775,28 +785,40 @@ async def test_get_phase_filters_inactive_workflow_injections(monkeypatch, tmp_p
         ],
     )
 
+    fake_agent = MagicMock()
+    fake_agent.agent_type = "default"
+    fake_agent_mgr = MagicMock()
+    fake_agent_mgr.find_by_name = MagicMock(return_value=fake_agent)
+
     fake_app = MagicMock()
     fake_app._workflow_engine = engine
     fake_app._manifest_loader = loader
-    fake_app.agent_mgr = None
+    fake_app.agent_mgr = fake_agent_mgr
+    fake_app._get_disabled_rules = None
     monkeypatch.setattr(mcp_mod, "_app", fake_app)
 
-    raw_tool = mcp_mod.get_phase
+    raw_tool = mcp_mod._make_get_applicable_rules(caller_name="test_caller")
     handler = getattr(raw_tool, "handler", raw_tool)
-    response = await handler({})
+    response = await handler({"agent_name": "test_caller"})
     text = response["content"][0]["text"]
 
-    # Active items appear in the listing.
+    # Active items appear in the constraints projection.
     assert "proj:active_inj" in text
     assert "global:shared_inj" in text
-    # Inactive workflow's injection is NOT listed.
+    # Inactive workflow's injection is NOT listed (filtered by namespace).
     assert "other:foreign_inj" not in text
-    # Inactive count is surfaced for diagnostic visibility.
-    assert "Injections: 2 active (1 inactive)" in text
 
 
-async def test_get_phase_filters_inactive_workflow_rules(monkeypatch, tmp_path):
-    """get_phase rules count must mirror the runtime namespace filter."""
+async def test_get_applicable_rules_filters_inactive_workflow_rules(
+    monkeypatch, tmp_path
+):
+    """get_applicable_rules rule projection must mirror the runtime namespace filter.
+
+    Migrated from the former ``test_get_phase_filters_inactive_workflow_rules``.
+    The "N active" rendering in the ``### Rules (N active)`` header replaces the
+    old ``Rules: N active (M inactive)`` summary line that ``get_phase`` used to
+    emit.
+    """
     from claudechic import mcp as mcp_mod
 
     engine = _make_engine(cwd=tmp_path)  # workflow_id="proj"
@@ -810,23 +832,42 @@ async def test_get_phase_filters_inactive_workflow_rules(monkeypatch, tmp_path):
         injections=[],
     )
 
+    fake_agent = MagicMock()
+    fake_agent.agent_type = "default"
+    fake_agent_mgr = MagicMock()
+    fake_agent_mgr.find_by_name = MagicMock(return_value=fake_agent)
+
     fake_app = MagicMock()
     fake_app._workflow_engine = engine
     fake_app._manifest_loader = loader
-    fake_app.agent_mgr = None
+    fake_app.agent_mgr = fake_agent_mgr
+    fake_app._get_disabled_rules = None
     monkeypatch.setattr(mcp_mod, "_app", fake_app)
 
-    raw_tool = mcp_mod.get_phase
+    raw_tool = mcp_mod._make_get_applicable_rules(caller_name="test_caller")
     handler = getattr(raw_tool, "handler", raw_tool)
-    response = await handler({})
+    response = await handler({"agent_name": "test_caller"})
     text = response["content"][0]["text"]
 
-    assert "Rules: 2 active (2 inactive)" in text
+    # Active count reflects the namespace filter (global + active workflow).
+    assert "Rules (2 active)" in text
+    # Active rules listed; foreign workflow rules are not.
+    assert "proj:active_rule" in text
+    assert "global:shared_rule" in text
+    assert "other:foreign_rule_a" not in text
+    assert "other:foreign_rule_b" not in text
 
 
-async def test_get_phase_no_inactive_suffix_when_all_active(monkeypatch, tmp_path):
-    """When every loaded item belongs to global or the active workflow,
-    the inactive suffix is omitted."""
+async def test_get_phase_omits_rule_count_line(monkeypatch, tmp_path):
+    """get_phase narrowing: rule/injection summary lines no longer appear.
+
+    Migrated from the former ``test_get_phase_no_inactive_suffix_when_all_active``.
+    Slot 3 removed the ``Rules: N active (...)`` and ``Injections: N active
+    (...)`` lines from ``get_phase`` -- the per-agent role+phase projection
+    now lives in ``get_applicable_rules``. This test guards that narrowing.
+    The workflow-state assertions that survive are kept so we don't lose
+    coverage of the narrow tool's actual surface.
+    """
     from claudechic import mcp as mcp_mod
 
     engine = _make_engine(cwd=tmp_path)  # workflow_id="proj"
@@ -846,17 +887,24 @@ async def test_get_phase_no_inactive_suffix_when_all_active(monkeypatch, tmp_pat
     response = await handler({})
     text = response["content"][0]["text"]
 
-    # Exact-line match: no parenthetical suffix.
-    assert "Rules: 1 active\n" in text or text.endswith("Rules: 1 active")
-    # Allow either ordering by checking the substring without trailing newline.
-    assert "Rules: 1 active (" not in text
-    assert "Injections: 1 active (" not in text
+    # Workflow-state surface still present (narrow contract).
+    assert "Workflow: proj" in text
+    # Rule/injection summary lines are gone (moved to get_applicable_rules).
+    assert "Rules:" not in text
+    assert "Injections:" not in text
 
 
-async def test_get_phase_no_engine_treats_all_workflow_items_as_inactive(
+async def test_get_phase_no_engine_reports_none_active(
     monkeypatch,
 ):
-    """With no active workflow, only ``global``-namespace items are active."""
+    """get_phase narrow shape with no engine: status only, no rule projection.
+
+    Migrated from the former
+    ``test_get_phase_no_engine_treats_all_workflow_items_as_inactive``. The
+    "no active workflow" status line survives; the rule/injection counts and
+    listing do not (those moved to ``get_applicable_rules``). The narrow tool
+    must never list rule/injection ids in any code path.
+    """
     from claudechic import mcp as mcp_mod
 
     loader = _make_loader_with(
@@ -880,13 +928,15 @@ async def test_get_phase_no_engine_treats_all_workflow_items_as_inactive(
     response = await handler({})
     text = response["content"][0]["text"]
 
+    # No-engine path still reports the workflow status line.
     assert "Workflow: none active" in text
-    # global rule active; project rule inactive (no active_wf).
-    assert "Rules: 1 active (1 inactive)" in text
-    # No active injection; one inactive.
-    assert "Injections: 0 active (1 inactive)" in text
-    # The inactive workflow injection must not be listed.
+    # Rule/injection summary lines are gone (moved to get_applicable_rules).
+    assert "Rules:" not in text
+    assert "Injections:" not in text
+    # Narrow shape never lists individual rule/injection ids.
     assert "proj:i1" not in text
+    assert "proj:r2" not in text
+    assert "global:r1" not in text
 
 
 # ---------------------------------------------------------------------------

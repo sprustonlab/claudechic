@@ -41,6 +41,12 @@ def _load() -> tuple[dict, bool]:
         # claudechic-awareness install toggle (per SPEC §4.3, default True)
         config.setdefault("awareness", {})
         config["awareness"].setdefault("install", True)
+        # SDK thinking-budget level (SPEC C3). Survives restart and is
+        # mirrored into Agent.effort by the StatusFooter on mount + by
+        # the settings re-apply path.  Valid values: low / medium / high
+        # / max ("max" is Opus-only; non-Opus models snap to "medium"
+        # via EffortLabel.set_available_levels).
+        config.setdefault("effort", "high")
         # Migrate legacy vim key to vi-mode
         if "vim" in config:
             config["vi-mode"] = config.pop("vim")
@@ -58,6 +64,8 @@ def _load() -> tuple[dict, bool]:
             "show_message_metadata": True,  # Show timestamp/tokens by default
             # claudechic-awareness install toggle (per SPEC §4.3, default True)
             "awareness": {"install": True},
+            # SDK thinking-budget level (SPEC C3, default "high").
+            "effort": "high",
         }
         new_install = True
         _save(config)

@@ -2,6 +2,7 @@
 
 from claudechic.widgets.layout.chat_view import ChatView
 from claudechic.widgets.layout.footer import (
+    EffortLabel,
     ModelLabel,
     PermissionModeLabel,
     StatusFooter,
@@ -55,6 +56,7 @@ __all__ = [
     "SessionItem",
     "PermissionModeLabel",
     "ModelLabel",
+    "EffortLabel",
     "StatusFooter",
     "IndicatorWidget",
     "CPUBar",
