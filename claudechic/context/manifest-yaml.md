@@ -45,5 +45,14 @@ Use bare names only in YAML — never include colons. The parser qualifies IDs a
 
 Rules and injections referencing unknown phases in `phases:` or `exclude_phases:` produce validation warnings.
 
+## Run-time Substitution Tokens
+
+Advance-check `command:` strings support `${TOKEN}` substitution at evaluation time:
+
+- `${CLAUDECHIC_ARTIFACT_DIR}` -- the artifact directory set via `set_artifact_dir()`; empty string if not set.
+- `${WORKFLOW_ROOT}` -- the main agent's cwd at the time the check runs. Resolves to the engine's `project_root` attribute (captured from the active agent's `cwd` at workflow activation). Use for project-relative paths without hardcoding them in the manifest.
+
+Braced syntax only (`${TOKEN}`). Bare `$TOKEN` is not substituted.
+
 **Freshness:** If you modify source files matched by this rule, verify this
 document still accurately describes the system behavior. Update if needed.

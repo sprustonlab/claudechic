@@ -23,6 +23,8 @@ The `Agent` class owns everything for a single Claude agent:
 - **Tool tracking:** `pending_tools` (awaiting results), `active_tasks` (accumulated text)
 - **UI widgets:** `chat_view`, `current_response`, `pending_tool_widgets`, `active_task_widgets`
 - **Per-agent state:** `todos`, `auto_approve_edits`, `file_index`, `pending_images`
+- **Runtime role:** `agent_type: str` (default `"default"`) -- queryable role identity. Promoted to the workflow's `main_role` on activation, reverted on deactivation, survives `/compact`.
+- **Effort:** `effort: Literal["low", "medium", "high", "max"]` -- per-agent thinking budget passed to the SDK on every `_make_options()` call. `"max"` is Opus-only; switching to a non-Opus model snaps effort to `"medium"` automatically. Displayed and cycled via the `EffortLabel` widget in the status footer.
 
 Key methods: `connect()`, `send()`, `wait_for_completion()`, `interrupt()`.
 
@@ -89,6 +91,7 @@ Async callback: `(agent, request) -> "allow" | "deny" | "allow_all"`.
 3. **Callbacks for UI:** Agent emits events via observer protocols. No direct widget manipulation in Agent.
 4. **UI widgets on Agent:** Agent stores references to its widgets for fast access without lookups.
 5. **True async concurrency:** Agents run via `asyncio.create_task()`, not Textual workers, enabling concurrent execution.
+6. **Live option reads:** `_make_options(agent=)` reads `agent.agent_type` and `agent.effort` on every call (no snapshot). The `CLAUDE_AGENT_ROLE` env var is propagated to the model process on each reconnect.
 
 ## Inter-Agent Communication (MCP Tools)
 
