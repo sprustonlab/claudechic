@@ -41,7 +41,7 @@ phases:
     file: testing_vision
     advance_checks:
       - type: command-output-check
-        command: "ls $STATE_DIR/userprompt_testing.md 2>/dev/null"
+        command: "ls ${CLAUDECHIC_ARTIFACT_DIR}/userprompt_testing.md 2>/dev/null"
         pattern: "userprompt_testing\\.md"
       - type: manual-confirm
         prompt: "Testing vision approved by user?"
@@ -49,7 +49,7 @@ phases:
     file: testing_specification
     advance_checks:
       - type: command-output-check
-        command: "ls $STATE_DIR/specification/TEST_SPECIFICATION.md 2>/dev/null"
+        command: "ls ${CLAUDECHIC_ARTIFACT_DIR}/specification/TEST_SPECIFICATION.md 2>/dev/null"
         pattern: "TEST_SPECIFICATION\\.md"
       - type: manual-confirm
         prompt: "Test specification approved by user?"
