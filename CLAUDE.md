@@ -23,8 +23,8 @@ claudechic                     # Run after activation
 ## Commands
 
 ```bash
-pytest tests/test_foo.py -v                # Run specific test (preferred)
-TS=$(date -u +%Y-%m-%d_%H%M%S) && pytest --junitxml=.test_results/${TS}.xml --tb=short 2>&1 | tee .test_results/${TS}.log  # Full suite with output capture
+pytest tests/test_foo.py -v --timeout=30   # Run specific test (preferred)
+TS=$(date -u +%Y-%m-%d_%H%M%S) && pytest --junitxml=.test_results/${TS}.xml --tb=short --timeout=30 2>&1 | tee .test_results/${TS}.log  # Full suite with output capture
 ruff check --fix && ruff format            # Lint + format
 ```
 
@@ -145,9 +145,8 @@ claudechic/
         ├── profile.py       # ProfileModal - profiling stats
         ├── process_modal.py # ProcessModal - process list
         ├── process_detail.py # ProcessDetailModal - single process detail, kill, metrics
-        ├── computer_info.py # ComputerInfoModal - host, OS, Python, SDK, CWD (sys button)
-        ├── agent_switcher.py # AgentSwitcher - Ctrl+G modal to search and switch agents
-        └── diagnostics.py   # DiagnosticsModal - session JSONL path, compaction summary
+        ├── computer_info.py # ComputerInfoModal - host, OS, Python, SDK, CWD, JSONL path, last compaction (info button; absorbed diagnostics)
+        └── agent_switcher.py # AgentSwitcher - Ctrl+G modal to search and switch agents
 
 tests/
 ├── __init__.py        # Package marker
@@ -383,9 +382,9 @@ path_template: null                                                # Sibling dir
 ## Testing
 
 ```bash
-pytest tests/test_foo.py -v              # Run specific test (preferred)
-pytest tests/ -n auto -q                 # Parallel (fast, ~3s)
-pytest tests/ -v                         # Sequential with verbose output
+pytest tests/test_foo.py -v --timeout=30 # Run specific test (preferred)
+pytest tests/ -n auto -q --timeout=30    # Parallel (fast, ~3s)
+pytest tests/ -v --timeout=30            # Sequential with verbose output
 ```
 
 Use parallel testing by default.

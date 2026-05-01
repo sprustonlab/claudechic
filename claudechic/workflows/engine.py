@@ -1,8 +1,15 @@
-"""Workflow engine — phase state, transitions, and check execution.
+"""Workflow engine -- phase state, transitions, and check execution.
 
 Manages in-memory phase state, executes advance checks with AND semantics
 (sequential, short-circuit on first failure), and persists state via callback.
-This is the orchestration layer — imports from checks/ and hints/.
+This is the orchestration layer -- imports from checks/ and hints/.
+
+The engine consumes only the phase slice of a workflow ``LoadResult``
+(injected via the ``manifest`` constructor argument). Rule and hint
+projection lives upstream in the integration layer's filtered
+``_load_result``; that filtered result is the canonical source for
+which rules are active for a given (role, phase) and is shared with
+the constraints-block helper and the guardrail hook layer.
 """
 
 from __future__ import annotations
@@ -12,7 +19,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claudechic.checks.adapter import check_failed_to_hint
 from claudechic.checks.builtins import _build_check
@@ -24,9 +31,14 @@ from claudechic.checks.protocol import (
 )
 from claudechic.workflows._substitute import (
     ARTIFACT_DIR_TOKEN,
+    WORKFLOW_ROOT_TOKEN,
     substitute_artifact_dir,
+    substitute_workflow_root,
 )
 from claudechic.workflows.phases import Phase
+
+if TYPE_CHECKING:
+    from claudechic.workflows.loader import ManifestLoader
 
 logger = logging.getLogger(__name__)
 
@@ -136,9 +148,17 @@ class WorkflowEngine:
         self._persist_fn = persist_fn
         self._confirm_callback = confirm_callback
         # Launched-repo root used to resolve relative paths supplied to
-        # ``set_artifact_dir``. Absolute paths bypass it; ``None`` falls
-        # back to ``Path.cwd()`` at validation time.
+        # ``set_artifact_dir``, to substitute ``${WORKFLOW_ROOT}``, and
+        # to pin advance-check ``cwd``/``base_dir``. Absolute paths bypass
+        # it; ``None`` falls back to ``Path.cwd()`` at validation time.
         self._cwd: Path | None = cwd
+        # Optional ``ManifestLoader`` reference -- attached by the
+        # integration layer (``app.py``) so the constraints-block helper
+        # and the post-compact hook can read role+phase scoped rules
+        # without taking a hard dependency on the loader at engine
+        # construction time. ``None`` yields a degenerate constraints
+        # block downstream.
+        self._loader: ManifestLoader | None = None
         self._advance_lock = asyncio.Lock()  # Prevent concurrent advance
 
         # Artifact directory — coordinator-set during a Setup-style phase
@@ -162,6 +182,39 @@ class WorkflowEngine:
     @property
     def manifest(self) -> WorkflowManifest:
         return self._manifest
+
+    @property
+    def loader(self) -> ManifestLoader | None:
+        """Attached ``ManifestLoader``, or ``None`` when unset.
+
+        Setter is ``set_loader``. Read by the constraints-block helper
+        and the post-compact hook to project rules+advance-checks for
+        the current ``(role, phase)``. Optional -- the engine itself
+        does not depend on it for phase transitions or check execution.
+        """
+        return self._loader
+
+    def set_loader(self, loader: ManifestLoader | None) -> None:
+        """Attach a ``ManifestLoader`` reference for downstream consumers.
+
+        The engine does not call ``loader.load()`` itself; the attached
+        reference is read by the agent-prompt composition helper
+        (``assemble_agent_prompt``) and by the post-compact hook.
+        """
+        self._loader = loader
+
+    @property
+    def project_root(self) -> Path | None:
+        """Launched-repo root (the main agent's cwd).
+
+        Resolves the ``${WORKFLOW_ROOT}`` template variable in workflow
+        manifests, advance-check command strings, and assembled agent
+        prompts. Aliased to the engine's existing ``cwd`` to avoid a
+        second concept for "where is the main agent rooted?". The
+        Python identifier is ``project_root`` to avoid a one-letter
+        collision with ``workflows_dir`` (the bundled-defaults dir).
+        """
+        return self._cwd
 
     @property
     def artifact_dir(self) -> Path | None:
@@ -318,8 +371,16 @@ class WorkflowEngine:
                     reason=f"Unknown target phase: {next_phase}",
                 )
 
-            # Execute checks sequentially — AND semantics, short-circuit
-            for check_decl in advance_checks:
+            # Two-pass execution: automated checks first, then manual
+            # confirms. This avoids prompting the user for confirmation
+            # when an automated check is already going to fail (a manual
+            # confirm has nothing useful to ask while another precondition
+            # is still failing). AND semantics short-circuit on first
+            # failure across the combined sequence.
+            auto_checks = [c for c in advance_checks if c.type != "manual-confirm"]
+            manual_checks = [c for c in advance_checks if c.type == "manual-confirm"]
+
+            for check_decl in (*auto_checks, *manual_checks):
                 result = await self._run_single_check(check_decl)
                 if not result.passed:
                     # Bridge failure to hints pipeline
@@ -488,6 +549,21 @@ class WorkflowEngine:
         try:
             # Inject confirm_fn for ManualConfirm checks
             params = dict(check_decl.params)
+
+            # Uniform template-variable expansion across every string-typed
+            # param. Each consumer therefore receives pre-expanded absolute
+            # paths through the same mechanism. Tokens covered:
+            #   - ``${CLAUDECHIC_ARTIFACT_DIR}`` -> engine.artifact_dir
+            #   - ``${WORKFLOW_ROOT}``           -> engine.project_root
+            for k, v in list(params.items()):
+                if not isinstance(v, str):
+                    continue
+                if ARTIFACT_DIR_TOKEN in v:
+                    v = substitute_artifact_dir(v, self._artifact_dir)
+                if WORKFLOW_ROOT_TOKEN in v:
+                    v = substitute_workflow_root(v, self._cwd)
+                params[k] = v
+
             if check_decl.type == "manual-confirm":
                 params["confirm_fn"] = self._confirm_callback
                 # Inject phase context at invocation time (not closure time)
@@ -507,14 +583,17 @@ class WorkflowEngine:
                 # ``engine.artifact_dir`` without builtins.py importing
                 # the engine module (leaf-module discipline).
                 params["engine"] = self
-            elif check_decl.type == "command-output-check":
-                # Substitute ${CLAUDECHIC_ARTIFACT_DIR} in the command
-                # string so workflow YAML can reference the run-bound
-                # path without hardcoding a prefix. Shared helper —
-                # same logic as markdown content substitution.
-                cmd = params.get("command")
-                if isinstance(cmd, str) and ARTIFACT_DIR_TOKEN in cmd:
-                    params["command"] = substitute_artifact_dir(cmd, self._artifact_dir)
+
+            # Pin command-style and file-style checks to the workflow root
+            # so relative paths in manifest declarations resolve against a
+            # stable location -- not whatever the Python process happened
+            # to have as its cwd. Manifests can opt out by setting ``cwd``
+            # / ``base_dir`` explicitly (e.g., an absolute path).
+            if self._cwd is not None:
+                if check_decl.type == "command-output-check":
+                    params.setdefault("cwd", str(self._cwd))
+                elif check_decl.type in ("file-exists-check", "file-content-check"):
+                    params.setdefault("base_dir", str(self._cwd))
 
             # Build check from registry using potentially modified params
             augmented_decl = CheckDecl(

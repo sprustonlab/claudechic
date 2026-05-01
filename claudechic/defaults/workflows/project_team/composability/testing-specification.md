@@ -1,7 +1,7 @@
 # Testing Specification Phase
 
 Re-read your identity.md to refresh your composability lens.
-Read $STATE_DIR/userprompt_testing.md to understand what tests are planned.
+Read ${CLAUDECHIC_ARTIFACT_DIR}/userprompt_testing.md to understand what tests are planned.
 
 ## Generalprobe Standard
 

@@ -150,13 +150,18 @@ class AgentManager:
         # Wire callbacks
         self._wire_agent_callbacks(agent)
 
-        # Create options and connect
+        # Create options and connect. Pass the agent instance so the options
+        # factory (and the guardrail-hook closures it builds) can read
+        # agent.agent_type and agent.effort live -- important for the main
+        # agent, whose role flips to main_role on workflow activation
+        # without an SDK reconnect.
         options = self._options_factory(
             cwd=cwd,
             resume=resume,
             agent_name=agent.name,
             model=model,
             agent_type=agent_type,
+            agent=agent,
         )
         await agent.connect(options, resume=resume)
 
@@ -190,12 +195,15 @@ class AgentManager:
             model: Model override (None = SDK default)
         """
         agent.model = model
+        # Pass the agent instance so the options factory can read live
+        # agent.agent_type / agent.effort (see create() above for rationale).
         options = self._options_factory(
             cwd=agent.cwd,
             resume=resume,
             agent_name=agent.name,
             model=model,
             agent_type=agent.agent_type,
+            agent=agent,
         )
         await agent.connect(options, resume=resume)
 

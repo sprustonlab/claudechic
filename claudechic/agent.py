@@ -155,6 +155,15 @@ class ResponseContext:
 # ---------------------------------------------------------------------------
 
 
+# Sentinel role assigned to any agent that has no workflow-specific role.
+# Replaces ad-hoc None / empty-string usage as "no role set". The main agent
+# is promoted to the workflow's main_role on activation and reverted to
+# DEFAULT_ROLE on deactivation. DEFAULT_ROLE carries no workflow-specific
+# guardrails or phase injections. Imported by workflow code that needs to
+# distinguish "no role" from a real role string.
+DEFAULT_ROLE: Literal["default"] = "default"
+
+
 class Agent:
     """Autonomous Claude agent with its own SDK connection and state.
 
@@ -192,7 +201,12 @@ class Agent:
         self.name = name
         self.cwd = cwd
         self.worktree = worktree
-        self.agent_type = agent_type
+        # Agents default to the DEFAULT_ROLE sentinel when no role is
+        # provided. The main agent is promoted to the workflow's main_role
+        # on activation (see ChatApp._activate_workflow) and reverted on
+        # deactivation. DEFAULT_ROLE carries no workflow-specific
+        # guardrails or phase injections.
+        self.agent_type: str = agent_type if agent_type is not None else DEFAULT_ROLE
 
         # SDK
         self.client: ClaudeSDKClient | None = None
@@ -233,6 +247,10 @@ class Agent:
         self._reply_nudge_count: int = 0  # How many nudges sent for current obligation
         self._nudge_generation: int = 0  # Monotonic counter to deduplicate nudge timers
         self.model: str | None = "opus"  # Model override (None = SDK default)
+        # SDK thinking-budget level. Plumbed into ClaudeAgentOptions(effort=...)
+        # via _make_options. "max" is Opus-only; non-Opus models snap to
+        # "medium" on model change. Read live by the options factory.
+        self.effort: Literal["low", "medium", "high", "max"] = "high"
 
         # Worktree finish state (for /worktree finish flow)
         self.finish_state: FinishState | None = None

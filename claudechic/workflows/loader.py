@@ -669,6 +669,29 @@ class ManifestLoader:
                 main_role = data.get("main_role")
                 if not isinstance(main_role, str):
                     main_role = None
+                # ``DEFAULT_ROLE`` ("default") is the reserved sentinel for
+                # agents with no workflow-specific role wiring. A workflow
+                # cannot use it as ``main_role`` -- doing so would prevent
+                # the main agent from being promoted out of the no-role
+                # state on activation. Match case-insensitively and ignore
+                # surrounding whitespace so YAML quirks (``Default``,
+                # ``DEFAULT``, trailing newlines from quoted scalars) are
+                # all caught. Imported lazily to avoid a workflows -> agent
+                # import edge in the leaf-discipline graph.
+                from claudechic.agent import DEFAULT_ROLE
+
+                if main_role is not None and main_role.strip().lower() == DEFAULT_ROLE:
+                    errors.append(
+                        LoadError(
+                            source=str(path),
+                            section="main_role",
+                            message=(
+                                f"main_role cannot be '{DEFAULT_ROLE}' -- "
+                                "that name is reserved for the no-role sentinel."
+                            ),
+                        )
+                    )
+                    main_role = None
                 workflow_paths_seen[tier].setdefault(wf_id, (path.parent, main_role))
 
             # Dict-based files: dispatch by section keys.

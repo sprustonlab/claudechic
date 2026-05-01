@@ -30,11 +30,29 @@ claudechic is a terminal UI for Claude Code with multi-agent support, workflows,
 - **Ctrl+1-9** -- Switch to agent by position
 - **Ctrl+G** -- Agent switcher modal
 
+## Footer Indicators
+
+The status footer shows per-agent state:
+
+- **Effort** -- `effort: low | medium | high | max`. Click `EffortLabel` to cycle. `max` is Opus-only; switching to a non-Opus model snaps effort to `medium` automatically.
+- **Model** -- active model name.
+- **Permission mode** -- current tool-use permission level (Shift+Tab to cycle).
+- **Context bar** -- token usage fraction (colors: dim -> yellow -> red).
+
 ## Inter-Agent Communication (MCP Tools)
 
 - **`ask_agent`** -- Send a question and wait for a reply. Use when you need information back.
 - **`tell_agent`** -- Fire-and-forget message. Use for status updates or answering questions.
 - **`interrupt_agent`** -- Interrupt immediately. Use to stop or redirect a busy agent.
+
+## Agent Self-Awareness (MCP Tools)
+
+These tools let an agent query its own identity and applicable rules:
+
+- **`mcp__chic__whoami`** -- Returns your name, role (`agent_type`), cwd, session id.
+- **`mcp__chic__get_phase`** -- Returns active workflow, current phase, progress, artifact dir.
+- **`mcp__chic__get_applicable_rules`** -- Markdown list of guardrail rules and advance checks scoped to your (role, phase). Pass `include_skipped=true` for the full audit view.
+- **`mcp__chic__get_agent_info`** -- Aggregator: combines whoami + get_phase + get_applicable_rules into one document. Start here when you need the full picture.
 
 ## Bundled Workflows
 
@@ -65,6 +83,8 @@ Always-active safety rules defined in `global/rules.yaml` or workflow manifests.
 | `log` | Silent audit trail. Execution continues. |
 
 Rules match on tool name + input patterns. Scoped by role and phase.
+
+When a workflow is active your launch prompt contains a `## Constraints` block listing the rules and advance checks that apply to you. Use `mcp__chic__get_applicable_rules` to re-read it at any time.
 
 ## Hints
 

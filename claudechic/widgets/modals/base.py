@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -71,6 +71,27 @@ class InfoModal(ModalScreen):
         width: 1fr;
     }
 
+    InfoModal .scroll-section-header {
+        height: 1;
+        margin-top: 1;
+    }
+
+    InfoModal .scroll-section-title {
+        width: 1fr;
+        color: $text-muted;
+    }
+
+    InfoModal .scroll-section-scroll {
+        max-height: 12;
+        height: auto;
+        padding: 0 0 0 1;
+    }
+
+    InfoModal .scroll-section-content {
+        height: auto;
+        color: $text-muted;
+    }
+
     InfoModal #info-footer {
         height: 1;
         margin-top: 1;
@@ -119,10 +140,35 @@ class InfoModal(ModalScreen):
                     id="info-title",
                     markup=True,
                 )
-            for section in self._sections:
-                with Horizontal(classes="info-row"):
-                    yield Static(f"{section.title}:", classes="info-label")
-                    yield Static(section.content, classes="info-value")
+            for i, section in enumerate(self._sections):
+                if section.scrollable:
+                    with Horizontal(classes="scroll-section-header"):
+                        yield Static(
+                            f"[bold]{section.title}[/]",
+                            classes="scroll-section-title",
+                            markup=True,
+                        )
+                        if section.copyable:
+                            yield Button(
+                                "⧉",
+                                id=f"copy-scroll-{i}",
+                                classes="copy-btn",
+                            )
+                    if section.content:
+                        with VerticalScroll(classes="scroll-section-scroll"):
+                            yield Static(
+                                section.content,
+                                classes="scroll-section-content",
+                            )
+                    else:
+                        yield Static(
+                            "(none)",
+                            classes="scroll-section-content",
+                        )
+                else:
+                    with Horizontal(classes="info-row"):
+                        yield Static(f"{section.title}:", classes="info-label")
+                        yield Static(section.content, classes="info-value")
             with Horizontal(id="info-footer"):
                 yield Button("Copy", id="copy-all-btn", classes="copy-btn")
                 yield Button("Close", id="close-btn")
@@ -132,6 +178,12 @@ class InfoModal(ModalScreen):
             self._copy_all()
         elif event.button.id == "close-btn":
             self.dismiss()
+        elif event.button.id and event.button.id.startswith("copy-scroll-"):
+            idx = int(event.button.id.split("-")[-1])
+            if 0 <= idx < len(self._sections) and self._sections[idx].content:
+                self._copy_to_clipboard(self._sections[idx].content)
+            else:
+                self.notify("Nothing to copy", severity="warning")
 
     def _copy_all(self) -> None:
         """Copy all section content to clipboard."""
@@ -140,6 +192,10 @@ class InfoModal(ModalScreen):
             if section.copyable:
                 lines.append(f"{section.title}: {section.content}")
         text = "\n".join(lines)
+        self._copy_to_clipboard(text)
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copy text to clipboard with notification."""
         try:
             import pyperclip
 

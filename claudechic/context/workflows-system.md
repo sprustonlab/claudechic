@@ -47,5 +47,23 @@ Named multi-agent snapshots at `.chicsessions/{name}.json`. `ChicsessionManager`
 
 Read `identity.md` + `{phase}.md` from `workflows/{workflow}/{role}/` for agent prompt context. PostCompact hook re-injects phase context after `/compact`.
 
+### Agent Role Identity
+
+Each agent carries `agent_type: str` (default `"default"`). On workflow activation the main agent's `agent_type` is promoted to the manifest's `main_role`; on deactivation it reverts to `"default"`. The field survives `/compact` (no SDK reconnect). Sub-agents receive their type from the `spawn_agent` `type=` argument. Query it at runtime via `mcp__chic__whoami` or `mcp__chic__get_agent_info`.
+
+### ## Constraints Block (5-site injection)
+
+When a workflow is active, `assemble_agent_prompt(role, phase, loader, ...)` appends a `## Constraints` markdown block listing guardrail rules and advance checks scoped to the calling agent's (role, phase). All five prompt-injection sites route through this single helper -- no hand-rolled concat:
+
+1. Main-agent activation (`app._activate_workflow`)
+2. Sub-agent spawn (`mcp.spawn_agent`)
+3. Main-agent phase-advance (`app._inject_phase_prompt_to_main_agent`)
+4. Sub-agent phase-advance broadcast (`mcp._make_advance_phase` loop)
+5. Post-compact re-injection (`workflows.agent_folders.create_post_compact_hook`)
+
+### Source-of-Truth Alignment
+
+`_LoaderAdapter` is a shim that routes the guardrail hook layer's rule reads through the same `_filter_load_result` projection used by the registry layer. This guarantees that `disabled_ids` and workflow scoping apply identically whether a rule is enforced by a hook or queried via `mcp__chic__get_applicable_rules`. Divergence is caught by the D6 keystone test.
+
 **Freshness:** If you modify source files matched by this rule, verify this
 document still accurately describes the system behavior. Update if needed.

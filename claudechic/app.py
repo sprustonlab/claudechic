@@ -42,7 +42,7 @@ from textual.screen import Screen
 # Worktree must load before agent to avoid circular import through widgets.
 from claudechic.features.worktree import list_worktrees
 from claudechic.features.worktree.commands import on_response_complete_finish
-from claudechic.agent import Agent, ImageAttachment, ToolUse
+from claudechic.agent import DEFAULT_ROLE, Agent, ImageAttachment, ToolUse
 
 from claudechic.agent_manager import AgentManager
 from claudechic.analytics import capture
@@ -113,7 +113,6 @@ from claudechic.widgets import (
 )
 from claudechic.widgets.layout.footer import (
     AgentLabel,
-    ComputerInfoLabel,
     DiagnosticsLabel,
     ModelLabel,
     PermissionModeLabel,
@@ -211,6 +210,53 @@ def _categorize_cli_error(e: CLIConnectionError) -> str:
     if "not found" in msg.lower():
         return "cli_not_found"
     return "unknown"
+
+
+class _LoaderAdapter:
+    """Loader-shaped adapter that returns a cached, filtered ``LoadResult``.
+
+    Per SPEC §D6 (source-of-truth alignment): the guardrail hook layer
+    reads from ``loader.load()`` on every PreToolUse event. The registry
+    layer (``get_phase`` / ``get_applicable_rules``) reads from
+    ``ChatApp._load_result`` (already passed through ``_filter_load_result``).
+    Without this adapter the two layers diverge whenever a hint or rule
+    is disabled via project/user config -- the agent's ``## Constraints``
+    block would advertise rules that the hooks no longer fire on, or
+    vice versa.
+
+    The adapter stays inside ``app.py`` so the leaf
+    ``claudechic.guardrails.hooks`` module keeps its ``loader: ManifestLoader``
+    contract unchanged. It exposes only ``.load()`` (the surface the
+    hook closure consumes) and falls back to a fresh
+    ``ManifestLoader.load()`` when the cached result is unavailable
+    (test shim / pre-discover path).
+    """
+
+    def __init__(self, get_load_result, fallback_loader=None):
+        self._get_load_result = get_load_result
+        self._fallback = fallback_loader
+
+    def load(self, **kwargs):  # noqa: ARG002 - kwargs accepted for parity, ignored
+        result = self._get_load_result()
+        if result is not None:
+            return result
+        if self._fallback is not None:
+            return self._fallback.load()
+        # Last-resort: synthesize an empty LoadResult so the hook's
+        # fail-closed branch surfaces "Rules unavailable" as before.
+        from claudechic.workflows.loader import LoadResult
+
+        return LoadResult(
+            rules=[],
+            injections=[],
+            checks=[],
+            hints=[],
+            phases=[],
+            errors=[],
+            workflows={},
+            workflow_provenance={},
+            item_provenance={},
+        )
 
 
 def _filter_load_result(
@@ -816,32 +862,59 @@ class ChatApp(App):
         }
 
     def _guardrail_hooks(
-        self, agent_role: str | None = None
+        self,
+        agent: Agent | None = None,
+        agent_role: str | None = None,
     ) -> dict[HookEvent, list[HookMatcher]]:
         """Create PreToolUse hooks that evaluate rules from manifests.
 
         Delegates to create_guardrail_hooks() in guardrails/hooks.py.
         Two-step pipeline: injections first, then enforcement (log/warn/deny).
+
+        Per SPEC §B4: when an ``Agent`` instance is provided, the hook's
+        role-resolution closure reads ``agent.agent_type`` live so that
+        flipping the role on workflow activation/deactivation takes effect
+        without an SDK reconnect. This replaces the older manifest-bound
+        ``main_role`` lookup. ``agent_role`` is retained for sub-agents
+        whose role is statically bound at spawn time.
+
+        Per SPEC §D6: the loader-equivalent passed to the hook layer is a
+        thin adapter that returns ``self._load_result`` -- the SAME
+        post-filter ``LoadResult`` consumed by the registry layer
+        (``get_phase`` / ``get_applicable_rules``). Without this, the
+        hooks would fire on a different rule set than the agent's
+        ``## Constraints`` block advertises -- a new bug class.
         """
         if not self._manifest_loader or not self._hit_logger or not self._token_store:
             return {}
 
         from claudechic.guardrails.hooks import create_guardrail_hooks
 
-        # If an explicit role is given (sub-agents), use it statically.
-        # If no role (main agent), resolve dynamically: after workflow
-        # activation the main agent assumes the manifest's main_role.
-        if agent_role:
-            effective_role: str | None | callable = agent_role
+        # B4: prefer the live agent.agent_type closure when an Agent is
+        # provided. Falls back to the explicit agent_role kwarg (sub-agents)
+        # or to a manifest-bound dynamic resolver (legacy main-agent path).
+        effective_role: Any
+        if agent is not None:
+            effective_role = lambda: agent.agent_type  # noqa: E731
+        elif agent_role:
+            effective_role = agent_role
         else:
 
-            def effective_role() -> str | None:
+            def effective_role() -> str | None:  # type: ignore[no-redef]
                 if self._workflow_engine:
                     return getattr(self._workflow_engine.manifest, "main_role", None)
                 return None
 
+        # D6: route the hook layer through the same filtered LoadResult
+        # the registry reads. The adapter exposes a ``.load()`` method so
+        # the hook closure's existing ``loader.load()`` call site is
+        # unchanged. Falls back to a fresh ManifestLoader.load() when the
+        # cache has not been populated yet (test-shim safety).
+        load_result_fn = lambda: self._load_result  # noqa: E731
+        loader_for_hooks = _LoaderAdapter(load_result_fn, self._manifest_loader)
+
         return create_guardrail_hooks(
-            loader=self._manifest_loader,
+            loader=loader_for_hooks,  # type: ignore[arg-type]
             hit_logger=self._hit_logger,
             agent_role=effective_role,
             get_phase=lambda: (
@@ -1025,27 +1098,51 @@ class ChatApp(App):
         return result == "allow"
 
     def _merged_hooks(
-        self, agent_type: str | None = None
+        self,
+        agent: Agent | None = None,
+        agent_type: str | None = None,
     ) -> dict[HookEvent, list[HookMatcher]]:
-        """Merge plan-mode hooks, guardrail hooks, and PostCompact hook."""
+        """Merge plan-mode hooks, guardrail hooks, and PostCompact hook.
+
+        Per SPEC §B4: when ``agent`` is provided, downstream closures bind
+        to ``agent.agent_type`` live (read on every hook fire) rather than
+        the manifest's static ``main_role``. Falls back to ``agent_type``
+        for sub-agent paths that bind a role at spawn time without a live
+        Agent reference.
+        """
         hooks = self._plan_mode_hooks()
 
-        # Rule-evaluation hooks (extracted to guardrails/hooks.py)
-        guardrail_hooks = self._guardrail_hooks(agent_role=agent_type)
+        # Rule-evaluation hooks (extracted to guardrails/hooks.py).
+        # Prefer the live agent reference; fall back to the static role
+        # string (sub-agent spawn path).
+        if agent is not None:
+            guardrail_hooks = self._guardrail_hooks(agent=agent)
+        else:
+            guardrail_hooks = self._guardrail_hooks(agent_role=agent_type)
         for event, matchers in guardrail_hooks.items():
             hooks.setdefault(event, []).extend(matchers)
 
-        # PostCompact hook — re-injects phase context after /compact
+        # PostCompact hook -- re-injects phase context after /compact.
+        # The role passed here is the role at hook-creation time; for the
+        # main agent on a fresh activation that is the manifest's main_role
+        # which the activation block has already promoted onto
+        # agent.agent_type.
         if self._workflow_engine and self._load_result is not None:
             from claudechic.workflows.agent_folders import (
                 create_post_compact_hook,
             )
 
+            effective_role = ""
+            if agent is not None:
+                effective_role = agent.agent_type or ""
+            elif agent_type:
+                effective_role = agent_type
+
             wf_data = self._load_result.get_workflow(self._workflow_engine.workflow_id)
             if wf_data is not None:
                 compact_hooks = create_post_compact_hook(
                     engine=self._workflow_engine,
-                    agent_role=agent_type or "",
+                    agent_role=effective_role,
                     workflow_dir=wf_data.path,
                 )
                 for event, matchers in compact_hooks.items():
@@ -1060,11 +1157,24 @@ class ChatApp(App):
         agent_name: str | None = None,
         model: str | None = None,
         agent_type: str | None = None,
+        agent: Agent | None = None,
     ) -> ClaudeAgentOptions:
         """Create SDK options with common settings.
 
         Note: can_use_tool is set by Agent.connect() to its own handler,
         which routes to permission_ui_callback set by AgentManager.
+
+        Per SPEC §B4: when ``agent`` is provided, the role read into
+        ``CLAUDE_AGENT_ROLE`` and the role bound by the guardrail-hook
+        closure resolve to ``agent.agent_type`` live, so flipping the
+        role on workflow activation/deactivation takes effect on the
+        next hook fire without an SDK reconnect. The ``agent_type``
+        kwarg is retained for sub-agent paths that pass a static role
+        without a live Agent reference.
+
+        Per SPEC §C1: ``agent.effort`` is read live and forwarded to the
+        SDK as ``ClaudeAgentOptions(effort=...)``. ``"max"`` is Opus-only;
+        non-Opus models snap on the widget side via slot 5.
         """
         # Override ANTHROPIC_API_KEY to prefer subscription auth,
         # unless ANTHROPIC_BASE_URL is set (SSO proxy needs the key).
@@ -1079,9 +1189,17 @@ class ChatApp(App):
             env["CLAUDE_AGENT_NAME"] = agent_name
         # Expose app PID so team-mode guardrails can create session-scoped markers
         env["CLAUDECHIC_APP_PID"] = str(os.getpid())
-        # Expose agent role type so guardrail hooks can enforce role-based permissions
-        if agent_type:
-            env["CLAUDE_AGENT_ROLE"] = agent_type
+        # Expose agent role type so guardrail hooks can enforce role-based
+        # permissions. B4: prefer live agent.agent_type when an Agent is
+        # passed; agent_type kwarg is the legacy path.
+        effective_role = agent.agent_type if agent is not None else agent_type
+        if effective_role:
+            env["CLAUDE_AGENT_ROLE"] = effective_role
+
+        # SDK thinking-budget level (per SPEC §C1). Read live off the
+        # provided Agent, default "high" when no Agent is bound (e.g.
+        # legacy test paths that pass only agent_type=).
+        effort_level = agent.effort if agent is not None else "high"
 
         # Use global permission mode from AgentManager (runtime source of truth)
         # CLI flag --yolo sets global_permission_mode at init, no special handling needed here
@@ -1096,10 +1214,11 @@ class ChatApp(App):
             cwd=cwd,
             resume=resume,
             model=model,
+            effort=effort_level,
             mcp_servers={"chic": create_chic_server(caller_name=agent_name)},
             include_partial_messages=True,
             stderr=self._handle_sdk_stderr,
-            hooks=self._merged_hooks(agent_type=agent_type),
+            hooks=self._merged_hooks(agent=agent, agent_type=agent_type),
             enable_file_checkpointing=True,
             extra_args={"replay-user-messages": None},
         )
@@ -1374,9 +1493,15 @@ class ChatApp(App):
                 self.notify(f"No unique session matching '{resume}'", severity="error")
                 resume = None
 
-        # Connect the agent to SDK
+        # Connect the agent to SDK. Pass agent= so the options factory
+        # binds CLAUDE_AGENT_ROLE / effort / hook closures to agent.agent_type
+        # and agent.effort live (SPEC §B4 + §C1).
         options = self._make_options(
-            cwd=agent.cwd, resume=resume, agent_name=agent.name, model=agent.model
+            cwd=agent.cwd,
+            resume=resume,
+            agent_name=agent.name,
+            model=agent.model,
+            agent=agent,
         )
         try:
             await agent.connect(options, resume=resume)
@@ -1623,6 +1748,61 @@ class ChatApp(App):
         )
 
     # --- Workflow guidance system ---
+
+    def _get_disabled_rules(self) -> frozenset[str]:
+        """Return the merged set of disabled rule/hint qualified IDs.
+
+        Per SPEC §D (constraints-block + MCP digest plumbing): the
+        ``compute_digest`` projection consumes a ``disabled_rules``
+        frozenset that is the union of user-tier (``~/.claudechic/config.yaml``
+        ``disabled_ids``) and project-tier (``<cwd>/.claudechic/config.yaml``
+        ``disabled_ids``) entries.
+
+        Each config entry is either a bare qualified id (``global:no_pip_install``)
+        or a tier-prefixed qualified id (``user:global:no_pip_install``).
+        ``compute_digest`` does a direct ``item.id in disabled_rules``
+        lookup against the qualified id, so tier-prefixed entries must be
+        decomposed before insertion -- otherwise a user with
+        ``disabled_ids: ["user:global:foo"]`` would never see ``global:foo``
+        marked inactive in the digest.
+
+        Decomposition is delegated to
+        ``claudechic.workflows.loader.parse_disable_entries`` -- the same
+        helper ``_filter_load_result`` uses, keeping the parse story
+        consistent across the registry / digest / hook layers.
+
+        This helper is the single source of truth for the merged set;
+        callers in ``app.py`` (D5 inject sites) and ``mcp.py`` (registry
+        digest -- via ``_app._get_disabled_rules()``) read from it so the
+        agent's ``## Constraints`` block matches what the registry tools
+        return.
+        """
+        from claudechic.workflows.loader import parse_disable_entries
+
+        user_di_raw = CONFIG.get("disabled_ids", []) if isinstance(CONFIG, dict) else []
+        proj_di_raw = (
+            self._project_config.disabled_ids if self._project_config else frozenset()
+        )
+
+        user_bare, user_targeted = parse_disable_entries(
+            user_di_raw, config_key="disabled_ids"
+        )
+        proj_bare, proj_targeted = parse_disable_entries(
+            proj_di_raw, config_key="disabled_ids"
+        )
+
+        merged: set[str] = set(user_bare) | set(proj_bare)
+        # Tier-targeted entries land here too: ``compute_digest`` doesn't
+        # know about tiers (the registry's filter already applied them
+        # via ``disabled_ids_by_tier``), so flattening tier-targeted
+        # entries into the same flat qualified-id set is correct -- the
+        # digest just needs to know "is this item disabled?".
+        for tier_set in user_targeted.values():
+            merged.update(tier_set)
+        for tier_set in proj_targeted.values():
+            merged.update(tier_set)
+
+        return frozenset(merged)
 
     def _init_workflow_infrastructure(
         self,
@@ -1907,6 +2087,24 @@ class ChatApp(App):
                     confirm_callback=self._make_confirm_callback(),
                     cwd=self._cwd,
                 )
+
+            # Attach the loader to the engine so post-compact and
+            # constraints-block helpers can project rules+advance-checks
+            # without a hard dependency on the loader at engine
+            # construction time (SPEC §A1+§D5+§D6).
+            if self._workflow_engine is not None and self._manifest_loader is not None:
+                self._workflow_engine.set_loader(self._manifest_loader)
+
+            # B3: promote the active agent to the workflow's main_role so
+            # downstream hook closures (B4) and constraints-block
+            # projections (D5) read the correct role on the next
+            # invocation. Survives /compact (no SDK reconnect) because
+            # _make_options' env + hook closures dereference
+            # agent.agent_type live.
+            active_agent = self._agent
+            if active_agent is not None and wf_data.main_role:
+                active_agent.agent_type = wf_data.main_role
+
             phase = self._workflow_engine.get_current_phase()
 
             if not should_restore:
@@ -1919,22 +2117,27 @@ class ChatApp(App):
             self._update_sidebar_workflow_info()
             self._position_right_sidebar()
 
-            # Phase-prompt delivery (per SPEC §4.7): assemble the
-            # identity.md + phase.md prompt and send it directly to the
-            # active agent as the kickoff message body. No file is
-            # written to disk; the agent receives the phase-specific
-            # instructions inline.
+            # D5 inject site (main-agent activation): route through
+            # ``assemble_agent_prompt`` so the activation kickoff embeds
+            # the role+phase scoped ``## Constraints`` block. The helper
+            # IS the contract; the five inject sites do not concat by
+            # hand.
             kickoff_prompt: str | None = None
             if wf_data.main_role:
                 from claudechic.workflows.agent_folders import (
-                    assemble_phase_prompt,
+                    assemble_agent_prompt,
                 )
 
-                kickoff_prompt = assemble_phase_prompt(
+                kickoff_prompt = assemble_agent_prompt(
+                    wf_data.main_role,
+                    phase,
+                    self._manifest_loader,
                     workflow_dir=wf_data.path,
-                    role_name=wf_data.main_role,
-                    current_phase=phase,
                     artifact_dir=self._workflow_engine.get_artifact_dir(),
+                    project_root=getattr(self._workflow_engine, "project_root", None),
+                    engine=self._workflow_engine,
+                    active_workflow=workflow_id,
+                    disabled_rules=self._get_disabled_rules(),
                 )
 
             if kickoff_prompt:
@@ -2170,10 +2373,11 @@ class ChatApp(App):
     ) -> None:
         """Send the new phase's prompt to the active agent on phase advance.
 
-        Per SPEC §4.7 and INV-AW-8: assembles the identity.md + phase.md
-        prompt for ``current_phase`` and delivers it directly to the
-        active agent via :meth:`_send_to_active_agent`. No file I/O —
-        phase-prompt delivery is in-memory and inline-to-chat.
+        D5 inject site (main-agent phase-advance): routes through
+        ``assemble_agent_prompt`` so the phase-advance prompt embeds the
+        role+phase scoped ``## Constraints`` block (rules + advance-checks
+        projection). The helper IS the contract; the five inject sites
+        do not concat by hand.
 
         Sidebar phase label is refreshed regardless of whether a prompt
         was sent.
@@ -2184,7 +2388,7 @@ class ChatApp(App):
         silently swallowed.
         """
         try:
-            from claudechic.workflows.agent_folders import assemble_phase_prompt
+            from claudechic.workflows.agent_folders import assemble_agent_prompt
 
             wf_data = (
                 self._load_result.get_workflow(workflow_id)
@@ -2198,15 +2402,24 @@ class ChatApp(App):
                 )
                 return
 
-            prompt = assemble_phase_prompt(
+            prompt = assemble_agent_prompt(
+                main_role,
+                current_phase,
+                self._manifest_loader,
                 workflow_dir=wf_data.path,
-                role_name=main_role,
-                current_phase=current_phase,
                 artifact_dir=(
                     self._workflow_engine.get_artifact_dir()
                     if self._workflow_engine is not None
                     else None
                 ),
+                project_root=(
+                    getattr(self._workflow_engine, "project_root", None)
+                    if self._workflow_engine is not None
+                    else None
+                ),
+                engine=self._workflow_engine,
+                active_workflow=workflow_id,
+                disabled_rules=self._get_disabled_rules(),
             )
             if prompt:
                 self._send_to_active_agent(prompt)
@@ -2255,6 +2468,14 @@ class ChatApp(App):
 
         wf_id = self._workflow_engine.workflow_id
         self._workflow_engine = None
+
+        # B3: revert the active agent's role to the sentinel so subsequent
+        # hook fires (B4) and constraints-block projections (D5) match the
+        # post-deactivation state. Mirrors the promotion done in
+        # _activate_workflow.
+        active_agent = self._agent
+        if active_agent is not None:
+            active_agent.agent_type = DEFAULT_ROLE
 
         # Clear workflow_state from chicsession if present
         if self._chicsession_name:
@@ -2367,6 +2588,22 @@ class ChatApp(App):
                 cwd=self._cwd,
                 notify_fn=lambda msg: self.notify(msg, severity="warning", timeout=10),
             )
+
+            # Attach the loader for downstream consumers (post-compact
+            # hook + constraints-block helper). Mirrors the activation
+            # path; without this, restored sessions get a degenerate
+            # constraints block until /compact rebuilds it.
+            if self._workflow_engine is not None and self._manifest_loader is not None:
+                self._workflow_engine.set_loader(self._manifest_loader)
+
+            # B3: re-promote the active agent's role to the workflow's
+            # main_role on session restore. Mirrors the promote-on-activate
+            # path so /compact + /resume keep the agent's role aligned
+            # with the engine's manifest.
+            active_agent = self._agent
+            if active_agent is not None and wf_data.main_role:
+                active_agent.agent_type = wf_data.main_role
+
             phase = self._workflow_engine.get_current_phase()
             self.notify(f"Restored workflow '{wf_id}' — phase: {phase or 'none'}")
         except Exception:
@@ -3511,6 +3748,7 @@ class ChatApp(App):
                     resume=resume_id,
                     agent_name=agent.name,
                     model=agent.model,
+                    agent=agent,
                 )
             )
 
@@ -3639,23 +3877,26 @@ class ChatApp(App):
         self._handle_model_prompt()
 
     def on_diagnostics_label_requested(self, event: DiagnosticsLabel.Requested) -> None:  # noqa: ARG002
-        """Handle diagnostics label press - open diagnostics modal."""
-        from claudechic.widgets.modals.diagnostics import DiagnosticsModal
+        """Handle diagnostics label press - open the unified Info modal.
 
-        agent = self._agent
-        session_id = agent.session_id if agent else None
-        cwd = agent.cwd if agent else None
-        self.push_screen(DiagnosticsModal(session_id=session_id, cwd=cwd))
-
-    def on_computer_info_label_requested(
-        self, event: ComputerInfoLabel.Requested
-    ) -> None:  # noqa: ARG002
-        """Handle sys label press - open computer info modal."""
+        Per SPEC §F: ``DiagnosticsModal`` is consolidated into
+        ``ComputerInfoModal`` (Session JSONL + Last Compaction now live
+        as InfoSection rows on the unified modal). The unified modal
+        accepts ``session_id`` so it can resolve the active session's
+        JSONL path and last-compaction summary -- without it, those
+        rows render as "(no active session)" / empty (slot 5 review M1).
+        """
         from claudechic.widgets.modals.computer_info import ComputerInfoModal
 
         agent = self._agent
         cwd = agent.cwd if agent else None
-        self.push_screen(ComputerInfoModal(cwd=cwd))
+        session_id = agent.session_id if agent else None
+        self.push_screen(ComputerInfoModal(cwd=cwd, session_id=session_id))
+
+    # ``on_computer_info_label_requested`` was dropped per slot 5 review M3:
+    # ``ComputerInfoLabel`` is removed from the footer in favor of the
+    # consolidated ``DiagnosticsLabel`` (text "info") that opens the same
+    # unified ``ComputerInfoModal``. The handler became orphaned.
 
     def on_settings_label_requested(self, event: SettingsLabel.Requested) -> None:  # noqa: ARG002
         """Handle settings label press — open SettingsScreen.
@@ -3846,6 +4087,7 @@ class ChatApp(App):
             cwd=agent.cwd,
             resume=session_id,
             agent_name=agent.name,
+            agent=agent,
             model=agent.model,
             agent_type=agent.agent_type,
         )
@@ -3862,7 +4104,7 @@ class ChatApp(App):
             chat_view.clear()
         await agent.disconnect()
         options = self._make_options(
-            cwd=agent.cwd, agent_name=agent.name, model=agent.model
+            cwd=agent.cwd, agent_name=agent.name, model=agent.model, agent=agent
         )
         await agent.connect(options)
         self.refresh_context()
@@ -3913,6 +4155,7 @@ class ChatApp(App):
                 agent_name=agent.name,
                 model=model,
                 resume=session_id,
+                agent=agent,
             )
             await agent.connect(options, resume=session_id)
 
@@ -4049,7 +4292,7 @@ class ChatApp(App):
             # Reconnect with fresh session (like /clear)
             await agent.disconnect()
             options = self._make_options(
-                cwd=agent.cwd, agent_name=agent.name, model=agent.model
+                cwd=agent.cwd, agent_name=agent.name, model=agent.model, agent=agent
             )
             await agent.connect(options)
 

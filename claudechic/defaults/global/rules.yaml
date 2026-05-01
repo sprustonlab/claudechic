@@ -29,3 +29,10 @@
     Use: TS=$(date -u +%Y-%m-%d_%H%M%S) && pytest --junitxml=.test_results/${TS}.xml --tb=short 2>&1 | tee .test_results/${TS}.log
     Or target a specific test: pytest tests/test_foo.py
 
+- id: pytest_needs_timeout
+  trigger: PreToolUse/Bash
+  enforcement: warn
+  detect:
+    pattern: "(?:^|[;&|]\\s*)(?:(?:\\w+=\\S+\\s+)*(?:time\\s+|env\\s+|xargs\\s+)?(?:(?:python(?:\\d+(?:\\.\\d+)*)?|uv\\s+run|uvx|poetry\\s+run|hatch\\s+run|nox\\s+-s|make)\\s+(?:-m\\s+)?)?)?pytest\\b(?!.*--timeout(?:=|\\s|$))"
+  message: "use --timeout=N (default 30) to avoid hung tests"
+
