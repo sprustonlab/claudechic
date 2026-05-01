@@ -61,10 +61,13 @@ async def test_a3_engine_cwd_default_applied_to_command_output_check(
 ) -> None:
     """When the manifest omits ``cwd``, the engine's cwd is applied as default.
 
-    The command runs ``pwd`` in the subprocess and we assert the engine's
-    cwd appears in the captured stdout -- proves the engine pinned the
-    subprocess working directory rather than letting it inherit the
-    Python process cwd.
+    The command runs a Python ``os.getcwd()`` in the subprocess and we
+    assert the engine's cwd appears in the captured stdout -- proves the
+    engine pinned the subprocess working directory rather than letting
+    it inherit the Python process cwd. We use ``python -c`` (not
+    ``pwd``) to get OS-native path shape: on Windows GitHub runners
+    ``pwd`` runs in MSYS bash and emits ``/c/Users/...`` while
+    ``Path.resolve()`` returns ``C:\\Users\\...``.
     """
     engine = _make_engine(cwd=tmp_path)
     decl = CheckDecl(
@@ -72,7 +75,7 @@ async def test_a3_engine_cwd_default_applied_to_command_output_check(
         namespace="proj",
         type="command-output-check",
         params={
-            "command": "pwd",
+            "command": 'python -c "import os; print(os.getcwd())"',
             # ``re.escape`` keeps the Windows path (e.g. ``C:\\Users\\...``)
             # from being parsed as a regex Unicode escape (``\U``).
             "pattern": re.escape(str(tmp_path.resolve())),
@@ -88,7 +91,8 @@ async def test_a3_manifest_cwd_overrides_engine_cwd_for_command_output_check(
     """A manifest-supplied ``cwd`` wins over the engine cwd default.
 
     Engine cwd is ``tmp_path``; manifest pins to a sibling ``other`` dir.
-    ``pwd`` must report the manifest cwd, never the engine cwd.
+    The Python cwd-printer must report the manifest cwd, never the
+    engine cwd.
     """
     other = tmp_path / "other"
     other.mkdir()
@@ -99,7 +103,7 @@ async def test_a3_manifest_cwd_overrides_engine_cwd_for_command_output_check(
         namespace="proj",
         type="command-output-check",
         params={
-            "command": "pwd",
+            "command": 'python -c "import os; print(os.getcwd())"',
             # ``re.escape`` neutralizes Windows path separators so the
             # path is treated as a regex literal.
             "pattern": re.escape(str(other.resolve())),
@@ -118,9 +122,9 @@ async def test_a3_engine_cwd_unset_does_not_pin_command_check(
 
     The manifest also omits ``cwd``; the underlying ``CommandOutputCheck``
     therefore inherits the Python process cwd. We pin process cwd to
-    ``tmp_path`` via monkeypatch and assert ``pwd`` reports it -- proving
-    the engine did NOT rewrite ``params['cwd']`` when its own cwd is
-    ``None``.
+    ``tmp_path`` via monkeypatch and assert the Python cwd-printer
+    reports it -- proving the engine did NOT rewrite ``params['cwd']``
+    when its own cwd is ``None``.
     """
     monkeypatch.chdir(tmp_path)
     engine = _make_engine(cwd=None)
@@ -129,7 +133,7 @@ async def test_a3_engine_cwd_unset_does_not_pin_command_check(
         namespace="proj",
         type="command-output-check",
         params={
-            "command": "pwd",
+            "command": 'python -c "import os; print(os.getcwd())"',
             # ``re.escape`` neutralizes Windows path separators.
             "pattern": re.escape(str(tmp_path.resolve())),
         },
