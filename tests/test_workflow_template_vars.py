@@ -14,6 +14,7 @@ in the auto pass before any manual confirm).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -160,7 +161,9 @@ async def test_a1_command_check_workflow_root_substituted_in_pattern_param(
         type="command-output-check",
         params={
             "command": f"echo {tmp_path}",
-            "pattern": str(tmp_path),
+            # ``re.escape`` keeps Windows path separators (``\U``, ``\R``,
+            # ...) from being parsed as regex escapes.
+            "pattern": re.escape(str(tmp_path)),
         },
     )
     result = await engine._run_single_check(decl)

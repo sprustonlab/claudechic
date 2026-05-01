@@ -11,6 +11,7 @@ sequence; first failure wins).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -72,7 +73,9 @@ async def test_a3_engine_cwd_default_applied_to_command_output_check(
         type="command-output-check",
         params={
             "command": "pwd",
-            "pattern": str(tmp_path.resolve()),
+            # ``re.escape`` keeps the Windows path (e.g. ``C:\\Users\\...``)
+            # from being parsed as a regex Unicode escape (``\U``).
+            "pattern": re.escape(str(tmp_path.resolve())),
         },
     )
     result = await engine._run_single_check(decl)
@@ -97,7 +100,9 @@ async def test_a3_manifest_cwd_overrides_engine_cwd_for_command_output_check(
         type="command-output-check",
         params={
             "command": "pwd",
-            "pattern": str(other.resolve()),
+            # ``re.escape`` neutralizes Windows path separators so the
+            # path is treated as a regex literal.
+            "pattern": re.escape(str(other.resolve())),
             "cwd": str(other),
         },
     )
@@ -125,7 +130,8 @@ async def test_a3_engine_cwd_unset_does_not_pin_command_check(
         type="command-output-check",
         params={
             "command": "pwd",
-            "pattern": str(tmp_path.resolve()),
+            # ``re.escape`` neutralizes Windows path separators.
+            "pattern": re.escape(str(tmp_path.resolve())),
         },
     )
     result = await engine._run_single_check(decl)

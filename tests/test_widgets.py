@@ -1009,9 +1009,16 @@ async def test_info_label_click_opens_computer_info_modal():
         )
         modal = app.screen
 
-        # Check that sections have non-empty values
-        # The modal renders InfoSection items as Static widgets with class "info-value"
-        value_widgets = list(modal.query(".info-value"))
+        # Poll for the modal's info-value widgets to be mounted. On
+        # Windows + Python 3.12 a single ``pilot.pause()`` after the
+        # ``push_screen`` was racy: the modal is on the stack but its
+        # ``InfoSection`` children have not yet been composed.
+        value_widgets: list = []
+        for _ in range(20):
+            value_widgets = list(modal.query(".info-value"))
+            if len(value_widgets) >= 6:
+                break
+            await pilot.pause()
         assert len(value_widgets) >= 6, (
             f"Expected at least 6 info values, got {len(value_widgets)}"
         )
