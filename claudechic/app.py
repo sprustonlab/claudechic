@@ -2117,10 +2117,10 @@ class ChatApp(App):
             self._update_sidebar_workflow_info()
             self._position_right_sidebar()
 
-            # Phase-prompt delivery (per SPEC §4.7 + §D5): route through
+            # D5 inject site (main-agent activation): route through
             # ``assemble_agent_prompt`` so the activation kickoff embeds
             # the role+phase scoped ``## Constraints`` block. The helper
-            # IS the contract; the four inject sites do not concat by
+            # IS the contract; the five inject sites do not concat by
             # hand.
             kickoff_prompt: str | None = None
             if wf_data.main_role:
@@ -2373,10 +2373,10 @@ class ChatApp(App):
     ) -> None:
         """Send the new phase's prompt to the active agent on phase advance.
 
-        Per SPEC §4.7, §D5, and INV-AW-8: routes through
+        D5 inject site (main-agent phase-advance): routes through
         ``assemble_agent_prompt`` so the phase-advance prompt embeds the
         role+phase scoped ``## Constraints`` block (rules + advance-checks
-        projection). The helper IS the contract; the four inject sites
+        projection). The helper IS the contract; the five inject sites
         do not concat by hand.
 
         Sidebar phase label is refreshed regardless of whether a prompt

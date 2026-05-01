@@ -277,9 +277,9 @@ def _make_spawn_agent(caller_name: str | None = None):
 
         if prompt:
             # Inject agent folder prompt at spawn time if workflow is active.
-            # D5 inject site #1: route through assemble_agent_prompt so the
+            # D5 inject site (sub-agent spawn): route through assemble_agent_prompt so the
             # spawn-time prompt embeds the role+phase scoped ## Constraints
-            # block. The helper IS the contract; the four inject sites do
+            # block. The helper IS the contract; the five inject sites do
             # not concat by hand.
             full_prompt = prompt
             if _app._workflow_engine and agent_type:
@@ -983,11 +983,11 @@ def _make_advance_phase(caller_name: str | None = None):
                     _app._update_sidebar_workflow_info()
 
                 # Broadcast phase prompt to typed sub-agents.
-                # D5 inject site #5: route through ``assemble_agent_prompt``
-                # so each sub-agent's phase-advance prompt embeds its
-                # role+phase scoped ``## Constraints`` block (symmetric
-                # with the spawn-time, activation, main-agent-advance, and
-                # post-compact inject sites).
+                # D5 inject site (sub-agent phase-advance broadcast): route through
+                # ``assemble_agent_prompt`` so each sub-agent's phase-advance
+                # prompt embeds its role+phase scoped ``## Constraints`` block
+                # (symmetric with the spawn-time, activation, main-agent-advance,
+                # and post-compact inject sites).
                 if _app.agent_mgr:
                     from claudechic.workflows.agent_folders import (
                         assemble_agent_prompt,

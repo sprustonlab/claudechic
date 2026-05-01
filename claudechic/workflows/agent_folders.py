@@ -143,7 +143,7 @@ def assemble_constraints_block(
 
     Both modules ship in slot 3 of this implementation cycle. Until they
     land, this helper is callable but returns the empty string for the
-    no-rules / no-checks degenerate case so the four D5 inject sites
+    no-rules / no-checks degenerate case so the five D5 inject sites
     naturally skip injection (the dead-code guard in
     ``assemble_agent_prompt`` becomes live).
 
@@ -313,7 +313,7 @@ def assemble_agent_prompt(
 
 
 # ---------------------------------------------------------------------------
-# post-compact hook (D5 inject site #3)
+# post-compact hook (D5 inject site (post-compact))
 # ---------------------------------------------------------------------------
 
 
@@ -328,8 +328,8 @@ def create_post_compact_hook(
     directory at creation time. On /compact, it reads the current phase
     from the engine and re-assembles identity.md + phase.md content from
     the captured directory, then appends the role+phase scoped
-    ``## Constraints`` block (D5 inject site #3) so the post-compact
-    prompt matches the launch-time prompt shape.
+    ``## Constraints`` block (D5 inject site (post-compact)) so the
+    post-compact prompt matches the launch-time prompt shape.
 
     The constraints-block projection needs a ``ManifestLoader`` and the
     ``active_workflow`` id; both are resolved off the engine at hook-fire
