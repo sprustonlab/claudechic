@@ -23,3 +23,7 @@ must follow the Generalprobe standard:
 - Does the testing approach satisfy any explicit user constraints (e.g., "must use VMs", "must actually run DC")?
 - Do the proposed tests comply with the Generalprobe standard?
 - Any scope creep or scope shrink in the test plan vs what the user asked for?
+
+## Communicating findings
+
+Send findings via `message_agent("${COORDINATOR_NAME}", ...)` with `requires_answer=true` for scope changes (creep or shrink) -- those need the coordinator's decision before the test spec is approvable. Use `requires_answer=false` for advisory flags and confirmations.

@@ -1,6 +1,6 @@
 # Testing Implementation Phase
 
-Tests are being written. Stay actively engaged -- do not wait to be asked.
+Tests are being written. The coordinator routes test code your way; respond to each scan request promptly.
 
 ## Generalprobe Standard
 

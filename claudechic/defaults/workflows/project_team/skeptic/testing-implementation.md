@@ -1,6 +1,6 @@
 # Testing Implementation Phase
 
-Tests are being written. Stay actively engaged -- do not wait to be asked.
+Tests are being written. The coordinator routes test code your way; respond to each review request promptly.
 
 ## Generalprobe Standard
 
@@ -24,4 +24,8 @@ must follow the Generalprobe standard:
 - Do the tests actually exercise the full stack, or do they shortcut?
 - Do tests comply with the Generalprobe standard above?
 
-Report issues to Coordinator immediately. Do not wait for all tests to land.
+Report issues to Coordinator as soon as the first one surfaces, before all tests have landed.
+
+## Communicating findings
+
+Send findings via `message_agent("${COORDINATOR_NAME}", ...)` with `requires_answer=false` -- fire-and-forget flags as you spot them. Reserve `requires_answer=true` for the rare case where a sneaking mock/skip/xfail blocks further test landings until decided.

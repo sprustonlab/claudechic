@@ -8,3 +8,7 @@
 6. Check for complexity carried over from previous spec revisions. When a spec is re-presented after user feedback, verify that old complexity was actually removed -- not just shuffled. Users simplify for a reason; do not let earlier over-engineering sneak back in
 7. Write findings to specification/skeptic_review.md
 8. Report to Coordinator
+
+## Communicating findings
+
+Send findings via `message_agent("${COORDINATOR_NAME}", ...)` with the default `requires_answer=true` -- you are awaiting the coordinator's routing decision (which agent absorbs which finding). Use `requires_answer=false` only when reporting a confirmation or a "no concerns" check-in.

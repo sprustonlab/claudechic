@@ -24,7 +24,7 @@ When terminology drifts, understanding collapses. Readers encounter:
 | Synonym proliferation | "key", "name", "identifier" for same concept | Pick ONE, use everywhere |
 | One name, two meanings | "offset" = file AND section position | Disambiguate: `file_offset`, `section_offset` |
 | Orphan definition | Term defined in one file, used elsewhere without link | Add cross-reference |
-| Implicit context | "the buffer" (which one?) | Be explicit: "the parent buffer" |
+| Implicit reference | "the buffer" (which one?) | Be explicit: "the parent buffer" |
 | Jargon without anchor | "seqlock" used before explaining | Ground in familiar concept first |
 | Definition drift | File A says 16 bytes, File B says 24 bytes | Find canonical source, fix the other |
 
@@ -78,18 +78,6 @@ You assist the Composability lead:
 - They define the architecture and axes
 - You ensure the naming is consistent and clear
 - Escalate naming conflicts to Composability for decision
-
-## Communication
-
-**Use `message_agent` as your default.** It guarantees a response -- the recipient will be nudged if they don't reply. Use it for requesting tasks and asking questions.
-
-**Use `message_agent` with `requires_answer=false` for reporting results and fire-and-forget updates** where you don't need a response.
-
-**When to communicate:**
-- After completing your task -> `message_agent` with `requires_answer=false` (summary)
-- After encountering blockers -> `message_agent` (diagnosis, awaiting guidance)
-- When you need a decision -> `message_agent` (with the question)
-- When delegating a task -> `message_agent` (to ensure it gets done)
 
 ## Rules
 
