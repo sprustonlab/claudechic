@@ -300,3 +300,155 @@ class TestVimMigration:
         assert 'config["vi-mode"]' in source_code or "vi-mode" in source_code, (
             "Should migrate to 'vi-mode' key"
         )
+
+
+# ---------------------------------------------------------------------------
+# constraints_segment / environment_segment parsing (SPEC §3.7, §3.11)
+# Scenario 6 coverage: project-tier YAML round-trip + ConfigValidationError
+# on empty scope.sites.
+# ---------------------------------------------------------------------------
+
+
+import pytest  # noqa: E402  -- module-level top-half is class-only; tests below use pytest
+
+
+pytestmark_segment = [pytest.mark.timeout(30)]
+
+
+def _write_project_yaml(project_dir, body: str):
+    """Write <project_dir>/.claudechic/config.yaml with the given body."""
+    cfg_dir = project_dir / ".claudechic"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.yaml").write_text(body, encoding="utf-8")
+
+
+@pytest.mark.timeout(30)
+def test_project_config_constraints_segment_round_trips_through_save_load(tmp_path):
+    """Project-tier config.yaml: write constraints_segment, load it back, get the same data."""
+    from claudechic.config import ProjectConfig
+
+    yaml_body = (
+        "constraints_segment:\n"
+        "  compact: false\n"
+        "  include_skipped: true\n"
+        "  scope:\n"
+        "    sites:\n"
+        "      - spawn\n"
+        "      - activation\n"
+    )
+    _write_project_yaml(tmp_path, yaml_body)
+
+    pc = ProjectConfig.load(tmp_path)
+    assert pc.constraints_segment.get("compact") is False
+    assert pc.constraints_segment.get("include_skipped") is True
+    assert pc.constraints_segment.get("sites") == frozenset({"spawn", "activation"})
+
+
+@pytest.mark.timeout(30)
+def test_project_config_environment_segment_round_trips_through_save_load(tmp_path):
+    """Project-tier environment_segment is parsed into the in-memory dict shape."""
+    from claudechic.config import ProjectConfig
+
+    yaml_body = (
+        "environment_segment:\n"
+        "  enabled: false\n"
+        "  compact: true\n"
+        "  scope:\n"
+        "    sites:\n"
+        "      - spawn\n"
+    )
+    _write_project_yaml(tmp_path, yaml_body)
+
+    pc = ProjectConfig.load(tmp_path)
+    assert pc.environment_segment.get("enabled") is False
+    assert pc.environment_segment.get("compact") is True
+    assert pc.environment_segment.get("sites") == frozenset({"spawn"})
+
+
+@pytest.mark.timeout(30)
+def test_project_config_constraints_segment_empty_scope_sites_raises_config_validation_error(
+    tmp_path,
+):
+    """Empty constraints_segment.scope.sites at load time raises ConfigValidationError."""
+    from claudechic.config import ConfigValidationError, ProjectConfig
+
+    yaml_body = "constraints_segment:\n  scope:\n    sites: []\n"
+    _write_project_yaml(tmp_path, yaml_body)
+
+    with pytest.raises(ConfigValidationError):
+        ProjectConfig.load(tmp_path)
+
+
+@pytest.mark.timeout(30)
+def test_project_config_environment_segment_empty_scope_sites_raises_config_validation_error(
+    tmp_path,
+):
+    """Empty environment_segment.scope.sites at load time raises ConfigValidationError."""
+    from claudechic.config import ConfigValidationError, ProjectConfig
+
+    yaml_body = "environment_segment:\n  scope:\n    sites: []\n"
+    _write_project_yaml(tmp_path, yaml_body)
+
+    with pytest.raises(ConfigValidationError):
+        ProjectConfig.load(tmp_path)
+
+
+@pytest.mark.timeout(30)
+def test_project_config_unknown_site_token_dropped_with_warning(tmp_path):
+    """An unknown site token is dropped with a WARNING; valid tokens survive."""
+    from claudechic.config import ProjectConfig
+
+    yaml_body = (
+        "constraints_segment:\n"
+        "  scope:\n"
+        "    sites:\n"
+        "      - spawn\n"
+        "      - bogus_site\n"
+    )
+    _write_project_yaml(tmp_path, yaml_body)
+
+    pc = ProjectConfig.load(tmp_path)
+    sites = pc.constraints_segment.get("sites")
+    assert sites == frozenset({"spawn"}), (
+        f"Unknown token must be dropped; got {sites}"
+    )
+
+
+@pytest.mark.timeout(30)
+def test_project_config_constraints_segment_missing_uses_empty_dict(tmp_path):
+    """When the YAML omits constraints_segment, ProjectConfig.constraints_segment is {}."""
+    from claudechic.config import ProjectConfig
+
+    yaml_body = "guardrails: true\n"
+    _write_project_yaml(tmp_path, yaml_body)
+
+    pc = ProjectConfig.load(tmp_path)
+    assert pc.constraints_segment == {}
+    assert pc.environment_segment == {}
+
+
+@pytest.mark.timeout(30)
+def test_build_gate_settings_project_tier_overrides_user_tier(tmp_path):
+    """build_gate_settings: project tier wins per-key (SPEC §3.7, §3.11)."""
+    from claudechic.config import ProjectConfig, build_gate_settings
+
+    user_config = {
+        "constraints_segment": {
+            "compact": True,
+            "scope": {"sites": ["spawn", "activation", "phase-advance", "post-compact"]},
+        },
+    }
+    yaml_body = (
+        "constraints_segment:\n"
+        "  compact: false\n"
+        "  scope:\n"
+        "    sites:\n"
+        "      - spawn\n"
+    )
+    _write_project_yaml(tmp_path, yaml_body)
+    pc = ProjectConfig.load(tmp_path)
+
+    settings = build_gate_settings(user_config=user_config, project_config=pc)
+    # Project tier wins: compact=False overrides user's True; sites narrowed to {spawn}.
+    assert settings.constraints_segment.compact is False
+    assert settings.constraints_segment.sites == frozenset({"spawn"})

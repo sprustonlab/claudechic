@@ -75,6 +75,18 @@ def _setup_workflow_with_constraints(root: Path) -> None:
                     "detect": {"pattern": r"^sudo\s"},
                     "message": "Using sudo -- acknowledge if intentional.",
                 },
+                # Phase-scoped rule. Required so T3 phase-advance broadcasts
+                # carry a non-empty ``constraints_phase`` slice under the
+                # new place-axis split (SPEC §3.1 / §3.2.1): at T3 only the
+                # phase slice fires; phase-agnostic rules anchor at T1/T2/T4.
+                {
+                    "id": "implement_phase_rule",
+                    "trigger": "PreToolUse/Bash",
+                    "enforcement": "log",
+                    "detect": {"pattern": r"^touch\s"},
+                    "message": "Touch logged during implement phase.",
+                    "phases": ["cs_workflow:implement"],
+                },
             ]
         ),
         encoding="utf-8",
@@ -494,7 +506,12 @@ async def test_crystal_6_disabled_rule_absent_from_hook_and_mcp(
 async def test_crystal_7_post_compact_role_survives_and_constraints_reinjected(
     mock_sdk, tmp_path
 ) -> None:
-    """PostCompact hook: agent.agent_type unchanged AND constraints re-injected."""
+    """SessionStart(source=compact) hook: agent.agent_type unchanged AND constraints re-injected.
+
+    Per Claude Code hooks docs, ``PostCompact`` is side-effect-only --
+    it cannot inject context. Post-compact context is delivered via
+    ``SessionStart`` with ``matcher="compact"``.
+    """
     _setup_workflow_with_constraints(tmp_path)
     app = ChatApp()
 
@@ -518,14 +535,25 @@ async def test_crystal_7_post_compact_role_survives_and_constraints_reinjected(
             assert agent is not None
             assert agent.agent_type == "coordinator"
 
-            # Pull the merged hooks for this agent and locate the PostCompact
-            # closure registered by create_post_compact_hook (D5 site #5).
+            # Pull the merged hooks for this agent and locate the
+            # SessionStart(matcher=compact) closure registered by
+            # create_session_start_compact_hook.
             hooks = app._merged_hooks(agent=agent)
-            assert "PostCompact" in hooks, (
-                f"PostCompact hook missing from merged hooks; got keys: "
+            assert "SessionStart" in hooks, (
+                f"SessionStart hook missing from merged hooks; got keys: "
                 f"{list(hooks.keys())}"
             )
-            pc_matcher = hooks["PostCompact"][0]
+            # Find the matcher whose source is "compact" (we may have
+            # multiple SessionStart matchers if other systems register
+            # too -- our compact-only one filters by matcher="compact").
+            pc_matcher = next(
+                (m for m in hooks["SessionStart"] if m.matcher == "compact"),
+                None,
+            )
+            assert pc_matcher is not None, (
+                f"No SessionStart matcher with matcher='compact'; got: "
+                f"{[m.matcher for m in hooks['SessionStart']]}"
+            )
             pc_hook = pc_matcher.hooks[0]
 
             # Fire the hook the way the SDK would on /compact.
@@ -535,9 +563,16 @@ async def test_crystal_7_post_compact_role_survives_and_constraints_reinjected(
             assert agent.agent_type == "coordinator", (
                 f"agent.agent_type lost across post-compact: {agent.agent_type!r}"
             )
-            # D5 contract: re-injected prompt contains ## Constraints.
-            reason = payload.get("reason", "")
-            assert "## Constraints" in reason, (
+            # Re-injected prompt contains ## Constraints. The hook
+            # returns ``additionalContext`` under ``hookSpecificOutput``
+            # with ``hookEventName: "SessionStart"`` (the documented
+            # Claude Code post-compact context-injection channel).
+            spec_out = payload.get("hookSpecificOutput", {})
+            assert spec_out.get("hookEventName") == "SessionStart", (
+                f"Wrong hookEventName: {payload!r}"
+            )
+            additional = spec_out.get("additionalContext", "")
+            assert "## Constraints" in additional, (
                 f"post-compact reinjection missing ## Constraints. payload={payload!r}"
             )
 

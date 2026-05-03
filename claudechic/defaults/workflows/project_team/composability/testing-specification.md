@@ -1,6 +1,5 @@
 # Testing Specification Phase
 
-Re-read your identity.md to refresh your composability lens.
 Read ${CLAUDECHIC_ARTIFACT_DIR}/userprompt_testing.md to understand what tests are planned.
 
 ## Generalprobe Standard
@@ -22,3 +21,11 @@ must follow the Generalprobe standard:
 - Does the proposed test file structure reflect those axes cleanly?
 - Are fixture compositions clean? (no cross-axis branches in test code)
 - Is the coverage matrix complete? Any crystal holes?
+
+## Spec self-containment
+
+- Every term used in the spec is defined inside the spec.
+- References to other files drift out of sync as the spec iterates. A reference is permitted only when you commit to keeping the referenced file in sync. If you cannot commit, inline the content or drop the reference.
+- A stale reference is a violation.
+
+When editing the spec -- at any phase after synthesis -- add only operational facts. Do not narrate reasoning, justify decisions, or reference prior states inline. If the rationale matters, add it to the appendix instead.

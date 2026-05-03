@@ -1,14 +1,17 @@
 # Testing Implementation Phase
 
-## Spawn TestEngineer
+## Spawn TestEngineer(s)
 
-Spawn with `type: test_engineer` and `requires_answer: true`.
+Spawn one TestEngineer per test file or partitioned scope (up to 4) with `type: test_engineer` and `requires_answer: true`. For runs with few test files, one TestEngineer is sufficient.
 
-The TestEngineer's prompt MUST include:
+The TestEngineer authoring conftest.py changes lands first; other TestEngineers wait for the conftest landing before running their tests.
+
+Each TestEngineer's prompt MUST include:
 1. The project's testing standard location (from testing vision)
 2. The TEST_SPECIFICATION.md path
-3. The test file locations
-4. How to run the tests
+3. Their specific test file or partitioned scope
+4. The test file locations
+5. How to run the tests
 
 ## Workflow
 

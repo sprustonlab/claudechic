@@ -7,3 +7,7 @@
 5. Check: are domain terms understood correctly by the team?
 6. Write findings to specification/user_alignment.md
 7. Report to Coordinator
+
+## Communicating findings
+
+Send findings via `message_agent("${COORDINATOR_NAME}", ...)` with `requires_answer=true` -- specification-phase findings need the coordinator's decision before the spec can be finalized (override Skeptic, escalate to user, or accept). Use `requires_answer=false` only for "no concerns" check-ins.

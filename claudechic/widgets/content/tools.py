@@ -510,7 +510,17 @@ class AgentListWidget(Static):
 
 
 class AgentToolWidget(BaseToolWidget):
-    """Widget for displaying chic agent MCP tool calls (spawn_agent, message_agent, etc.)."""
+    """Widget for displaying chic agent MCP tool calls (spawn_agent, message_agent, etc.).
+
+    Unlike plain :class:`ToolUseWidget`, MCP agent widgets host meaningful
+    interactive content (Markdown prompts, "Go to agent" buttons,
+    ``AgentListWidget`` siblings). Clicking that inner content must not
+    collapse the widget -- otherwise the displayed content visibly
+    vanishes mid-interaction. We narrow the inherited click-anywhere
+    toggle to clicks on the widget's own background; the
+    ``CollapsibleTitle`` already toggles natively when struck, so the
+    title bar continues to work.
+    """
 
     class GoToAgent(Message):
         """Message posted when user clicks 'Go to agent' button."""
@@ -518,6 +528,29 @@ class AgentToolWidget(BaseToolWidget):
         def __init__(self, agent_name: str) -> None:
             super().__init__()
             self.agent_name = agent_name
+
+    def on_click(self, event) -> None:  # type: ignore[override]
+        """Toggle only on background clicks; never on inner content.
+
+        ``BaseToolWidget.on_click`` toggles the collapsible on any left
+        click anywhere on the widget. For MCP agent widgets that
+        behavior is hostile: clicking a Markdown prompt or the "Go to
+        agent" Button -- both of which extend ``Static`` and so look
+        like ordinary content -- would collapse the widget and make the
+        rendered content vanish. We instead defer to ``CollapsibleTitle``
+        (which Textual already wires to toggle on its own click) and
+        only handle clicks on the widget itself as the explicit toggle
+        gesture for the empty area around the collapsible.
+        """
+        if event.button != 1:  # left-click only
+            return
+        # Only toggle when the click targeted this widget directly --
+        # i.e. the user clicked outside any inner widget (title bar
+        # clicks reach CollapsibleTitle and toggle natively).
+        if getattr(event, "widget", None) is not self:
+            return
+        if collapsible := self.query_one_optional(QuietCollapsible):
+            collapsible.collapsed = not collapsible.collapsed
 
     def __init__(
         self, block: ToolUseBlock, cwd: Path | None = None, completed: bool = False
@@ -602,14 +635,22 @@ class AgentToolWidget(BaseToolWidget):
                 yield Static(json.dumps(self.block.input, indent=2), markup=False)
 
         else:
-            # Other MCP tools: show tool name + agent name (if present)
+            # Other MCP tools: show tool name + agent name (if present).
+            # The placeholder Static carries an explicit id so set_result
+            # can target it precisely (otherwise query_one(Static) matches
+            # the Collapsible's own title widget too and the result write
+            # silently overwrites the wrong node).
             title = (
                 f"{tool_short}: {self._agent_name}"
                 if self._agent_name != "?"
                 else tool_short
             )
             with QuietCollapsible(title=title, collapsed=True):
-                yield Static(json.dumps(self.block.input, indent=2), markup=False)
+                yield Static(
+                    json.dumps(self.block.input, indent=2),
+                    id="mcp-output",
+                    markup=False,
+                )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if "go-btn" in event.button.classes:
@@ -644,6 +685,25 @@ class AgentToolWidget(BaseToolWidget):
                         collapsible.add_class("error")
                 except Exception:
                     pass
+        # spawn_agent / spawn_worktree / message_agent et al. compose with
+        # Markdown(prompt) + Button -- no Static placeholder. The earlier
+        # bare query_one(Static) matched the Collapsible's title widget
+        # (CollapsibleTitle subclasses Static) and either overwrote the
+        # title with the result content or raised TooManyMatches on the
+        # Markdown's internal Statics, both of which manifested as
+        # "content vanishes on click". Mark the collapsible errored if
+        # needed but leave the prompt body untouched -- the message text
+        # is the user-visible payload.
+        elif tool_short in (
+            "spawn_agent",
+            "spawn_worktree",
+            "message_agent",
+            "ask_agent",
+            "tell_agent",
+        ):
+            if result.is_error:
+                with contextlib.suppress(Exception):
+                    self.query_one(QuietCollapsible).add_class("error")
         # Generic fallback: render result content for all other MCP tools
         elif result.content:
             content = _extract_text_content(result.content)
@@ -652,8 +712,11 @@ class AgentToolWidget(BaseToolWidget):
                 collapsible = self.query_one(QuietCollapsible)
                 if result.is_error:
                     collapsible.add_class("error")
-                # Update the Static placeholder with the actual result
-                output_widget = collapsible.query_one(Static)
+                # Update the Static placeholder with the actual result.
+                # Address by id so we never collide with the Collapsible's
+                # own title Static (CollapsibleTitle is a Static subclass
+                # and would otherwise match a bare query_one(Static) call).
+                output_widget = collapsible.query_one("#mcp-output", Static)
                 truncated = len(content) > 2000
                 preview = content[:2000]
                 trunc_suffix = (

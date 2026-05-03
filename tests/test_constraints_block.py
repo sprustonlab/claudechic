@@ -24,7 +24,7 @@ from claudechic.guardrails.rules import Injection, Rule
 from claudechic.workflows.agent_folders import (
     assemble_agent_prompt,
     assemble_constraints_block,
-    create_post_compact_hook,
+    create_session_start_compact_hook,
 )
 from claudechic.workflows.loader import LoadResult
 
@@ -282,7 +282,7 @@ def test_d5_all_inject_sites_route_through_assemble_agent_prompt():
       2. ``mcp.py::_make_spawn_agent`` (sub-agent spawn -- inner closure)
       3. ``app.py::_inject_phase_prompt_to_main_agent`` (main-agent advance)
       4. ``mcp.py::_make_advance_phase`` (sub-agent broadcast loop)
-      5. ``workflows/agent_folders.py::create_post_compact_hook``
+      5. ``workflows/agent_folders.py::create_session_start_compact_hook``
     """
     from claudechic import app as app_mod
     from claudechic import mcp as mcp_mod
@@ -295,7 +295,7 @@ def test_d5_all_inject_sites_route_through_assemble_agent_prompt():
         ),
         "_make_spawn_agent": mcp_mod._make_spawn_agent,
         "_make_advance_phase": mcp_mod._make_advance_phase,
-        "create_post_compact_hook": agent_folders.create_post_compact_hook,
+        "create_session_start_compact_hook": agent_folders.create_session_start_compact_hook,
     }
     for site_name, fn in sites.items():
         src = inspect.getsource(fn)
@@ -505,10 +505,13 @@ def test_d3_assemble_constraints_block_emits_locked_contract_strings():
 
 
 def test_d5_post_compact_hook_constructs_with_helper_call(tmp_path):
-    """D5 site (post-compact): ``create_post_compact_hook`` registers a
-    ``PostCompact`` SDK hook whose body calls ``assemble_agent_prompt``.
+    """post-compact context site: ``create_session_start_compact_hook``
+    registers a ``SessionStart`` SDK hook with ``matcher="compact"``
+    whose body calls ``assemble_agent_prompt``.
 
-    Uses SDK capitalization ``"PostCompact"`` (locked contract string).
+    Per Claude Code hooks docs, ``PostCompact`` is side-effect-only;
+    ``SessionStart`` with ``source: "compact"`` is the documented
+    post-compact context-injection hook.
     """
     workflow_dir = tmp_path / "wf"
     workflow_dir.mkdir()
@@ -523,11 +526,19 @@ def test_d5_post_compact_hook_constructs_with_helper_call(tmp_path):
     engine.loader = None
     engine.workflow_id = "proj"
 
-    hooks = create_post_compact_hook(engine, "role", workflow_dir)
-    # SDK capitalization is locked.
-    assert "PostCompact" in hooks
+    hooks = create_session_start_compact_hook(
+        get_engine=lambda: engine,
+        get_agent_role=lambda: "role",
+        get_workflow_dir=lambda: workflow_dir,
+    )
+    # SDK event name is now SessionStart (with matcher="compact").
+    assert "SessionStart" in hooks
+    matcher = hooks["SessionStart"][0]
+    assert matcher.matcher == "compact", (
+        f"Expected matcher='compact'; got {matcher.matcher!r}"
+    )
     # The factory references the helper -- caught at the source level.
-    src = inspect.getsource(create_post_compact_hook)
+    src = inspect.getsource(create_session_start_compact_hook)
     assert "assemble_agent_prompt(" in src
 
 

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 from claudechic.features.roborev.models import ReviewJob
 from claudechic.widgets.layout.reviews import ReviewItem
 
@@ -212,3 +214,185 @@ def review_item_factory(review_job_factory):
         return ReviewItem(review_job_factory(**overrides))
 
     return _factory
+
+
+# ---------------------------------------------------------------------------
+# Workflow / RenderContext / GateSettings test factories
+# (used by test_gate_predicate.py, test_renderer_split.py,
+# test_constraints_decomposition.py, test_env_segment.py, test_peer_roster.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def workflow_dir_factory(tmp_path):
+    """Build a real workflow_dir under tmp_path mirroring claudechic/defaults/workflows/<id>/.
+
+    Returns a callable ``_build(...)`` -> ``Path`` (the workflow dir).
+
+    ``roles`` maps role -> list of bare phase ids for which a
+    ``<role>/<phase>.md`` file is created. ``with_identity`` maps role ->
+    bool (default True) controlling whether ``<role>/identity.md`` is
+    written. ``manifest_extra`` is merged into the workflow YAML manifest.
+    ``root`` overrides the layout root; default is ``tmp_path``.
+    """
+
+    def _build(
+        *,
+        workflow_id: str = "test_workflow",
+        roles: dict[str, list[str]] | None = None,
+        with_identity: dict[str, bool] | None = None,
+        manifest_extra: dict | None = None,
+        root: Path | None = None,
+    ) -> Path:
+        if root is None:
+            root = tmp_path
+        roles = roles or {}
+        with_identity = with_identity or {}
+        (root / "global").mkdir(parents=True, exist_ok=True)
+        wf_dir = root / "workflows" / workflow_id
+        wf_dir.mkdir(parents=True, exist_ok=True)
+
+        # Discover the main role: first key in ``roles`` (or "coordinator").
+        main_role = next(iter(roles), "coordinator")
+        manifest: dict[str, Any] = {
+            "workflow_id": workflow_id,
+            "main_role": main_role,
+        }
+        if manifest_extra:
+            manifest.update(manifest_extra)
+        # Default phases: union of all bare phase ids across all roles.
+        if "phases" not in manifest:
+            phase_ids: list[str] = []
+            seen: set[str] = set()
+            for phases in roles.values():
+                for p in phases:
+                    if p not in seen:
+                        seen.add(p)
+                        phase_ids.append(p)
+            if phase_ids:
+                manifest["phases"] = [{"id": p, "file": p} for p in phase_ids]
+
+        (wf_dir / f"{workflow_id}.yaml").write_text(
+            yaml.dump(manifest, default_flow_style=False), encoding="utf-8"
+        )
+
+        for role, phases in roles.items():
+            role_dir = wf_dir / role
+            role_dir.mkdir(parents=True, exist_ok=True)
+            if with_identity.get(role, True):
+                (role_dir / "identity.md").write_text(
+                    f"IDENTITY: {role}", encoding="utf-8"
+                )
+            for phase in phases:
+                (role_dir / f"{phase}.md").write_text(
+                    f"PHASE: {role}/{phase}", encoding="utf-8"
+                )
+        return wf_dir
+
+    return _build
+
+
+@pytest.fixture
+def real_manifest(workflow_dir_factory):
+    """Return a callable that loads a real ``LoadResult`` from a tmp_path layout.
+
+    Usage::
+
+        load_result = real_manifest(root)
+    """
+    from claudechic.workflows import register_default_parsers
+    from claudechic.workflows.loader import ManifestLoader, TierRoots
+
+    def _load(root: Path):
+        loader = ManifestLoader(
+            tier_roots=TierRoots(package=root, user=None, project=None)
+        )
+        register_default_parsers(loader)
+        return loader.load()
+
+    return _load
+
+
+@pytest.fixture
+def gate_settings_factory():
+    """Construct a real GateSettings frozen dataclass from kwargs.
+
+    Recognized kwargs:
+      - constraints_compact (bool, default True)
+      - constraints_include_skipped (bool, default False)
+      - constraints_sites (frozenset[str], default = CONSTRAINTS_SEGMENT_SITES)
+      - env_enabled (bool|None, default None -> resolves to True)
+      - env_compact (bool, default False)
+      - env_sites (frozenset[str], default = ENVIRONMENT_SEGMENT_SITES)
+    """
+    from claudechic.workflows.agent_folders import (
+        CONSTRAINTS_SEGMENT_SITES,
+        ENVIRONMENT_SEGMENT_SITES,
+        ConstraintsSegmentSettings,
+        EnvironmentSegmentSettings,
+        GateSettings,
+    )
+
+    def _build(**kwargs):
+        cs = ConstraintsSegmentSettings(
+            compact=kwargs.get("constraints_compact", True),
+            include_skipped=kwargs.get("constraints_include_skipped", False),
+            sites=kwargs.get("constraints_sites", CONSTRAINTS_SEGMENT_SITES),
+        )
+        es = EnvironmentSegmentSettings(
+            enabled=kwargs.get("env_enabled", None),
+            compact=kwargs.get("env_compact", False),
+            sites=kwargs.get("env_sites", ENVIRONMENT_SEGMENT_SITES),
+        )
+        return GateSettings(constraints_segment=cs, environment_segment=es)
+
+    return _build
+
+
+@pytest.fixture
+def render_context_factory(gate_settings_factory):
+    """Construct a real RenderContext.
+
+    Pass any RenderContext field as a kwarg. ``settings`` defaults to a
+    fresh GateSettings.
+    """
+    from claudechic.workflows.agent_folders import GateManifest, RenderContext
+
+    def _build(**kwargs):
+        if "settings" not in kwargs:
+            kwargs["settings"] = gate_settings_factory()
+        if "manifest" not in kwargs:
+            kwargs["manifest"] = GateManifest()
+        return RenderContext(**kwargs)
+
+    return _build
+
+
+@pytest.fixture
+def agent_manager_with_peers():
+    """Return a peer_agents-style mapping for use as ``peer_agents=`` kwarg."""
+    return {
+        "coordinator": "claudechic",
+        "skeptic": "skeptic_a",
+        "test_engineer": "te_1",
+    }
+
+
+@pytest.fixture
+def project_config_writer(tmp_path):
+    """Write a project/.claudechic/config.yaml under tmp_path; return the project root.
+
+    Usage::
+
+        root = project_config_writer({"guardrails": False, ...})
+    """
+
+    def _write(yaml_dict: dict) -> Path:
+        cfg_dir = tmp_path / ".claudechic"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        (cfg_dir / "config.yaml").write_text(
+            yaml.dump(yaml_dict, default_flow_style=False), encoding="utf-8"
+        )
+        return tmp_path
+
+    return _write

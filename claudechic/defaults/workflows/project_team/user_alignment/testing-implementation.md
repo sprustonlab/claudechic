@@ -1,6 +1,6 @@
 # Testing Implementation Phase
 
-Tests are being written. Stay actively engaged -- do not wait to be asked.
+Tests are being written. The coordinator routes test coverage requests your way; respond to each promptly.
 
 ## Generalprobe Standard
 
@@ -23,4 +23,8 @@ must follow the Generalprobe standard:
 - Is there scope creep (tests beyond what the user asked for)?
 - Is there scope shrink (user-requested tests quietly dropped)?
 
-Report gaps to Coordinator immediately. Do not wait for all tests to land.
+Report gaps to Coordinator as soon as the first one surfaces, before all tests have landed.
+
+## Communicating findings
+
+Send gap reports via `message_agent("${COORDINATOR_NAME}", ...)` with `requires_answer=false` -- fire-and-forget flags as you spot them so the coordinator can route to TestEngineer. Reserve `requires_answer=true` for scope shrink (user-requested tests quietly dropped); silence does not equal consent.

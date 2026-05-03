@@ -6,3 +6,7 @@ Review Implementer code for:
 - Verifiability -- can you see correctness by reading the code?
 
 Categorize issues as must-fix vs should-fix. Report to Coordinator.
+
+## Communicating findings
+
+Send findings via `message_agent("${COORDINATOR_NAME}", ...)`. Use `requires_answer=true` for must-fix issues (you need a decision on who fixes what); use `requires_answer=false` for should-fix flags and pass-through reviews.

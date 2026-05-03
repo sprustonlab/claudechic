@@ -1,6 +1,5 @@
 # Testing Specification Phase
 
-Re-read your identity.md to refresh your skeptic lens.
 Read ${CLAUDECHIC_ARTIFACT_DIR}/userprompt_testing.md to understand what tests are planned.
 
 ## Generalprobe Standard
@@ -22,3 +21,7 @@ must follow the Generalprobe standard:
 - Are there untestable claims in the spec?
 - What tests will fail on a fresh machine or different platform?
 - What's missing from the test plan?
+
+## Communicating findings
+
+Send findings via `message_agent("${COORDINATOR_NAME}", ...)` with `requires_answer=true` for blocking issues (untestable claims, missing infrastructure plan); use `requires_answer=false` for advisory flags and confirmations.

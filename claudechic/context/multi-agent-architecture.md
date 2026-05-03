@@ -95,9 +95,13 @@ Async callback: `(agent, request) -> "allow" | "deny" | "allow_all"`.
 
 ## Inter-Agent Communication (MCP Tools)
 
-- **`ask_agent`** -- Send a question and wait for a reply. Target is nudged if it goes idle without responding.
-- **`tell_agent`** -- Fire-and-forget message, queues behind current work if target is busy.
-- **`interrupt_agent`** -- Interrupt immediately, optionally redirect with a new prompt.
+- **`message_agent`** -- Send a message to another agent. By default expects a reply (target is nudged if idle without responding). Set `requires_answer=false` for fire-and-forget messages (status updates, results, answering questions).
+- **`interrupt_agent`** -- Interrupt an agent's current task immediately. Optionally redirect with a new prompt. Use when you need to stop or redirect a busy agent in real-time.
+
+**When to use which:**
+- Need a response? Use `message_agent` (default: `requires_answer=true`).
+- Sending info, no reply needed? Use `message_agent` with `requires_answer=false`.
+- Need to stop/redirect NOW? Use `interrupt_agent` (cuts through immediately).
 
 ## Commands
 

@@ -162,18 +162,6 @@ For concurrency: race condition analysis. Omit this section if not applicable.]
 
 ---
 
-## Communication
-
-**Use `message_agent` as your default.** It guarantees a response -- the recipient will be nudged if they don't reply. Use it for requesting tasks and asking questions.
-
-**Use `message_agent` with `requires_answer=false` for reporting results and fire-and-forget updates** where you don't need a response.
-
-**When to communicate:**
-- After completing your task -> `message_agent` with `requires_answer=false` (summary)
-- After encountering blockers -> `message_agent` (diagnosis, awaiting guidance)
-- When you need a decision -> `message_agent` (with the question)
-- When delegating a task -> `message_agent` (to ensure it gets done)
-
 ## Rules
 
 1. **Never forward raw code -- only summarize and cite.** Your output is a recommendation with rationale, not a code paste. Implementers decide what to adopt.

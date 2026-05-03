@@ -61,6 +61,11 @@ class SettingKey:
     int_min: int = 0
     int_max: int = 100
     presets: tuple[str, ...] = ()
+    # Fallback returned by ``_read_value`` when the dotted key path is
+    # absent from CONFIG. Used for keys whose semantic default is
+    # non-falsy (e.g. ``constraints_segment.compact``: True). Existing
+    # rows pass ``None`` and are unaffected.
+    default: Any = None
 
 
 USER_KEYS: tuple[SettingKey, ...] = (
@@ -156,7 +161,80 @@ USER_KEYS: tuple[SettingKey, ...] = (
             "'effort' label in the footer."
         ),
     ),
+    # ── Agent prompt context (per ui_settings_final.md §2.1, rev4) ──
+    # Six rows, asymmetric on purpose: constraints has no master enable
+    # (the rules block always renders; structural floor pins it), env
+    # does because §3.11 supports full opt-out.
+    SettingKey(
+        key="constraints_segment.compact",
+        label="Compact rules block",
+        tier="user",
+        editor="bool",
+        helper="Use a denser markdown list instead of the default table.",
+        default=True,
+    ),
+    SettingKey(
+        key="constraints_segment.include_skipped",
+        label="Show skipped rules",
+        tier="user",
+        editor="bool",
+        helper="Include rules whose advance-checks were skipped this run.",
+        default=False,
+    ),
+    SettingKey(
+        key="constraints_segment.scope.sites",
+        label="Rules block: advanced...",
+        tier="user",
+        editor="subscreen",
+        helper="Choose which moments inject the rules block.",
+    ),
+    SettingKey(
+        key="environment_segment.enabled",
+        label="Team coordination context",
+        tier="user",
+        editor="bool",
+        helper=(
+            "Inject peer roster, name routing table, and MCP coordination "
+            "notes into multi-agent workflows (e.g. project_team)."
+        ),
+        default=True,
+    ),
+    SettingKey(
+        key="environment_segment.compact",
+        label="Compact coordination context",
+        tier="user",
+        editor="bool",
+        helper="Omit the MCP tool list and coordination patterns.",
+        default=False,
+    ),
+    SettingKey(
+        key="environment_segment.scope.sites",
+        label="Coordination context: advanced...",
+        tier="user",
+        editor="subscreen",
+        helper="Choose which moments inject the coordination block.",
+    ),
 )
+
+
+# Default site sets per SPEC §3.7 / §3.11 -- mirrored here so the UI can
+# render ``(N of M sites)`` and seed the Advanced subscreens when the
+# dotted key is absent from CONFIG.
+_CONSTRAINTS_DEFAULT_SITES: frozenset[str] = frozenset(
+    {"spawn", "activation", "phase-advance", "post-compact"}
+)
+_ENVIRONMENT_DEFAULT_SITES: frozenset[str] = frozenset(
+    {"spawn", "activation", "post-compact"}
+)
+# Total counts, used by the row's value column ``(N of M sites)``.
+_SITES_TOTAL: dict[str, int] = {
+    "constraints_segment.scope.sites": len(_CONSTRAINTS_DEFAULT_SITES),
+    "environment_segment.scope.sites": len(_ENVIRONMENT_DEFAULT_SITES),
+}
+_SITES_DEFAULT: dict[str, frozenset[str]] = {
+    "constraints_segment.scope.sites": _CONSTRAINTS_DEFAULT_SITES,
+    "environment_segment.scope.sites": _ENVIRONMENT_DEFAULT_SITES,
+}
 
 
 PROJECT_KEYS: tuple[SettingKey, ...] = (
@@ -617,10 +695,34 @@ class SettingsScreen(Screen[None]):
                 header=True,
             )
         )
-        for spec in USER_KEYS:
+        # Split USER_KEYS into the legacy block and the new "Agent prompt
+        # context" block so we can splice an inline header between them.
+        # The split point is the first key whose name lives under one of
+        # the segment namespaces -- everything from there onward belongs
+        # to the new section (per ui_settings_final.md §2.2).
+        section_prefixes = ("constraints_segment.", "environment_segment.")
+        legacy_keys = tuple(
+            s for s in USER_KEYS if not s.key.startswith(section_prefixes)
+        )
+        agent_ctx_keys = tuple(
+            s for s in USER_KEYS if s.key.startswith(section_prefixes)
+        )
+        for spec in legacy_keys:
             if not self._matches_search(spec):
                 continue
             items.append(_SettingRow(spec, self._format_value(spec)))
+        if agent_ctx_keys:
+            items.append(
+                _ActionRow(
+                    "header-agent-prompt-context",
+                    "━━ Agent prompt context ━━",
+                    header=True,
+                )
+            )
+            for spec in agent_ctx_keys:
+                if not self._matches_search(spec):
+                    continue
+                items.append(_SettingRow(spec, self._format_value(spec)))
         items.append(
             _ActionRow(_ACTION_RESET_USER, "  ▸ Reset user settings to defaults")
         )
@@ -671,6 +773,12 @@ class SettingsScreen(Screen[None]):
         value = self._read_value(spec)
         if spec.editor == "subscreen":
             count = len(value) if isinstance(value, (set, frozenset, list)) else 0
+            # Sites subscreens render "(N of M sites)" -- semantics are
+            # *enabled* sites, not *disabled* ids -- per
+            # ui_settings_final.md §3.4 #4.
+            if spec.key in _SITES_TOTAL:
+                total = _SITES_TOTAL[spec.key]
+                return f"({count} of {total} sites) ▸"
             return f"({count} disabled) ▸"
         if spec.editor == "bool":
             return "on" if value else "off"
@@ -685,7 +793,16 @@ class SettingsScreen(Screen[None]):
 
         app = self._chat_app()
         if spec.tier == "user":
-            return _get_dotted(CONFIG, spec.key)
+            raw = _get_dotted(CONFIG, spec.key)
+            if raw is None:
+                # Per-key default fallback (e.g. constraints_segment.compact
+                # defaults to True; missing-key value of None would mis-render
+                # as "off"). Sites subscreens fall back to their canonical
+                # default site set.
+                if spec.key in _SITES_DEFAULT:
+                    return _SITES_DEFAULT[spec.key]
+                return spec.default
+            return raw
         # project
         pc = getattr(app, "_project_config", None)
         if pc is None:
@@ -791,6 +908,10 @@ class SettingsScreen(Screen[None]):
         )
 
     def _open_subscreen(self, spec: SettingKey) -> None:
+        from claudechic.screens.agent_prompt_context import (
+            AdvancedConstraintsSitesScreen,
+            AdvancedEnvironmentSitesScreen,
+        )
         from claudechic.screens.disabled_ids import DisabledIdsScreen
         from claudechic.screens.disabled_workflows import DisabledWorkflowsScreen
 
@@ -802,10 +923,43 @@ class SettingsScreen(Screen[None]):
             self._save_value(spec, result)
             self._render_list()
 
+        def on_dismiss_sites(result: frozenset[str] | None) -> None:
+            # Sites subscreens return frozenset[str]; persist as a sorted
+            # list so YAML output is deterministic and human-readable.
+            # The subscreen has live-save semantics -- both Enter and Esc
+            # commit the current checkbox set -- so a None result is the
+            # defensive "screen dismissed without committing" path
+            # (e.g. app shutdown). Always re-render the list on return so
+            # the parent row's count column reflects the persisted state
+            # rather than whatever was cached when the subscreen opened.
+            if result is not None:
+                self._save_value(spec, sorted(result))
+            self._render_list()
+
         if spec.key == "disabled_workflows":
             self.app.push_screen(DisabledWorkflowsScreen(app), on_dismiss)
         elif spec.key == "disabled_ids":
             self.app.push_screen(DisabledIdsScreen(app), on_dismiss)
+        elif spec.key == "constraints_segment.scope.sites":
+            current = self._read_value(spec)
+            enabled = (
+                frozenset(current)
+                if isinstance(current, (set, frozenset, list))
+                else _CONSTRAINTS_DEFAULT_SITES
+            )
+            self.app.push_screen(
+                AdvancedConstraintsSitesScreen(enabled), on_dismiss_sites
+            )
+        elif spec.key == "environment_segment.scope.sites":
+            current = self._read_value(spec)
+            enabled = (
+                frozenset(current)
+                if isinstance(current, (set, frozenset, list))
+                else _ENVIRONMENT_DEFAULT_SITES
+            )
+            self.app.push_screen(
+                AdvancedEnvironmentSitesScreen(enabled), on_dismiss_sites
+            )
         elif spec.key == "theme":
             # Delegate to existing /theme picker; no result handler needed.
             if hasattr(app, "search_themes"):
@@ -930,6 +1084,11 @@ class SettingsScreen(Screen[None]):
                 mgr.refresh_guardrails()
             if hasattr(app, "_refresh_hints"):
                 app._refresh_hints()
+        elif spec.key.startswith(("constraints_segment.", "environment_segment.")):
+            # No live re-apply: the next agent spawn / activation reads
+            # fresh GateSettings (per SPEC §3.7 / §3.11). Explicit no-op
+            # branch suppresses any spurious "live re-apply failed" notice.
+            pass
 
     # -- reset / reference -------------------------------------------------
 

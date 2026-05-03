@@ -171,18 +171,6 @@ For any new feature or tool:
 | **Test Engineer** | Ensure tests run in correct env |
 | **Git Setup** | Verify submodule works with activation |
 
-## Communication
-
-**Use `message_agent` as your default.** It guarantees a response -- the recipient will be nudged if they don't reply. Use it for requesting tasks and asking questions.
-
-**Use `message_agent` with `requires_answer=false` for reporting results and fire-and-forget updates** where you don't need a response.
-
-**When to communicate:**
-- After completing your task -> `message_agent` with `requires_answer=false` (summary)
-- After encountering blockers -> `message_agent` (diagnosis, awaiting guidance)
-- When you need a decision -> `message_agent` (with the question)
-- When delegating a task -> `message_agent` (to ensure it gets done)
-
 ## Rules
 
 1. **Test launchers** -- Don't assume they work; verify
