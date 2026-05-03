@@ -188,6 +188,44 @@ awareness:
   install: true
 ```
 
+### `constraints_segment`
+
+Controls the `## Constraints` block injected into agent prompts.
+
+- **`constraints_segment.compact`** — `bool`, default `true`. `true` = compact-list form; `false` = formatted markdown table.
+- **`constraints_segment.include_skipped`** — `bool`, default `false`. When `true`, rules whose advance-checks were skipped this run are included.
+- **`constraints_segment.scope.sites`** — `list[str]`, default `[spawn, activation, phase-advance, post-compact]` (all four sites). An empty list raises `ConfigValidationError`. Narrowing the list suppresses the constraints block at omitted sites. No `enabled: false` master toggle — rejecting an empty list prevents silent safety regressions in rule wiring and broadcast routing.
+
+**Settings UI:** `/settings` -> "Agent prompt context": "Compact rules block", "Show skipped rules", "Rules block: advanced...".
+
+```yaml
+constraints_segment:
+  compact: true
+  include_skipped: false
+  scope:
+    sites: [spawn, activation, phase-advance, post-compact]
+```
+
+### `environment_segment`
+
+Controls the team-coordination context block delivered to agents.
+
+- **`environment_segment.enabled`** — `bool`, default `true`. User-tier override of the per-workflow default.
+- **`environment_segment.compact`** — `bool`, default `false`. When `true`, the workflow overlay is omitted; only `base.md` is delivered.
+- **`environment_segment.scope.sites`** — `list[str]`, default `[spawn, activation, post-compact]` (phase-advance excluded). An empty list raises `ConfigValidationError`.
+
+**Settings UI:** `/settings` -> "Agent prompt context": "Team coordination context", "Compact coordination context", "Coordination context: advanced...".
+
+Project-tier (`<project>/.claudechic/config.yaml`) accepts the same keys; project-tier wins on collision.
+
+```yaml
+environment_segment:
+  enabled: true
+  compact: false
+  scope:
+    sites: [spawn, activation, post-compact]
+```
+
 ### `experimental.*`
 
 - **Type:** mixed
