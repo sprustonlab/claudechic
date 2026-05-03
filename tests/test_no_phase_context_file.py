@@ -154,14 +154,14 @@ async def test_phase_context_md_never_written_anywhere(
 async def test_phase_context_md_never_written_at_postcompact_hook(
     tmp_path,
 ) -> None:
-    """The PostCompact hook produces an in-memory dict — no file I/O.
+    """The SessionStart(matcher=compact) hook produces an in-memory dict — no file I/O.
 
     Complements ``test_inv_aw_9_post_compact_no_file_io`` (which patches
     write_bytes/write_text/unlink). This test runs the closure against a
     real workflow fixture and then rgreps the tree for any file named
     ``phase_context.md``.
     """
-    from claudechic.workflows.agent_folders import create_post_compact_hook
+    from claudechic.workflows.agent_folders import create_session_start_compact_hook
 
     wf_dir = _setup_workflow(tmp_path)
 
@@ -174,15 +174,18 @@ async def test_phase_context_md_never_written_at_postcompact_hook(
         def get_artifact_dir(self):
             return None
 
-    hook_dict = create_post_compact_hook(
-        engine=FakeEngine(),
-        agent_role="coordinator",
-        workflow_dir=wf_dir,
+    fake_engine = FakeEngine()
+    hook_dict = create_session_start_compact_hook(
+        get_engine=lambda: fake_engine,
+        get_agent_role=lambda: "coordinator",
+        get_workflow_dir=lambda: wf_dir,
     )
-    closure = hook_dict["PostCompact"][0].hooks[0]
+    closure = hook_dict["SessionStart"][0].hooks[0]
     result = await closure({}, None, None)
     # Hook returned a dict (in-memory delivery; no file I/O semantically).
     assert isinstance(result, dict)
 
     leaks = _scan_for_phase_context(tmp_path)
-    assert leaks == [], f"phase_context.md leaked during PostCompact hook: {leaks}"
+    assert leaks == [], (
+        f"phase_context.md leaked during SessionStart(compact) hook: {leaks}"
+    )

@@ -381,5 +381,88 @@ def test_d4_mcp_tool_name_is_get_agent_info():
     assert getattr(raw_tool, "name", None) == "get_agent_info"
 
 
+# ---------------------------------------------------------------------------
+# Scenario 6 -- ``compact`` parameter (SPEC §3.7, §3.12)
+#
+# Locked contract: the MCP-input ``compact`` parameter is the SOLE control
+# over rendering shape; the user-tier ``constraints_segment.compact``
+# setting is NOT consulted by ``get_agent_info``.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_d4_get_agent_info_default_returns_markdown_table(monkeypatch):
+    """No ``compact`` argument -> formatted markdown table (compact=False default)."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_fake_engine(workflow_id="proj", phase=None)
+    loader = _StubLoader(LoadResult(rules=[_rule(id_="global:warn_sudo")]))
+    agent = _make_fake_agent(agent_type=DEFAULT_ROLE)
+    fake_app = _make_fake_app(loader=loader, engine=engine, agent=agent)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod._make_get_agent_info(caller_name="test_caller")
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({"agent_name": "test_caller"})
+    text = response["content"][0]["text"]
+
+    # Markdown-table shape: alignment row is the canonical marker.
+    assert "|----" in text, (
+        f"Default get_agent_info output must be markdown-table form. "
+        f"Got: {text[:300]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_d4_get_agent_info_compact_true_returns_compact_list(monkeypatch):
+    """``compact=true`` -> compact bullet list, no table alignment row."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_fake_engine(workflow_id="proj", phase=None)
+    loader = _StubLoader(LoadResult(rules=[_rule(id_="global:warn_sudo")]))
+    agent = _make_fake_agent(agent_type=DEFAULT_ROLE)
+    fake_app = _make_fake_app(loader=loader, engine=engine, agent=agent)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod._make_get_agent_info(caller_name="test_caller")
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({"agent_name": "test_caller", "compact": True})
+    text = response["content"][0]["text"]
+
+    # Bullet line for the rule appears; no table alignment row.
+    assert "- global:warn_sudo" in text
+    assert "|----" not in text
+
+
+@pytest.mark.asyncio
+async def test_d4_get_agent_info_user_tier_compact_setting_not_consulted(
+    monkeypatch,
+):
+    """User-tier ``constraints_segment.compact: true`` MUST NOT change
+    ``get_agent_info`` rendering. The MCP-input ``compact`` parameter
+    (default False) is the sole control. SPEC §3.12 -- locked contract.
+    """
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_fake_engine(workflow_id="proj", phase=None)
+    loader = _StubLoader(LoadResult(rules=[_rule(id_="global:warn_sudo")]))
+    agent = _make_fake_agent(agent_type=DEFAULT_ROLE)
+    fake_app = _make_fake_app(loader=loader, engine=engine, agent=agent)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    # Even if a user-tier setting were exposed on _app, get_agent_info
+    # ignores it. Set a fake attr that would influence the renderer if
+    # consulted; assert the table form still appears (default compact=False).
+    fake_app._user_constraints_compact = True  # would be honored if consulted
+
+    raw_tool = mcp_mod._make_get_agent_info(caller_name="test_caller")
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({"agent_name": "test_caller"})
+    text = response["content"][0]["text"]
+
+    # Default rendering is markdown-table regardless of any user setting.
+    assert "|----" in text
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])
