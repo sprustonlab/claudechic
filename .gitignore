@@ -73,5 +73,4 @@ data/processed/
 *.csv
 *.parquet
 
-# Project team (tracked on develop, blocked from main via pre-commit hook)
-.project_team/
+# Project team artifacts: tracked on develop, blocked from main via pre-commit hook.
