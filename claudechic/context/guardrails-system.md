@@ -58,7 +58,7 @@ Edit `.claude/guardrails/rules.yaml` for always-active guardrail rules. Run `gen
 
 ## ## Constraints Block
 
-When a workflow is active, each agent's launch prompt contains a `## Constraints` markdown section listing the guardrail rules and advance checks that are scoped to that agent's (role, phase). The block is rendered by `assemble_constraints_block()` and injected at five sites via `assemble_agent_prompt()`. Agents should treat this block as their authoritative view of active rules -- it is role+phase filtered and reflects `disabled_ids` exactly.
+When a workflow is active, each agent's launch prompt contains a `## Constraints` markdown section listing the guardrail rules and advance checks that are scoped to that agent's (role, phase). The block is rendered by `assemble_constraints_block()` and injected at four sites via `assemble_agent_prompt()`. Agents should treat this block as their authoritative view of active rules -- it is role+phase filtered and reflects `disabled_ids` exactly.
 
 ## Agent Self-Awareness MCP Tools
 
@@ -69,7 +69,7 @@ Four MCP tools give agents a read-only view of their own identity and applicable
 | `mcp__chic__whoami` | Returns agent name, role, cwd, session id. |
 | `mcp__chic__get_phase` | Returns active workflow id, current phase, progress fraction, artifact dir, loader errors. |
 | `mcp__chic__get_applicable_rules` | Returns markdown projection of guardrail rules and advance checks scoped to the calling agent's (role, phase). Accepts `include_skipped=true` for an audit view that also shows inactive rules. |
-| `mcp__chic__get_agent_info` | Aggregator: delegates to `whoami` + `get_phase` + `get_applicable_rules` and returns a single markdown document. |
+| `mcp__chic__get_agent_info` | Aggregator: delegates to `whoami` + `get_phase` + `get_applicable_rules` and returns a single markdown document. Accepts `compact=true` to return compact-list form; ignores user-tier `compact` setting. |
 
 `get_phase` no longer emits a rule-count summary line; use `get_applicable_rules` for rule enumeration.
 
