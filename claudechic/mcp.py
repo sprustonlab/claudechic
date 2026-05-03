@@ -84,6 +84,27 @@ def _find_agent_by_name(name: str):
     return None, f"Agent '{name}' not found. Use list_agents to see available agents."
 
 
+def _build_peer_agents() -> dict[str, str]:
+    """Return ``{agent_type -> name}`` for currently-spawned typed agents.
+
+    Used by the four prompt-injection sites to populate
+    ``RenderContext.peer_agents`` so the environment renderer can build
+    the coordinator's ``${PEER_ROSTER}`` table. Default-roled agents are
+    skipped (they have no role-scoped description in the workflow
+    overlay). When two agents share the same ``agent_type``, the first
+    encountered wins -- the renderer needs a one-row-per-role mapping.
+    """
+    if _app is None or _app.agent_mgr is None:
+        return {}
+    out: dict[str, str] = {}
+    for agent in _app.agent_mgr.agents.values():
+        agent_type = getattr(agent, "agent_type", None)
+        if not agent_type or agent_type == DEFAULT_ROLE:
+            continue
+        out.setdefault(agent_type, agent.name)
+    return out
+
+
 def _track_mcp_tool(tool_name: str) -> None:
     """Track MCP tool usage for analytics."""
     if _app and _app.agent_mgr:
@@ -315,6 +336,8 @@ def _make_spawn_agent(caller_name: str | None = None):
                             engine=engine,
                             active_workflow=engine.workflow_id,
                             disabled_rules=disabled_rules,
+                            time="spawn",
+                            peer_agents=_build_peer_agents(),
                         )
                         if folder_prompt:
                             full_prompt = f"{folder_prompt}\n\n---\n\n{prompt}"
@@ -1008,6 +1031,10 @@ def _make_advance_phase(caller_name: str | None = None):
                     disabled_rules_b = (
                         get_disabled() if callable(get_disabled) else None
                     )
+                    # Computed once outside the loop -- the peer roster
+                    # snapshot is invariant across recipients in a single
+                    # broadcast.
+                    peer_agents_b = _build_peer_agents()
                     for agent in list(_app.agent_mgr.agents.values()):
                         # Skip coordinator (already got content in tool response)
                         if main_role and agent.agent_type == main_role:
@@ -1033,6 +1060,8 @@ def _make_advance_phase(caller_name: str | None = None):
                                 engine=engine,
                                 active_workflow=engine.workflow_id,
                                 disabled_rules=disabled_rules_b,
+                                time="phase-advance",
+                                peer_agents=peer_agents_b,
                             )
                             if agent_prompt:
                                 _send_prompt_fire_and_forget(
@@ -1451,6 +1480,16 @@ def _make_get_agent_info(caller_name: str | None = None):
                         "Name of the agent to report on. Defaults to the calling agent."
                     ),
                 },
+                "compact": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, render the constraints block as a compact "
+                        "bullet list. If false (default), render as a formatted "
+                        "markdown table. The user-tier "
+                        "constraints_segment.compact setting is NOT consulted; "
+                        "this parameter is the sole control."
+                    ),
+                },
             },
             "required": [],
         },
@@ -1461,6 +1500,7 @@ def _make_get_agent_info(caller_name: str | None = None):
         _track_mcp_tool("get_agent_info")
 
         agent_name = args.get("agent_name")
+        compact_view = bool(args.get("compact", False))
         agent, resolved_name, error = _resolve_agent_for_tool(agent_name, caller_name)
         if error and agent is None:
             return _error_response(error)
@@ -1518,6 +1558,11 @@ def _make_get_agent_info(caller_name: str | None = None):
             # prompt-injection sites. Helper is exposed by slot 4.
             get_disabled = getattr(_app, "_get_disabled_rules", None)
             disabled_rules_info = get_disabled() if callable(get_disabled) else None
+            # SPEC §3.7 / §3.12: the get_agent_info ``compact`` parameter
+            # is the sole control over rendering shape; the user-tier
+            # constraints_segment.compact setting is NOT consulted here.
+            # compact=False (default) -> formatted markdown table.
+            # compact=True            -> compact bullet list.
             constraints_block = assemble_constraints_block(
                 loader,
                 role,
@@ -1525,6 +1570,7 @@ def _make_get_agent_info(caller_name: str | None = None):
                 engine=engine,
                 active_workflow=active_workflow,
                 disabled_rules=disabled_rules_info,
+                compact=compact_view,
             )
         except Exception:
             log.debug(

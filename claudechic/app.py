@@ -1102,7 +1102,7 @@ class ChatApp(App):
         agent: Agent | None = None,
         agent_type: str | None = None,
     ) -> dict[HookEvent, list[HookMatcher]]:
-        """Merge plan-mode hooks, guardrail hooks, and PostCompact hook.
+        """Merge plan-mode hooks, guardrail hooks, and SessionStart hook.
 
         Per SPEC §B4: when ``agent`` is provided, downstream closures bind
         to ``agent.agent_type`` live (read on every hook fire) rather than
@@ -1122,31 +1122,80 @@ class ChatApp(App):
         for event, matchers in guardrail_hooks.items():
             hooks.setdefault(event, []).extend(matchers)
 
-        # PostCompact hook -- re-injects phase context after /compact.
-        # The role passed here is the role at hook-creation time; for the
-        # main agent on a fresh activation that is the manifest's main_role
-        # which the activation block has already promoted onto
-        # agent.agent_type.
-        if self._workflow_engine and self._load_result is not None:
-            from claudechic.workflows.agent_folders import (
-                create_post_compact_hook,
-            )
+        # SessionStart hook (matcher="compact") -- re-injects phase
+        # context after /compact. Per Claude Code hooks docs, PostCompact
+        # is side-effect-only and cannot inject context; SessionStart
+        # with source="compact" is the documented post-compact
+        # context-injection path.
+        #
+        # Registered UNCONDITIONALLY for every agent (no
+        # ``self._workflow_engine`` guard). The coordinator agent connects
+        # to the SDK at app startup BEFORE any workflow activates, so
+        # capture-time engine state is ``None`` for it. The hook closure
+        # resolves engine / role / workflow_dir at fire-time (when
+        # /compact runs) so post-activation state takes effect. When
+        # /compact fires with no workflow active, the closure returns
+        # ``{}`` (no injection), matching the prior no-op behavior for
+        # workflow-less agents.
+        from claudechic.workflows.agent_folders import (
+            create_session_start_compact_hook,
+        )
+        from claudechic.config import (
+            ConfigValidationError,
+            build_gate_settings,
+        )
 
-            effective_role = ""
-            if agent is not None:
-                effective_role = agent.agent_type or ""
-            elif agent_type:
-                effective_role = agent_type
+        _captured_agent = agent
+        _captured_agent_type = agent_type
+        _project_cfg = self._project_config
 
-            wf_data = self._load_result.get_workflow(self._workflow_engine.workflow_id)
-            if wf_data is not None:
-                compact_hooks = create_post_compact_hook(
-                    engine=self._workflow_engine,
-                    agent_role=effective_role,
-                    workflow_dir=wf_data.path,
+        def _get_engine() -> Any | None:
+            return self._workflow_engine
+
+        def _get_agent_role() -> str:
+            # Prefer the live agent reference (its ``agent_type`` is
+            # promoted by ``_activate_workflow`` to the manifest's
+            # ``main_role`` and survives /compact -- SPEC §B4). Fall
+            # back to the static type captured at hook-creation time
+            # (sub-agent spawn path).
+            if _captured_agent is not None:
+                return _captured_agent.agent_type or ""
+            if _captured_agent_type:
+                return _captured_agent_type
+            return ""
+
+        def _get_workflow_dir() -> Path | None:
+            engine = self._workflow_engine
+            if engine is None or self._load_result is None:
+                return None
+            wf_data = self._load_result.get_workflow(engine.workflow_id)
+            return wf_data.path if wf_data is not None else None
+
+        def _get_settings_provider() -> Any:
+            # ConfigValidationError can fire if the user edits
+            # ``~/.claudechic/config.yaml`` mid-session and introduces
+            # an empty ``scope.sites``. Log and fall back to defaults
+            # so /compact does not crash; the next config reload will
+            # resurface the error.
+            try:
+                return build_gate_settings(CONFIG, _project_cfg)
+            except ConfigValidationError:
+                log.exception(
+                    "session-start (compact): invalid user config "
+                    "for GateSettings; falling back to defaults"
                 )
-                for event, matchers in compact_hooks.items():
-                    hooks.setdefault(event, []).extend(matchers)
+                return None
+
+        compact_hooks = create_session_start_compact_hook(
+            get_engine=_get_engine,
+            get_agent_role=_get_agent_role,
+            get_workflow_dir=_get_workflow_dir,
+            get_disabled_rules=self._get_disabled_rules,
+            get_settings=_get_settings_provider,
+            get_peer_agents=self._build_peer_agents,
+        )
+        for event, matchers in compact_hooks.items():
+            hooks.setdefault(event, []).extend(matchers)
 
         return hooks
 
@@ -1353,10 +1402,20 @@ class ChatApp(App):
         if agent:
             self._refresh_reviews(agent)
 
-        # Load per-project config (needed for _filter_load_result)
-        from claudechic.config import ProjectConfig
+        # Load per-project config (needed for _filter_load_result).
+        # ConfigValidationError surfaces config typos (e.g. empty
+        # ``constraints_segment.scope.sites``) -- catch and show the
+        # message via the standard ``show_error`` channel rather than
+        # letting the exception bubble out of on_mount.
+        from claudechic.config import ConfigValidationError, ProjectConfig
 
-        self._project_config = ProjectConfig.load(self._cwd)
+        try:
+            self._project_config = ProjectConfig.load(self._cwd)
+        except ConfigValidationError as e:
+            self.show_error(
+                f"Project config rejected: {e}. Using defaults.", e
+            )
+            self._project_config = ProjectConfig()
 
         # Discover workflow manifests and register slash commands
         self._discover_workflows()
@@ -1749,6 +1808,27 @@ class ChatApp(App):
 
     # --- Workflow guidance system ---
 
+    def _build_peer_agents(self) -> dict[str, str]:
+        """Return ``{agent_type -> name}`` for currently-spawned typed agents.
+
+        Used by the activation prompt-injection site (and exposed through
+        the post-compact hook's ``get_peer_agents`` provider) so the
+        environment renderer can build the coordinator's
+        ``${PEER_ROSTER}`` table. Default-roled agents are skipped
+        (they have no role-scoped description in the workflow overlay).
+        """
+        from claudechic.agent import DEFAULT_ROLE
+
+        if self.agent_mgr is None:
+            return {}
+        out: dict[str, str] = {}
+        for agent in self.agent_mgr.agents.values():
+            agent_type = getattr(agent, "agent_type", None)
+            if not agent_type or agent_type == DEFAULT_ROLE:
+                continue
+            out.setdefault(agent_type, agent.name)
+        return out
+
     def _get_disabled_rules(self) -> frozenset[str]:
         """Return the merged set of disabled rule/hint qualified IDs.
 
@@ -2138,6 +2218,8 @@ class ChatApp(App):
                     engine=self._workflow_engine,
                     active_workflow=workflow_id,
                     disabled_rules=self._get_disabled_rules(),
+                    time="activation",
+                    peer_agents=self._build_peer_agents(),
                 )
 
             if kickoff_prompt:

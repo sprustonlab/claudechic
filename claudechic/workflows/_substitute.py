@@ -2,13 +2,18 @@
 
 Single source of the literal-replace logic for braced template tokens
 used in workflow YAML, advance-check command strings, and assembled
-agent prompts. Two tokens converge here:
+agent prompts. Three tokens converge here:
 
 - ``${CLAUDECHIC_ARTIFACT_DIR}`` -- the run-bound artifact directory
   (``WorkflowEngine.set_artifact_dir``).
 - ``${WORKFLOW_ROOT}`` -- the launched-repo root, also known as the
   main agent's cwd. Python identifier ``project_root`` (avoids a
   one-letter collision with ``workflows_dir``).
+- ``${COORDINATOR_NAME}`` -- the registered name of the agent
+  currently filling the ``coordinator`` role. Resolved at
+  prompt-assembly time from ``RenderContext.peer_agents`` so phase
+  markdown can write portable ``message_agent("${COORDINATOR_NAME}",
+  ...)`` calls regardless of how the main agent is named.
 
 Consumers:
 
@@ -27,6 +32,7 @@ from pathlib import Path
 
 ARTIFACT_DIR_TOKEN = "${CLAUDECHIC_ARTIFACT_DIR}"
 WORKFLOW_ROOT_TOKEN = "${WORKFLOW_ROOT}"
+COORDINATOR_NAME_TOKEN = "${COORDINATOR_NAME}"
 
 
 def substitute_artifact_dir(content: str, artifact_dir: Path | None) -> str:
@@ -50,3 +56,17 @@ def substitute_workflow_root(content: str, project_root: Path | None) -> str:
     """
     sub = str(project_root) if project_root is not None else ""
     return content.replace(WORKFLOW_ROOT_TOKEN, sub)
+
+
+def substitute_coordinator_name(content: str, coordinator_name: str | None) -> str:
+    """Replace ``${COORDINATOR_NAME}`` with the registered coordinator name.
+
+    Resolved from ``RenderContext.peer_agents`` (the ``coordinator`` row).
+    When no coordinator is currently spawned (``coordinator_name`` is
+    ``None`` or ``""``) the token is replaced with the empty string --
+    deliberate, visible failure mode matching the other substitutes
+    (e.g., ``message_agent("${COORDINATOR_NAME}", ...)`` becomes
+    ``message_agent("", ...)``).
+    """
+    sub = coordinator_name if coordinator_name else ""
+    return content.replace(COORDINATOR_NAME_TOKEN, sub)

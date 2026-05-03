@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from claudechic.workflows.agent_folders import (
     assemble_phase_prompt,
-    create_post_compact_hook,
+    create_session_start_compact_hook,
 )
 from claudechic.workflows.engine import (
     PhaseAdvanceResult,
@@ -40,7 +40,7 @@ __all__ = [
     "WorkflowEngine",
     "WorkflowManifest",
     "assemble_phase_prompt",
-    "create_post_compact_hook",
+    "create_session_start_compact_hook",
     "discover_manifests_single_tier",
     "parse_disable_entries",
     "register_default_parsers",
