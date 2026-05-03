@@ -196,9 +196,18 @@ class ChatView(AutoHideScroll):
             assistant_metadata,
         ) in enumerate(turns):
             if turn_idx < collapse_before and user_content and assistant_content:
-                # Old turn: collapse into single widget with lazy expansion
+                # Old turn: collapse into single widget with lazy expansion.
+                # Metadata is passed in so the lazy-expansion closure can
+                # render timestamps without trying to read a non-existent
+                # ``UserContent.metadata`` attribute (metadata lives on the
+                # outer ``ChatItem``, not on its content body).
                 widgets.append(
-                    self._create_collapsed_turn(user_content, assistant_content)
+                    self._create_collapsed_turn(
+                        user_content,
+                        assistant_content,
+                        user_metadata,
+                        assistant_metadata,
+                    )
                 )
             else:
                 # Recent turn: render fully
@@ -232,28 +241,41 @@ class ChatView(AutoHideScroll):
         self.scroll_end(animate=False)
 
     def _create_collapsed_turn(
-        self, user_content: UserContent, assistant_content: AssistantContent
+        self,
+        user_content: UserContent,
+        assistant_content: AssistantContent,
+        user_metadata: "MessageMetadata | None" = None,
+        assistant_metadata: "MessageMetadata | None" = None,
     ) -> CollapsedTurn:
-        """Create a collapsed turn widget with lazy expansion."""
+        """Create a collapsed turn widget with lazy expansion.
+
+        ``user_metadata`` and ``assistant_metadata`` are captured by the
+        lazy-expansion closure so it can render timestamps. ``UserContent``
+        / ``AssistantContent`` themselves do NOT carry a ``metadata``
+        attribute -- per-message metadata lives on the outer ``ChatItem``
+        (see the turn-grouping loop above).
+        """
 
         def make_turn_widgets() -> list[Widget]:
             """Factory to create full widgets when turn is expanded."""
             widgets: list[Widget] = []
             # User message
             text, is_agent = format_agent_prompt(user_content.text)
+            user_ts = user_metadata.timestamp if user_metadata else None
             widgets.extend(
                 self._create_user_widgets(
                     text,
                     user_content.images,
                     is_agent,
-                    timestamp=user_content.metadata.timestamp
-                    if user_content.metadata
-                    else None,
+                    timestamp=user_ts,
                 )
             )
             # Assistant response (collapse all tools, ignore returned tool_index)
             new_widgets, _ = self._create_assistant_widgets(
-                assistant_content, tool_index=0, collapse_threshold=999
+                assistant_content,
+                tool_index=0,
+                collapse_threshold=999,
+                metadata=assistant_metadata,
             )
             widgets.extend(new_widgets)
             return widgets
