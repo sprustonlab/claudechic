@@ -169,26 +169,33 @@ async def get_changes(cwd: str, target: str = "HEAD") -> list[FileChange]:
         return []
 
     files = _parse_name_status(stdout.decode())
-    if not files:
-        return []
-
-    # Get full diff content for parsing
-    # Use --no-ext-diff to ensure we get unified diff format (not difft, delta, etc.)
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "diff",
-        target,
-        "--no-ext-diff",
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    if proc.returncode != 0:
-        return files  # Return files without hunks
-
-    diff_content = stdout.decode()
-    files = _merge_diff_content(files, diff_content)
+    # NOTE: do NOT early-return when ``files`` is empty. ``--name-status``
+    # only reports tracked changes vs ``target``; untracked files (which
+    # are scanned below via ``git ls-files --others``) must still
+    # participate. Empty tracked diff with non-empty untracked set is
+    # the W6 fixture case (feature branch matches ``origin/main`` but
+    # working tree has new files). This complements the s8a count-cap
+    # removal (commit 4dfe650) -- both bugs gated untracked rendering
+    # on the tracked diff; this is the second gate.
+    if files:
+        # Get full diff content for parsing only when we have tracked
+        # changes to merge it into. Use ``--no-ext-diff`` to ensure
+        # unified diff format (not difft, delta, etc.).
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "diff",
+            target,
+            "--no-ext-diff",
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        if proc.returncode == 0:
+            files = _merge_diff_content(files, stdout.decode())
+        # If the second git diff failed, ``files`` already has the
+        # tracked entries from --name-status (without hunks); fall
+        # through to the untracked scan below.
 
     # Add untracked files as synthetic diffs
     proc = await asyncio.create_subprocess_exec(
