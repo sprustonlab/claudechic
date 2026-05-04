@@ -22,7 +22,7 @@ from claudechic.widgets.content.markdown_preview import MAX_PREVIEW_SIZE, Previe
 
 from .git import FileChange, Hunk, HunkComment
 from .hide import HideStateProtocol
-from .tree import DisplayTree, FileNode
+from .tree import DirectoryNode, DisplayTree, FileNode
 
 # Hunks larger than this will be split into smaller sub-hunks
 LARGE_HUNK_THRESHOLD = 10
@@ -297,6 +297,179 @@ def _hidden_tooltip(path: str, hide_state: HideStateProtocol) -> str:
     return "click to un-hide"
 
 
+class DiffDirectoryItem(Static):
+    """Directory header row in the DiffSidebar (directory sort mode only).
+
+    Contains two independent click affordances in a single row:
+      - ``DirFoldGlyph`` (3 chars, left): click to collapse/expand file
+        rows under this directory. Posts ``FoldToggled``; handled
+        visually by DiffSidebar and for persistence by DiffScreen.
+      - ``DirNameLabel`` (1fr, right): click to toggle hide state for
+        the whole directory prefix. Posts ``HideToggled``; handled by
+        DiffScreen which calls ``hide_prefix`` / ``unhide_prefix``.
+
+    Both inner-widget click handlers call ``event.stop()`` so the raw
+    click does not propagate further (per spec). The posted Messages
+    are not stopped and bubble normally up to their handlers.
+    """
+
+    class FoldToggled(Message):
+        """Posted by DirFoldGlyph when the glyph is clicked.
+
+        Handled by DiffSidebar (visual: toggle file-row display) and
+        DiffScreen (persistence: fold_prefix / unfold_prefix on
+        HideStore). Neither handler stops the message.
+        """
+
+        def __init__(self, prefix: str, folded: bool) -> None:
+            super().__init__()
+            self.prefix = prefix
+            self.folded = folded  # True = now collapsed
+
+    class HideToggled(Message):
+        """Posted by DirNameLabel when the label is clicked.
+
+        Bubbles to DiffScreen; controller calls
+        ``hide_store.hide_prefix`` or ``unhide_prefix`` depending on
+        ``currently_hidden``.
+        """
+
+        def __init__(self, prefix: str, currently_hidden: bool) -> None:
+            super().__init__()
+            self.prefix = prefix
+            self.currently_hidden = currently_hidden
+
+    DEFAULT_CSS = """
+    DiffDirectoryItem {
+        height: 1;
+        padding: 0 1;
+    }
+    DiffDirectoryItem Horizontal {
+        height: 1;
+    }
+    """
+
+    def __init__(
+        self,
+        prefix: str,
+        *,
+        folded: bool = False,
+        hidden: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._prefix = prefix
+        self._folded = folded
+        self._hidden = hidden
+        if hidden:
+            self.add_class("dir-header--hidden")
+
+    def compose(self) -> ComposeResult:
+        glyph_tooltip = "click to expand" if self._folded else "click to collapse"
+        name_tooltip = (
+            f"click to un-hide {self._prefix}"
+            if self._hidden
+            else f"click to hide {self._prefix}"
+        )
+        with Horizontal():
+            glyph = DirFoldGlyph(self._prefix, self._folded)
+            glyph.tooltip = glyph_tooltip
+            yield glyph
+            name = DirNameLabel(self._prefix, self._hidden)
+            name.tooltip = name_tooltip
+            yield name
+
+    def set_hidden(self, hidden: bool) -> None:
+        """Refresh hidden visual state for the directory header label.
+
+        Called by DiffSidebar.refresh_hide() after a hide-state change.
+        Updates the CSS class and name-label tooltip; does not affect
+        fold state.
+        """
+        self._hidden = hidden
+        self.set_class(hidden, "dir-header--hidden")
+        if label := self.query_one_optional(DirNameLabel):
+            label._hidden = hidden
+            label.tooltip = (
+                f"click to un-hide {self._prefix}"
+                if hidden
+                else f"click to hide {self._prefix}"
+            )
+
+    def set_folded(self, folded: bool) -> None:
+        """Refresh fold glyph for an externally-driven fold change.
+
+        Called by DiffSidebar.refresh_fold() when fold state is
+        restored from HideState (e.g. on /diff reopen within session).
+        On the click path DirFoldGlyph updates itself; this method
+        ensures DiffDirectoryItem._folded stays consistent.
+        """
+        self._folded = folded
+        if glyph := self.query_one_optional(DirFoldGlyph):
+            glyph._folded = folded
+            glyph.update("[+]" if folded else "[-]")
+            glyph.tooltip = "click to expand" if folded else "click to collapse"
+
+
+class DirFoldGlyph(Static):
+    """3-char fold/expand glyph inside a DiffDirectoryItem.
+
+    ``[-]`` = expanded (file rows visible).
+    ``[+]`` = collapsed (file rows display:none).
+    Click posts ``DiffDirectoryItem.FoldToggled`` and updates itself.
+    """
+
+    DEFAULT_CSS = """
+    DirFoldGlyph {
+        width: 3;
+        color: $text-muted;
+    }
+    DirFoldGlyph:hover {
+        color: $text;
+    }
+    """
+
+    def __init__(self, prefix: str, folded: bool, **kwargs) -> None:
+        super().__init__("[+]" if folded else "[-]", **kwargs)
+        self._prefix = prefix
+        self._folded = folded
+
+    def on_click(self, event) -> None:
+        event.stop()
+        self._folded = not self._folded
+        self.update("[+]" if self._folded else "[-]")
+        self.tooltip = "click to expand" if self._folded else "click to collapse"
+        self.post_message(DiffDirectoryItem.FoldToggled(self._prefix, self._folded))
+
+
+class DirNameLabel(Static):
+    """Directory path label inside a DiffDirectoryItem.
+
+    Displays the prefix (e.g. ``widgets/``). Click posts
+    ``DiffDirectoryItem.HideToggled`` which bubbles to DiffScreen.
+    """
+
+    DEFAULT_CSS = """
+    DirNameLabel {
+        width: 1fr;
+        color: $text;
+    }
+    DirNameLabel:hover {
+        color: $primary;
+        text-style: underline;
+    }
+    """
+
+    def __init__(self, prefix: str, hidden: bool, **kwargs) -> None:
+        super().__init__(prefix, **kwargs)
+        self._prefix = prefix
+        self._hidden = hidden
+
+    def on_click(self, event) -> None:
+        event.stop()
+        self.post_message(DiffDirectoryItem.HideToggled(self._prefix, self._hidden))
+
+
 class DiffSidebar(Vertical):
     """Left sidebar listing all changed files.
 
@@ -341,23 +514,48 @@ class DiffSidebar(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Changed Files", classes="section-header")
-        for file_node in _flatten_files(self._tree):
-            change = file_node.file_change
-            tooltip = (
-                _hidden_tooltip(change.path, self._hide_state)
-                if file_node.hidden
-                else None
-            )
-            item = DiffFileItem(
-                change.path,
-                change.status,
-                len(change.hunks),
-                hidden=file_node.hidden,
-                id=_path_to_id(change.path),
-            )
-            if tooltip is not None:
-                item.tooltip = tooltip
-            yield item
+        for node in self._tree:
+            if isinstance(node, DirectoryNode):
+                yield from self._compose_directory(node)
+            else:
+                yield from self._compose_file_item(node, indent=False)
+
+    def _compose_directory(self, node: DirectoryNode):
+        """Yield a DiffDirectoryItem header followed by its file rows."""
+        is_hidden = self._hide_state.is_prefix_hidden(node.prefix)
+        is_folded = self._hide_state.is_folded(node.prefix)
+        yield DiffDirectoryItem(
+            node.prefix,
+            folded=is_folded,
+            hidden=is_hidden,
+            id=_dir_to_id(node.prefix),
+        )
+        for child in node.children:
+            if isinstance(child, FileNode):
+                file_item_gen = self._compose_file_item(child, indent=True)
+                for item in file_item_gen:
+                    if is_folded:
+                        item.display = False
+                    yield item
+
+    def _compose_file_item(self, file_node: FileNode, *, indent: bool):
+        """Yield a DiffFileItem for a FileNode."""
+        change = file_node.file_change
+        tooltip = (
+            _hidden_tooltip(change.path, self._hide_state) if file_node.hidden else None
+        )
+        classes = "dir-file-item" if indent else ""
+        item = DiffFileItem(
+            change.path,
+            change.status,
+            len(change.hunks),
+            hidden=file_node.hidden,
+            id=_path_to_id(change.path),
+            classes=classes,
+        )
+        if tooltip is not None:
+            item.tooltip = tooltip
+        yield item
 
     def set_active(self, path: str) -> None:
         """Highlight the active file in the sidebar."""
@@ -374,55 +572,163 @@ class DiffSidebar(Vertical):
                 new_item.add_class("active")
 
     def refresh_hide(self) -> None:
-        """Re-read each ``FileNode.hidden`` and apply the s7 render
-        variant + tooltip to the corresponding ``DiffFileItem``.
+        """Re-read each node's hidden flags and apply render variants.
 
-        Called by the controller (DiffScreen) after every hide-state
-        transition (s5.5.2 update fan-out). Parent->child orchestration:
-        DiffScreen invokes this on its child sidebar; sibling-to-sibling
-        imperative updates are forbidden, this is not one.
+        For ``DirectoryNode``s: refreshes the ``dir-header--hidden``
+        class and name-label tooltip on the corresponding
+        ``DiffDirectoryItem``.
+
+        For ``FileNode``s: applies the s7 hidden render variant +
+        tooltip to the corresponding ``DiffFileItem``.
+
+        Called by DiffScreen after every hide-state transition
+        (s5.5.2 fan-out). Parent->child orchestration only.
         """
-        for file_node in _flatten_files(self._tree):
-            change = file_node.file_change
-            item = self.query_one_optional(f"#{_path_to_id(change.path)}", DiffFileItem)
-            if item is None:
-                continue
-            tooltip = (
-                _hidden_tooltip(change.path, self._hide_state)
-                if file_node.hidden
-                else None
-            )
-            item.set_hidden(file_node.hidden, tooltip=tooltip)
+        for node in self._tree:
+            if isinstance(node, DirectoryNode):
+                dir_item = self.query_one_optional(
+                    f"#{_dir_to_id(node.prefix)}", DiffDirectoryItem
+                )
+                if dir_item is not None:
+                    dir_item.set_hidden(self._hide_state.is_prefix_hidden(node.prefix))
+                # Refresh file items inside the directory too.
+                for child in node.children:
+                    if isinstance(child, FileNode):
+                        self._refresh_file_item(child)
+            else:
+                self._refresh_file_item(node)
+
+    def _refresh_file_item(self, file_node: FileNode) -> None:
+        """Apply the s7 render variant to a single DiffFileItem."""
+        change = file_node.file_change
+        item = self.query_one_optional(f"#{_path_to_id(change.path)}", DiffFileItem)
+        if item is None:
+            return
+        tooltip = (
+            _hidden_tooltip(change.path, self._hide_state) if file_node.hidden else None
+        )
+        item.set_hidden(file_node.hidden, tooltip=tooltip)
 
     def reorder(self, new_tree: DisplayTree) -> None:
-        """Re-order existing ``DiffFileItem`` children to match
-        ``new_tree``'s order.
+        """Rebuild sidebar children to match ``new_tree``'s order.
 
-        Per SPECIFICATION s10: in-place reorder via ``move_child``;
-        children are NOT re-mounted. Updates the internal ``_tree``
-        reference and refreshes hide state on each row (the new tree
-        already carries fresh ``hidden`` flags from ``apply_hide``).
+        Unlike ``DiffView.reorder()`` (which preserves HunkWidgets via
+        ``move_child``), DiffSidebar holds no user-authored state that
+        must survive a sort toggle. Rebuilding from scratch is simpler
+        and handles the heterogeneous DirectoryNode + FileNode mix
+        without the awkward chain-reorder bookkeeping.
+
+        Preserves existing ``DiffFileItem`` instances via ``move_child``
+        (no remount). This avoids ``DuplicateIds`` errors that arise when
+        ``remove()`` is deferred but ``mount()`` runs immediately in the
+        same synchronous call frame.
+
+        ``DiffDirectoryItem`` headers have no preserved state; they are
+        removed and re-created each time.
         """
         self._tree = new_tree
-        ordered_paths = [n.file_change.path for n in _flatten_files(new_tree)]
-        # Refresh hidden flags first so styling matches the new tree.
-        self.refresh_hide()
-        # Chain-reorder: move the first file just after the section
-        # header, then chain each subsequent file after the previous.
-        # Textual ``move_child`` requires exactly one of before/after.
+        active = self._active_path
+
+        # Step 1 -- Remove existing directory headers (safe: we never
+        # remount them with the same ID in the same call frame).
+        for item in list(self.query(DiffDirectoryItem)):
+            item.remove()
+
+        # Step 2 -- Build and mount new directory headers.  They are
+        # appended after existing children for now; step 3 repositions
+        # everything via move_child.
+        new_dir_items: dict[str, DiffDirectoryItem] = {}
+        for node in new_tree:
+            if isinstance(node, DirectoryNode):
+                is_hidden = self._hide_state.is_prefix_hidden(node.prefix)
+                is_folded = self._hide_state.is_folded(node.prefix)
+                new_dir_items[node.prefix] = DiffDirectoryItem(
+                    node.prefix,
+                    folded=is_folded,
+                    hidden=is_hidden,
+                    id=_dir_to_id(node.prefix),
+                )
+        if new_dir_items:
+            self.mount(*new_dir_items.values())
+
+        # Step 3 -- Chain-reorder all items (dir headers + existing file
+        # items) into the new tree order using move_child (synchronous).
         section_label = self.query_one_optional(".section-header", Label)
-        prev: Static | None = section_label
-        for path in ordered_paths:
-            item = self.query_one_optional(f"#{_path_to_id(path)}", DiffFileItem)
-            if item is None:
-                continue
-            if prev is None:
-                # No section header found (defensive); fall back to
-                # moving each item to the start.
-                self.move_child(item, before=0)
+        prev = section_label
+        for node in new_tree:
+            if isinstance(node, DirectoryNode):
+                is_folded = self._hide_state.is_folded(node.prefix)
+                dir_item = new_dir_items[node.prefix]
+                if prev is None:
+                    self.move_child(dir_item, before=0)
+                else:
+                    self.move_child(dir_item, after=prev)
+                prev = dir_item
+                for child in node.children:
+                    if not isinstance(child, FileNode):
+                        continue
+                    fi = self.query_one_optional(
+                        f"#{_path_to_id(child.file_change.path)}", DiffFileItem
+                    )
+                    if fi is None:
+                        continue
+                    if prev is None:
+                        self.move_child(fi, before=0)
+                    else:
+                        self.move_child(fi, after=prev)
+                    fi.add_class("dir-file-item")
+                    fi.display = not is_folded
+                    prev = fi
             else:
-                self.move_child(item, after=prev)
-            prev = item
+                fi = self.query_one_optional(
+                    f"#{_path_to_id(node.file_change.path)}", DiffFileItem
+                )
+                if fi is None:
+                    continue
+                if prev is None:
+                    self.move_child(fi, before=0)
+                else:
+                    self.move_child(fi, after=prev)
+                fi.remove_class("dir-file-item")
+                fi.display = True
+                prev = fi
+
+        # Refresh hidden flags so the new tree's FileNode.hidden values
+        # are reflected in the sidebar render variants.
+        self.refresh_hide()
+        # Re-apply active highlight (class survives but may need re-check).
+        if active:
+            self.call_after_refresh(lambda: self.set_active(active))
+
+    def on_diff_directory_item_fold_toggled(
+        self, event: DiffDirectoryItem.FoldToggled
+    ) -> None:
+        """Handle fold glyph click: toggle display of file rows.
+
+        DirFoldGlyph already updated its own glyph text and posted
+        FoldToggled. Here we toggle ``display`` on each DiffFileItem
+        whose path falls under ``event.prefix``. DiffDirectoryItem
+        visual state is also synced (updates ``_folded`` for future
+        ``set_folded`` calls).
+
+        The event is NOT stopped so it continues to DiffScreen for
+        persistence (fold_prefix / unfold_prefix on HideStore).
+        """
+        for file_node in _flatten_files(self._tree):
+            if file_node.file_change.path.startswith(event.prefix):
+                item = self.query_one_optional(
+                    f"#{_path_to_id(file_node.file_change.path)}", DiffFileItem
+                )
+                if item is not None:
+                    item.display = not event.folded
+        # Sync DiffDirectoryItem._folded so set_folded calls are
+        # idempotent. (DirFoldGlyph already updated its own text;
+        # this keeps the parent's state consistent.)
+        dir_item = self.query_one_optional(
+            f"#{_dir_to_id(event.prefix)}", DiffDirectoryItem
+        )
+        if dir_item is not None:
+            dir_item._folded = event.folded
 
 
 class CommentInput(TextArea):
@@ -1068,6 +1374,17 @@ def _path_to_hex(path: str) -> str:
     Private to this module; the public encoding API is ``_path_to_id``.
     """
     return path.encode("utf-8").hex()
+
+
+def _dir_to_id(prefix: str) -> str:
+    """Build a DOM id for a DiffDirectoryItem.
+
+    Returns ``f"dir-{encoded}"`` where ``encoded`` is the hex of
+    ``prefix``. Directory prefixes always end with ``/``, so their hex
+    representations are guaranteed distinct from file ids (which come
+    from paths that never end with ``/``).
+    """
+    return f"dir-{_path_to_hex(prefix)}"
 
 
 def _path_to_id(path: str, hunk_idx: int | None = None) -> str:

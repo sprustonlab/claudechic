@@ -33,7 +33,8 @@ __all__ = [
 
 @dataclass
 class HideState:
-    """Three-set hide state for one repo within one claudechic process.
+    """Three-set hide state plus fold state for one repo within one
+    claudechic process.
 
     ``hide_files`` -- individually hidden file paths. Entries never end
     with ``/``.
@@ -41,6 +42,10 @@ class HideState:
     with ``/``. Empty prefix forbidden.
     ``force_visible`` -- per-file overrides that win against prefix
     membership but NOT against ``hide_files`` membership.
+    ``folded_prefixes`` -- directories collapsed in the sidebar (fold is
+    orthogonal to hide: folded rows are visually hidden in the sidebar
+    but their files are still visible in DiffView). Session-scoped, same
+    lifetime as the three hide sets.
 
     See SPECIFICATION s5.1 for the resolution rule and s5.5.1 for the
     transition truth table.
@@ -49,6 +54,7 @@ class HideState:
     hide_files: set[str] = field(default_factory=set)
     hide_prefixes: set[str] = field(default_factory=set)
     force_visible: set[str] = field(default_factory=set)
+    folded_prefixes: set[str] = field(default_factory=set)
 
     def is_hidden(self, path: str) -> bool:
         """Single source of truth for visibility (SPECIFICATION s4 / s5.1).
@@ -63,6 +69,25 @@ class HideState:
         if path in self.hide_files:
             return True
         return any(path.startswith(p) for p in self.hide_prefixes)
+
+    def is_folded(self, prefix: str) -> bool:
+        """Return True if ``prefix`` is currently collapsed in the sidebar.
+
+        Fold state is orthogonal to hide state: a folded directory's
+        files are still visible in DiffView (not hidden); only the
+        DiffSidebar row visibility is affected.
+        """
+        return prefix in self.folded_prefixes
+
+    def is_prefix_hidden(self, prefix: str) -> bool:
+        """Return True if ``prefix`` is in ``hide_prefixes``.
+
+        Exposed as a method so widgets can style directory headers for
+        the "prefix was hidden via d / click-on-name" state without
+        reading ``hide_prefixes`` directly (s3.1 forbids
+        ``if prefix in hide_state.*`` in widgets).
+        """
+        return prefix in self.hide_prefixes
 
     def longest_matching_prefix(self, path: str) -> str | None:
         """Return the longest entry of ``hide_prefixes`` that matches
@@ -88,6 +113,8 @@ class HideStateProtocol(Protocol):
     """
 
     def is_hidden(self, path: str) -> bool: ...
+    def is_folded(self, prefix: str) -> bool: ...
+    def is_prefix_hidden(self, prefix: str) -> bool: ...
     def longest_matching_prefix(self, path: str) -> str | None: ...
 
 
@@ -104,6 +131,9 @@ class HideStoreProtocol(Protocol):
     def hide_file(self, repo_key: Path, path: str) -> None: ...
     def hide_prefix(self, repo_key: Path, prefix: str) -> None: ...
     def unhide_file(self, repo_key: Path, path: str) -> None: ...
+    def unhide_prefix(self, repo_key: Path, prefix: str) -> None: ...
+    def fold_prefix(self, repo_key: Path, prefix: str) -> None: ...
+    def unfold_prefix(self, repo_key: Path, prefix: str) -> None: ...
     def reset(self, repo_key: Path) -> None: ...
 
 
@@ -164,10 +194,38 @@ class HideStore:
         if any(path.startswith(p) for p in state.hide_prefixes):
             state.force_visible.add(path)
 
+    def unhide_prefix(self, repo_key: Path, prefix: str) -> None:
+        """Remove ``prefix`` from ``hide_prefixes``. Also clears any
+        ``force_visible`` entries whose path matches the prefix (they
+        are moot once the prefix is no longer hidden).
+
+        Inverse of ``hide_prefix``; used by click-on-hidden-directory-
+        name to un-hide an entire directory at once.
+        """
+        state = self.get(repo_key)
+        state.hide_prefixes.discard(prefix)
+        state.force_visible = {
+            p for p in state.force_visible if not p.startswith(prefix)
+        }
+
+    def fold_prefix(self, repo_key: Path, prefix: str) -> None:
+        """Mark ``prefix`` as collapsed (folded) in the sidebar.
+
+        Fold is orthogonal to hide: file panels in DiffView are
+        unaffected. Only DiffSidebar file rows under this prefix are
+        toggled ``display: false``.
+        """
+        self.get(repo_key).folded_prefixes.add(prefix)
+
+    def unfold_prefix(self, repo_key: Path, prefix: str) -> None:
+        """Remove ``prefix`` from folded set (expand the directory)."""
+        self.get(repo_key).folded_prefixes.discard(prefix)
+
     def reset(self, repo_key: Path) -> None:
-        """Clear all three sets for ``repo_key``; other repo keys
-        untouched (s5.3 / s5.5)."""
+        """Clear all hide sets and fold state for ``repo_key``; other
+        repo keys untouched (s5.3 / s5.5)."""
         state = self.get(repo_key)
         state.hide_files.clear()
         state.hide_prefixes.clear()
         state.force_visible.clear()
+        state.folded_prefixes.clear()

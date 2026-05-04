@@ -30,7 +30,7 @@ from claudechic.features.diff.git import FileChange, HunkComment
 from claudechic.features.diff.hide import HideStoreProtocol
 from claudechic.features.diff.sort import SortModeStoreProtocol, build_tree
 from claudechic.features.diff.tree import DisplayTree, apply_hide, to_prefix
-from claudechic.features.diff.widgets import DiffFileItem
+from claudechic.features.diff.widgets import DiffDirectoryItem, DiffFileItem
 
 log = logging.getLogger(__name__)
 
@@ -360,6 +360,38 @@ class DiffScreen(Screen[list[HunkComment]]):
         return key[0]
 
     # ── Existing handlers (sidebar click + resize) ──────────────────
+
+    def on_diff_directory_item_hide_toggled(
+        self, event: DiffDirectoryItem.HideToggled
+    ) -> None:
+        """Handle directory-name click: toggle hide state for the prefix.
+
+        If the prefix is currently hidden, unhide it; otherwise hide it.
+        Uses the same ``_after_hide_change`` fan-out as the keyboard
+        ``d`` / ``f`` actions (s5.5.2).
+        """
+        if self._view and self._view.is_editing():
+            return
+        if event.currently_hidden:
+            self._hide_store.unhide_prefix(self._cwd, event.prefix)
+        else:
+            self._hide_store.hide_prefix(self._cwd, event.prefix)
+        self._after_hide_change(prev_focus_path=self._focused_path())
+
+    def on_diff_directory_item_fold_toggled(
+        self, event: DiffDirectoryItem.FoldToggled
+    ) -> None:
+        """Persist fold state when glyph is clicked.
+
+        Visual update (file-row display toggle + glyph text) is handled
+        by DiffSidebar.on_diff_directory_item_fold_toggled. This handler
+        persists the new state to HideStore so it survives /diff
+        close/reopen within the same session.
+        """
+        if event.folded:
+            self._hide_store.fold_prefix(self._cwd, event.prefix)
+        else:
+            self._hide_store.unfold_prefix(self._cwd, event.prefix)
 
     def on_diff_file_item_selected(self, event: DiffFileItem.Selected) -> None:
         """Handle programmatic file selection -- update sidebar highlight."""

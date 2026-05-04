@@ -674,6 +674,11 @@ ToastRack {
     margin-bottom: 6;
 }
 
+/* Footer key letter color - theme-aware ($primary = orange in dark mode) */
+FooterKey .footer-key--key {
+    color: $primary;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * Diff View - /diff command
  * ───────────────────────────────────────────────────────────────────────────── */
@@ -713,6 +718,54 @@ DiffFileItem.hidden-entry {
 }
 DiffFileItem.hidden-entry:hover {
     background: $surface 50%;
+}
+
+/* Directory header row (DiffDirectoryItem) in DiffSidebar.
+   Shown in directory sort mode only; not present in alphabetical mode. */
+DiffDirectoryItem {
+    height: 1;
+    padding: 0 1;
+}
+
+DiffDirectoryItem Horizontal {
+    height: 1;
+}
+
+DirFoldGlyph {
+    width: 3;
+    color: $text-muted;
+}
+
+DirFoldGlyph:hover {
+    color: $text;
+}
+
+DirNameLabel {
+    width: 1fr;
+    color: $text;
+}
+
+DirNameLabel:hover {
+    color: $primary;
+    text-style: underline;
+}
+
+/* Directory header when the prefix is hidden (d-pressed or click-name variant).
+   Label muted; no strike (spec: "Hidden directory: header label muted,
+   no strike on the label"). */
+DiffDirectoryItem.dir-header--hidden DirNameLabel {
+    color: $text-muted;
+}
+
+DiffDirectoryItem.dir-header--hidden DirNameLabel:hover {
+    color: $secondary;
+    text-style: underline;
+}
+
+/* Indented file items inside a directory header (+2 spaces left indent).
+   padding-left: 3 = existing 1 + 2 additional for the visual indent. */
+DiffFileItem.dir-file-item {
+    padding-left: 3;
 }
 
 /* Empty-state placeholder rendered by DiffView when every file is
