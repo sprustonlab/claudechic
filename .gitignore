@@ -75,7 +75,8 @@ data/processed/
 *.parquet
 
 # Project team artifacts (tracked on develop, blocked from main via pre-commit hook).
-.project_team/
+# develop: intentionally NOT ignored here. main: has .project_team/ in its .gitignore.
+# The block-project-team-on-main pre-commit hook enforces the branch split.
 
 # Vim swap files
 *.swp

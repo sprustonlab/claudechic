@@ -13,20 +13,17 @@ phases:
       - type: artifact-dir-ready-check
         on_failure:
           message: "Artifact directory not set — call `set_artifact_dir(...)` MCP tool before advancing."
-      - type: command-output-check
-        command: "test -f \"${CLAUDECHIC_ARTIFACT_DIR}/STATUS.md\" && echo PRESENT"
-        pattern: "PRESENT"
-      - type: command-output-check
-        command: "test -f \"${CLAUDECHIC_ARTIFACT_DIR}/userprompt.md\" && echo PRESENT"
-        pattern: "PRESENT"
+      - type: file-exists-check
+        path: "${CLAUDECHIC_ARTIFACT_DIR}/STATUS.md"
+      - type: file-exists-check
+        path: "${CLAUDECHIC_ARTIFACT_DIR}/userprompt.md"
   - id: leadership
     file: leadership
   - id: specification
     file: specification
     advance_checks:
-      - type: command-output-check
-        command: "python -c \"import glob; print('\\n'.join(glob.glob('.project_team/*/specification/SPECIFICATION.md')))\""
-        pattern: "SPECIFICATION\\.md"
+      - type: file-exists-check
+        path: "${CLAUDECHIC_ARTIFACT_DIR}/specification/SPECIFICATION.md"
       - type: manual-confirm
         prompt: "Specification approved by user?"
     hints:
@@ -40,17 +37,15 @@ phases:
   - id: testing-vision
     file: testing_vision
     advance_checks:
-      - type: command-output-check
-        command: "ls ${CLAUDECHIC_ARTIFACT_DIR}/userprompt_testing.md 2>/dev/null"
-        pattern: "userprompt_testing\\.md"
+      - type: file-exists-check
+        path: "${CLAUDECHIC_ARTIFACT_DIR}/userprompt_testing.md"
       - type: manual-confirm
         prompt: "Testing vision approved by user?"
   - id: testing-specification
     file: testing_specification
     advance_checks:
-      - type: command-output-check
-        command: "ls ${CLAUDECHIC_ARTIFACT_DIR}/specification/TEST_SPECIFICATION.md 2>/dev/null"
-        pattern: "TEST_SPECIFICATION\\.md"
+      - type: file-exists-check
+        path: "${CLAUDECHIC_ARTIFACT_DIR}/specification/TEST_SPECIFICATION.md"
       - type: manual-confirm
         prompt: "Test specification approved by user?"
   - id: testing-implementation
