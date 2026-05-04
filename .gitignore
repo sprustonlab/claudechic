@@ -74,8 +74,13 @@ data/processed/
 *.csv
 *.parquet
 
+<<<<<<< HEAD
 # Project team artifacts: tracked on develop, blocked from main via pre-commit hook.
 
 # Vim swap files
 *.swp
 *.swo
+=======
+# Project team (tracked on develop, blocked from main via pre-commit hook)
+.project_team/
+>>>>>>> origin/main

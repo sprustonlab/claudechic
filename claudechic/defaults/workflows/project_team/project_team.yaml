@@ -73,7 +73,7 @@ rules:
     detect:
       field: file_path
       pattern: ".+"
-    exclude_if_matches: "\\.md$"
+    exclude_if_matches: "\\.(md|gitignore)$"
     message: "Coordinator should delegate code writing to Implementer agents"
     roles: [coordinator]
 
