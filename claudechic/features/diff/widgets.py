@@ -610,21 +610,27 @@ class DiffSidebar(Vertical):
         item.set_hidden(file_node.hidden, tooltip=tooltip)
 
     def reorder(self, new_tree: DisplayTree) -> None:
-        """Rebuild sidebar children to match ``new_tree``'s order.
+        """Reorder sidebar children to match ``new_tree`` using a hybrid
+        remove/move_child strategy.
 
-        Unlike ``DiffView.reorder()`` (which preserves HunkWidgets via
-        ``move_child``), DiffSidebar holds no user-authored state that
-        must survive a sort toggle. Rebuilding from scratch is simpler
-        and handles the heterogeneous DirectoryNode + FileNode mix
-        without the awkward chain-reorder bookkeeping.
+        **Why not a full rebuild?**  The intuitive approach -- remove all
+        children and remount them in the new order -- triggers a Textual
+        ``DuplicateIds`` error.  ``Widget.remove()`` is deferred (the
+        widget stays in ``_nodes`` until the next event-loop iteration)
+        while ``Widget.mount()`` registers the new widget immediately.
+        When both the old and new ``DiffFileItem`` carry the same
+        path-based DOM id (``sidebar-{hex}``), Textual raises on the
+        second insert.
 
-        Preserves existing ``DiffFileItem`` instances via ``move_child``
-        (no remount). This avoids ``DuplicateIds`` errors that arise when
-        ``remove()`` is deferred but ``mount()`` runs immediately in the
-        same synchronous call frame.
-
-        ``DiffDirectoryItem`` headers have no preserved state; they are
-        removed and re-created each time.
+        **Hybrid approach:**
+        - ``DiffDirectoryItem`` headers hold no user-authored state, so
+          they are removed and re-created freely.  Their ``dir-{hex}``
+          ids never collide with ``DiffFileItem`` ids, so remove+mount
+          is safe within a single call frame.
+        - ``DiffFileItem`` instances are repositioned via ``move_child``
+          (synchronous, no remount).  The ``dir-file-item`` class and
+          ``display`` flag are updated in place to reflect the new sort
+          mode.
         """
         self._tree = new_tree
         active = self._active_path
