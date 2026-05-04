@@ -1,4 +1,4 @@
-"""Workflow tests for diff_review_ux (W1-W7).
+"""Workflow tests for diff_review_ux (W1-W8).
 
 One workflow = one user story end-to-end, driven through the public
 ``ChatApp`` pilot against a real on-disk git repo. See
@@ -42,9 +42,12 @@ import pytest
 from claudechic.app import ChatApp
 from claudechic.features.diff.widgets import (
     CommentInput,
+    DiffDirectoryItem,
     DiffFileItem,
+    DirFoldGlyph,
     FileDiffPanel,
     HunkWidget,
+    _dir_to_id,
     _path_to_hex,
     _path_to_id,
 )
@@ -1357,5 +1360,212 @@ async def test_w7_hide_directory_new_file_inherits_hidden(
             "src/a.py should still be greyed after dismiss/reopen "
             "-- HideState persistence within App lifetime"
         )
+
+        await _dismiss_diff(app, pilot)
+
+
+# ---------------------------------------------------------------------------
+# W8 -- Directory header fold/hide affordances; fold and hide are orthogonal
+#       axes (TEST_SPECIFICATION W8; UIDesigner items 1-4 + independence).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_w8_directory_header_fold_and_hide(mock_sdk, nested_repo: Path) -> None:
+    """User folds/unfolds src/ via glyph click; hides/unhides via name
+    click; four fold x hide states visited; independence asserted at
+    every transition.
+
+    Single user arc (TEST_SPECIFICATION W8):
+
+      State 0 (fold=F, hide=F) -- initial; all sidebar rows and DiffView
+        panels visible; header NOT muted.
+
+      Step 1: click [-] glyph -> fold (fold=T, hide=F)
+        - Sidebar file rows for src/*.py collapse (display=False).
+        - DiffView FileDiffPanel for src/*.py remain visible (fold is
+          NOT hide -- orthogonal axes).
+        - dir-header--hidden NOT on DiffDirectoryItem (fold doesn't mute).
+
+      Step 2: click directory name (not hidden) -> hide (fold=T, hide=T)
+        - DiffDirectoryItem carries dir-header--hidden (label muted).
+        - DiffView panels for src/*.py now hidden (display=False).
+        - Sidebar rows STILL display=False (fold state unchanged by hide).
+        - Sidebar items carry hidden-entry class.
+
+      Step 3: click [+] glyph -> unfold (fold=F, hide=T)
+        - Sidebar rows reappear (display=True) as greyed hidden-entry rows.
+        - DiffView panels remain hidden (unfold doesn't affect DiffView).
+        - dir-header--hidden still on header (unfold doesn't unmute).
+
+      Step 4: click directory name (hidden) -> unhide (fold=F, hide=F)
+        - dir-header--hidden removed; panels return (display=True);
+          rows lose hidden-entry.
+
+    Sanity: tests/ and README.md unaffected throughout.
+
+    Independence is asserted at every transition: glyph click only
+    toggles sidebar row display; name click only toggles
+    dir-header--hidden + FileDiffPanel.display.
+
+    Covers UIDesigner items 1 (collapse glyph), 2 (expand glyph),
+    3 (click name -> hide), 4 (click name -> unhide), plus fold/hide
+    independence.
+    """
+    repo = nested_repo
+    _dirty_all(
+        repo,
+        {
+            "src/a.py": "print('src a v2')\n",
+            "src/b.py": "print('src b v2')\n",
+            "tests/x.py": "print('tests x v2')\n",
+            "README.md": "# v2\n",
+        },
+    )
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _redirect_active_agent(app, pilot, repo)
+        screen = await _open_diff(app, pilot)
+
+        # Directory sort mode is required for DiffDirectoryItem headers.
+        assert screen.sub_title == "sort: directory", (
+            f"W8 requires directory sort mode -- got {screen.sub_title!r}"
+        )
+
+        # CSS id fragments and selector shortcuts.
+        src_dir_id = _dir_to_id("src/")
+        glyph_sel = f"#{src_dir_id} DirFoldGlyph"
+        name_sel = f"#{src_dir_id} DirNameLabel"
+
+        # Accessor helpers (public API + documented ID encodings only).
+        def _dir_item() -> DiffDirectoryItem:
+            return screen.query_one(f"#{src_dir_id}", DiffDirectoryItem)
+
+        def _glyph() -> DirFoldGlyph:
+            return screen.query_one(glyph_sel, DirFoldGlyph)
+
+        def _file_item(path: str) -> DiffFileItem:
+            return screen.query_one(f"#{_path_to_id(path)}", DiffFileItem)
+
+        def _panel(path: str) -> FileDiffPanel:
+            return screen.query_one(f"#panel-{_path_to_hex(path)}", FileDiffPanel)
+
+        # ── State 0 (fold=F, hide=F): initial ─────────────────────────
+        assert not _dir_item().has_class("dir-header--hidden"), (
+            "src/ header must not carry dir-header--hidden at mount"
+        )
+        # [+] and [-] are not valid Rich markup tag starts (neither +
+        # nor - is [a-zA-Z@]), so they render and are stored as literal
+        # text. str(glyph.render()) returns the raw renderable string.
+        assert str(_glyph().render()) == "[-]", (
+            "glyph should be '[-]' (expanded) at mount"
+        )
+        for path in ("src/a.py", "src/b.py"):
+            assert _file_item(path).display is True
+            assert not _file_item(path).has_class("hidden-entry")
+            assert _panel(path).display is True
+
+        # ── Step 1: click [-] -> fold (fold=T, hide=F) ────────────────
+        # Glyph click collapses sidebar file rows.
+        # DiffView panels and header CSS class must be unaffected
+        # (fold is orthogonal to hide -- only sidebar row display changes).
+        await pilot.click(glyph_sel)
+        await pilot.pause()
+
+        assert str(_glyph().render()) == "[+]", (
+            "glyph should be '[+]' (collapsed) after fold click"
+        )
+        assert not _dir_item().has_class("dir-header--hidden"), (
+            "dir-header--hidden must not appear -- fold doesn't mute header"
+        )
+        for path in ("src/a.py", "src/b.py"):
+            assert _file_item(path).display is False, (
+                f"{path} sidebar row should be collapsed after fold click"
+            )
+            assert not _file_item(path).has_class("hidden-entry"), (
+                f"{path} must not carry hidden-entry -- fold is orthogonal to hide"
+            )
+            assert _panel(path).display is True, (
+                f"{path} DiffView panel must remain visible -- fold doesn't affect DiffView"
+            )
+
+        # ── Step 2: click name (not hidden) -> hide (fold=T, hide=T) ──
+        # Name click triggers DiffDirectoryItem.HideToggled -> hide_prefix.
+        # Fold state must be unchanged: glyph stays [+], row display stays
+        # False (DiffSidebar.refresh_hide does NOT touch display).
+        await pilot.click(name_sel)
+        await pilot.pause()
+
+        assert _dir_item().has_class("dir-header--hidden"), (
+            "src/ header must carry dir-header--hidden after name click"
+        )
+        assert str(_glyph().render()) == "[+]", (
+            "glyph must still be '[+]' -- name click doesn't change fold"
+        )
+        for path in ("src/a.py", "src/b.py"):
+            assert _file_item(path).display is False, (
+                f"{path} sidebar row display unchanged by name click (governed by fold)"
+            )
+            assert _file_item(path).has_class("hidden-entry"), (
+                f"{path} must carry hidden-entry after directory hide"
+            )
+            assert _panel(path).display is False, (
+                f"{path} DiffView panel must be hidden after directory hide"
+            )
+
+        # ── Step 3: click [+] -> unfold (fold=F, hide=T) ──────────────
+        # Glyph click expands sidebar rows; they reappear as greyed
+        # hidden-entry rows (still hidden, just no longer folded).
+        # DiffView panels must remain hidden; header class unchanged.
+        await pilot.click(glyph_sel)
+        await pilot.pause()
+
+        assert str(_glyph().render()) == "[-]", (
+            "glyph should be '[-]' (expanded) after unfold click"
+        )
+        assert _dir_item().has_class("dir-header--hidden"), (
+            "dir-header--hidden must remain -- unfold doesn't change hide"
+        )
+        for path in ("src/a.py", "src/b.py"):
+            assert _file_item(path).display is True, (
+                f"{path} sidebar row should be visible after unfold"
+            )
+            assert _file_item(path).has_class("hidden-entry"), (
+                f"{path} must still carry hidden-entry -- unfold is orthogonal to hide"
+            )
+            assert _panel(path).display is False, (
+                f"{path} DiffView panel must remain hidden -- unfold doesn't affect DiffView"
+            )
+
+        # ── Step 4: click name (hidden) -> unhide (fold=F, hide=F) ───
+        # Name click with currently_hidden=True calls unhide_prefix.
+        # DirNameLabel._hidden was set to True by set_hidden() in the
+        # refresh_hide fan-out at step 2, so the label posts
+        # HideToggled(currently_hidden=True) correctly.
+        await pilot.click(name_sel)
+        await pilot.pause()
+
+        assert not _dir_item().has_class("dir-header--hidden"), (
+            "dir-header--hidden must be removed after unhide"
+        )
+        assert str(_glyph().render()) == "[-]", (
+            "glyph should be '[-]' (expanded) after unhide"
+        )
+        for path in ("src/a.py", "src/b.py"):
+            assert _file_item(path).display is True
+            assert not _file_item(path).has_class("hidden-entry"), (
+                f"{path} must not carry hidden-entry after unhide"
+            )
+            assert _panel(path).display is True, (
+                f"{path} DiffView panel must be visible after unhide"
+            )
+
+        # Sanity: tests/ and README.md were untouched by all four steps.
+        assert _file_item("tests/x.py").display is True
+        assert not _file_item("tests/x.py").has_class("hidden-entry")
+        assert _panel("tests/x.py").display is True
+        assert not _file_item("README.md").has_class("hidden-entry")
+        assert _panel("README.md").display is True
 
         await _dismiss_diff(app, pilot)
