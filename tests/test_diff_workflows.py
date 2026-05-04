@@ -167,6 +167,74 @@ def nested_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def feature_branch_repo(tmp_path: Path) -> tuple[Path, str, list[str]]:
+    """Feature-branch topology (W6, s5 B3).
+
+    Setup:
+      - ``make_repo`` base with two committed files (F.py=v1 and
+        stable.py); HEAD = main.
+      - ``git update-ref refs/remotes/origin/main <head_sha>`` --
+        publishes the local main as ``origin/main`` (no actual
+        remote, no network; the ref resolves locally).
+      - Checkout feature branch; commit F.py=v2.
+      - Revert F.py's working-tree content to v1 WITHOUT staging.
+        Result: F.py is dirty vs HEAD (HEAD has v2, working tree has
+        v1) AND identical to ``origin/main`` (also v1).
+      - Six untracked files at the repo root.
+
+    Returns ``(repo, F_path, untracked_paths)`` so the test refers
+    to F and the untracked set by name without re-deriving them.
+
+    The W6 invariants the test asserts against this topology are:
+      - R1: prune basis is HEAD even when DiffScreen target !=
+        HEAD. F.py is dirty vs HEAD, so prune KEEPS it -- even
+        though ``git diff origin/main`` shows no hunks for F.
+      - R2: untracked truncation does not corrupt the prune basis.
+        6 untracked files all participate in ``get_dirty_paths``;
+        a Claude-Written untracked file stays in ``FilesSection``
+        across the prune step.
+      - s8a: ``MAX_UNTRACKED_FILES`` count cap removed -- the 6+
+        untracked all render as panels under ``/diff origin/main``.
+    """
+    repo = make_repo(
+        tmp_path,
+        name="feature_branch",
+        initial={
+            "F.py": "v1\n",
+            "stable.py": "stable\n",
+        },
+    )
+    # Capture the post-initial-commit SHA (HEAD = main, F.py at v1).
+    head_sha_proc = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=str(repo),
+        env=_git_env(),
+        check=True,
+        capture_output=True,
+    )
+    head_sha = head_sha_proc.stdout.decode("utf-8").strip()
+    # Publish the current HEAD as origin/main (no actual remote /
+    # network; the ref resolves locally per s5 B3).
+    _run_git(repo, "update-ref", "refs/remotes/origin/main", head_sha)
+    # Create feature branch and commit F.py=v2.
+    _run_git(repo, "checkout", "-b", "feature")
+    (repo / "F.py").write_text("v2\n", encoding="utf-8")
+    _run_git(repo, "add", "F.py")
+    _run_git(repo, "commit", "-m", "feature: F v2")
+    # Revert F.py's WORKING-TREE content back to v1 -- dirty vs
+    # HEAD (which has v2) and identical to origin/main (which has
+    # v1). The revert is NOT staged.
+    (repo / "F.py").write_text("v1\n", encoding="utf-8")
+    # Six untracked files at the top level. Each gets a small
+    # synthetic body so DiffScreen can render a non-empty hunk
+    # (untracked files render as additions vs an empty old-side).
+    untracked_paths = [f"u{i}.py" for i in range(1, 7)]
+    for rel in untracked_paths:
+        (repo / rel).write_text(f"# untracked {rel}\n", encoding="utf-8")
+    return repo, "F.py", untracked_paths
+
+
+@pytest.fixture
 def two_repos(tmp_path: Path) -> tuple[Path, Path]:
     """Two-repos topology (W5): repo_a and repo_b in DIFFERENT subdirs.
 
@@ -615,8 +683,16 @@ async def test_w5_two_repos_hide_isolation(
         # ── Step 2: switch agent's cwd to repo_b; open /diff. ────────
         # Direct mutation of the live agent's cwd. Per the test docstring
         # rationale, HideStore is keyed by raw Path so this is sufficient.
+        # Mirror ``_redirect_active_agent``: set both ``agent.cwd`` and
+        # ``app._cwd`` so the App's ancillary bookkeeping (workflow infra,
+        # file index root) stays consistent with the diff target.
+        # Composability CP-B note: ``_prune_files_section_to_git(agent)``
+        # reads ``agent.cwd`` only, so for W5's narrow scope ``app._cwd``
+        # is harmless either way -- but matching the helper's pattern
+        # avoids a future copy-paste foot-gun.
         assert app._agent is not None  # already true post-_redirect; satisfies pyright
         app._agent.cwd = repo_b
+        app._cwd = repo_b
         await pilot.pause()
 
         screen_b = await _open_diff(app, pilot)
@@ -642,8 +718,10 @@ async def test_w5_two_repos_hide_isolation(
         await _dismiss_diff(app, pilot)
 
         # ── Step 3: switch back to repo_a; verify a1.py still hidden. ─
+        # Mirror the helper pattern (see Step 2 comment).
         assert app._agent is not None
         app._agent.cwd = repo_a
+        app._cwd = repo_a
         await pilot.pause()
 
         screen_a2 = await _open_diff(app, pilot)
@@ -1025,5 +1103,259 @@ async def test_w2_hide_unhide_via_keyboard_and_click(
             assert _file_panel(path).display is True, (
                 f"{path}'s panel should re-display after 'r'"
             )
+
+        await _dismiss_diff(app, pilot)
+
+
+# ---------------------------------------------------------------------------
+# W6 -- Feature branch ahead of origin/main; many untracked;
+#       /diff target != HEAD (TEST_SPECIFICATION s4 W6;
+#       SPECIFICATION R1 prune basis is HEAD; R2 untracked-truncation
+#       does not corrupt prune basis; s8a MAX_UNTRACKED_FILES cap
+#       removal).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_w6_feature_branch_diff_against_origin_main(
+    mock_sdk, feature_branch_repo: tuple[Path, str, list[str]]
+) -> None:
+    """User on a feature branch with a working-tree file F that
+    matches ``origin/main`` exactly, plus 6+ untracked files (one
+    Claude-Written, the rest written outside the conversation),
+    opens ``/diff origin/main``.
+
+    Sequence (TEST_SPECIFICATION W6):
+      - Test simulates Claude ``Write``-ing one of the untracked
+        files (``add_file`` for it) AND tracking F in
+        ``FilesSection`` (``add_file(F)``).
+      - ``/diff origin/main`` opens.
+
+    Asserts:
+      - All 6 untracked files render as ``DiffFileItem`` rows in
+        ``DiffSidebar``; the "No uncommitted changes" empty-state
+        is NOT shown (s8a ``MAX_UNTRACKED_FILES`` cap removal).
+      - The Claude-Written untracked file IS in
+        ``app.files_section._files`` -- prune kept it (R2:
+        ``get_dirty_paths`` reports all untracked, no truncation).
+      - F IS in ``app.files_section._files`` -- prune kept it
+        because it is dirty vs HEAD, even though
+        ``git diff origin/main`` shows no hunks for F (R1: prune
+        basis is HEAD, NOT the ``target`` argument).
+      - DiffScreen does NOT render F as a ``FileDiffPanel`` (since
+        F has no hunks vs ``origin/main``). The disagreement
+        between FilesSection (keeps F) and DiffScreen (no F panel)
+        is the user-observable demonstration of the HEAD-vs-target
+        separation.
+
+    Covers: R1 -- prune basis is HEAD, not target (UA req 1); R2 --
+    untracked-truncation does not corrupt prune basis (UA req 2);
+    s8a in-scope side-fix (count cap removed).
+    """
+    repo, f_path, untracked_paths = feature_branch_repo
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _redirect_active_agent(app, pilot, repo)
+
+        # Simulate Claude ``Write``-ing the FIRST untracked file
+        # (``add_file`` for it) AND tracking F in FilesSection.
+        # The other five untracked files were created by the fixture
+        # WITHOUT add_file, mirroring "files Claude did not author".
+        claude_written = untracked_paths[0]
+        files_section = app.files_section
+        files_section.add_file(Path(claude_written))
+        files_section.add_file(Path(f_path))
+        await pilot.pause()
+
+        # Pre-/diff invariant: FilesSection holds exactly the two
+        # tracked-by-test entries.
+        assert set(files_section._files.keys()) == {
+            Path(claude_written),
+            Path(f_path),
+        }, (
+            f"pre-/diff FilesSection should hold {{{claude_written}, {f_path}}} "
+            f"only -- got {set(files_section._files.keys())}"
+        )
+
+        # Open /diff origin/main via the slash-command parser
+        # (``commands.py`` parses ``/diff <target>``).
+        await submit_command(app, pilot, "/diff origin/main")
+        await wait_for_workers(app)
+        for _ in range(6):
+            await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, DiffScreen), (
+            f"expected DiffScreen on top, got {type(screen).__name__}"
+        )
+
+        # Assert: every untracked file renders as a panel under
+        # /diff origin/main. s8a verifies the count cap was lifted;
+        # without the fix, only 4 of 6 would have appeared.
+        rendered_paths = {p.change.path for p in screen.query(FileDiffPanel)}
+        for u in untracked_paths:
+            assert u in rendered_paths, (
+                f"{u} should render as a panel under /diff origin/main "
+                f"-- s8a MAX_UNTRACKED_FILES cap removed; got "
+                f"{sorted(rendered_paths)}"
+            )
+
+        # Assert: F.py is NOT rendered as a panel -- working-tree
+        # content is identical to origin/main, so git diff origin/main
+        # produces no hunks for F.
+        assert f_path not in rendered_paths, (
+            f"{f_path} should NOT render as a panel under "
+            f"/diff origin/main -- working-tree content is identical "
+            f"to origin/main (no hunks); R1 demonstrates HEAD vs "
+            f"target separation. Got rendered set: {sorted(rendered_paths)}"
+        )
+
+        # Assert: the "No uncommitted changes" empty-state is NOT
+        # shown. With 6 untracked files + s8a cap-removal, every
+        # untracked must surface.
+        assert not screen.query("#diff-empty"), (
+            "'No uncommitted changes' empty-state should NOT show under "
+            "/diff origin/main with 6+ untracked files (s8a)"
+        )
+
+        # Assert: FilesSection prune KEPT F -- prune basis is HEAD,
+        # F is dirty vs HEAD even though identical to origin/main
+        # (R1, UA req 1, verbatim).
+        assert Path(f_path) in files_section._files, (
+            f"{f_path} must be KEPT in FilesSection -- prune basis is "
+            f"HEAD per s8.6, and {f_path} is dirty vs HEAD (working "
+            f"tree=v1, HEAD=v2) even though identical to origin/main. "
+            f"R1 verbatim. Got: {set(files_section._files.keys())}"
+        )
+
+        # Assert: FilesSection prune KEPT the Claude-Written
+        # untracked. ``get_dirty_paths`` reports all untracked
+        # without truncation per R2 -- the prune step's dirty path
+        # set contains every untracked, so an entry whose path is
+        # untracked is never silently dropped (UA req 2 verbatim).
+        assert Path(claude_written) in files_section._files, (
+            f"{claude_written} must be KEPT in FilesSection -- "
+            f"untruncated untracked: 6+ untracked do not silently "
+            f"drop a Claude-Written one. R2 verbatim. Got: "
+            f"{set(files_section._files.keys())}"
+        )
+
+        await _dismiss_diff(app, pilot)
+
+
+# ---------------------------------------------------------------------------
+# W7 -- Hide directory; dismiss; new file later inherits hidden
+#       (TEST_SPECIFICATION s4 W7; SPECIFICATION s5: prefix
+#       inheritance, UA req 4).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_w7_hide_directory_new_file_inherits_hidden(
+    mock_sdk, nested_repo: Path
+) -> None:
+    """User hides ``src/`` then dismisses ``/diff``; later writes a
+    NEW file under ``src/``; on re-opening ``/diff`` the new file is
+    greyed because it inherits the active prefix hide.
+
+    Sequence (TEST_SPECIFICATION W7):
+      - ``/diff`` opens. Pilot navigates to a hunk in ``src/a.py``.
+        Pilot presses ``d`` -> ``src/`` is hidden.
+      - Pilot dismisses.
+      - Test writes ``src/c.py`` to disk (new untracked file; same
+        App lifetime).
+      - ``/diff`` re-opens.
+
+    Asserts:
+      - After re-open: ``DiffFileItem`` for ``src/c.py`` carries
+        ``.hidden-entry`` (inherited from the same ``HideStore`` in
+        App scope).
+      - ``FileDiffPanel.display`` is False for ``src/c.py``.
+      - Tooltip on ``src/c.py``'s greyed entry is the s7 verbatim
+        prefix wording: ``click to un-hide just this file (src/
+        stays hidden)``.
+      - ``src/a.py`` is also still greyed (HideState survived
+        dismiss-and-reopen).
+
+    Covers: prefix inheritance -- "new files in a hidden folder
+    stay hidden" (UA req 4 verbatim).
+    """
+    repo = nested_repo
+    _dirty_all(
+        repo,
+        {
+            "src/a.py": "print('src a v2')\n",
+            "src/b.py": "print('src b v2')\n",
+            "tests/x.py": "print('tests x v2')\n",
+            "README.md": "# v2\n",
+        },
+    )
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _redirect_active_agent(app, pilot, repo)
+
+        # Step 1: open /diff, focus src/a.py's hunk, press 'd' to hide src/.
+        screen1 = await _open_diff(app, pilot)
+        target_widget = screen1.query_one(f"#{_path_to_id('src/a.py', 0)}", HunkWidget)
+        target_widget.focus()
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+
+        # Sanity: both src/* files are greyed (prefix hide).
+        assert screen1.query_one(f"#{_path_to_id('src/a.py')}", DiffFileItem).has_class(
+            "hidden-entry"
+        )
+        assert screen1.query_one(f"#{_path_to_id('src/b.py')}", DiffFileItem).has_class(
+            "hidden-entry"
+        )
+
+        # Step 2: dismiss /diff. HideStore[repo] keeps src/ in
+        # hide_prefixes for the App lifetime.
+        await _dismiss_diff(app, pilot)
+
+        # Step 3: write src/c.py to disk (NEW untracked under src/).
+        # The HideStore was NOT notified about this file specifically;
+        # the prefix-match resolution in ``HideState.is_hidden`` is
+        # what makes the inheritance fire on next /diff.
+        (repo / "src" / "c.py").write_text(
+            "print('src c -- newly added under hidden prefix')\n",
+            encoding="utf-8",
+        )
+
+        # Step 4: re-open /diff. The fresh DisplayTree inherits the
+        # active prefix hide.
+        screen2 = await _open_diff(app, pilot)
+
+        # src/c.py is rendered (it's dirty / untracked) AND greyed.
+        c_paths = {p.change.path for p in screen2.query(FileDiffPanel)}
+        assert "src/c.py" in c_paths, (
+            f"src/c.py should render as a panel after re-open -- got {sorted(c_paths)}"
+        )
+        c_item = screen2.query_one(f"#{_path_to_id('src/c.py')}", DiffFileItem)
+        assert c_item.has_class("hidden-entry"), (
+            "src/c.py should be greyed on re-open -- prefix inheritance "
+            "(UA req 4); HideStore in App scope retained src/ as a hide "
+            "prefix, and src/c.py matches that prefix on next "
+            "build_tree + apply_hide pass."
+        )
+        c_panel = screen2.query_one(f"#panel-{_path_to_hex('src/c.py')}", FileDiffPanel)
+        assert c_panel.display is False, (
+            "src/c.py's FileDiffPanel should be hidden (display=False) "
+            "on re-open -- prefix inheritance"
+        )
+        # s7 tooltip wording on the inherited hide.
+        assert (
+            c_item.tooltip == "click to un-hide just this file (src/ stays hidden)"
+        ), f"s7 tooltip wording on prefix-inherited entry -- got {c_item.tooltip!r}"
+
+        # Sanity: src/a.py is also still greyed -- HideState survived
+        # dismiss/reopen (s5.4 same-cwd persistence).
+        a_item_2 = screen2.query_one(f"#{_path_to_id('src/a.py')}", DiffFileItem)
+        assert a_item_2.has_class("hidden-entry"), (
+            "src/a.py should still be greyed after dismiss/reopen "
+            "-- HideState persistence within App lifetime"
+        )
 
         await _dismiss_diff(app, pilot)
