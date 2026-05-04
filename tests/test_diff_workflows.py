@@ -332,6 +332,17 @@ async def _redirect_active_agent(app: ChatApp, pilot, repo: Path) -> None:
         await pilot.pause()
     app._agent.cwd = repo
     app._cwd = repo
+    # On Python 3.11 the asyncio event-loop scheduling causes
+    # ``on_chat_screen_ready`` to fire before all ChatScreen children
+    # are registered in the DOM. ``files_section.clear()`` (below)
+    # triggers ``_position_right_sidebar`` -> ``_layout_sidebar_contents``
+    # -> ``self.process_panel.process_count`` -> ``query_one("#process-panel")``,
+    # which raises ``NoMatches`` if that widget hasn't mounted yet.
+    # Wait until ``#process-panel`` is queryable before proceeding.
+    for _ in range(20):
+        if app.query("#process-panel"):
+            break
+        await pilot.pause()
     # Wipe whatever the pre-redirect refresh populated. The test now
     # has a known-empty FilesSection; the only adds from here on are
     # the test's own ``files_section.add_file(...)`` calls plus the
