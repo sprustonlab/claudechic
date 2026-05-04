@@ -333,21 +333,26 @@ class DiffScreen(Screen[list[HunkComment]]):
         if prev_focus_path is None:
             return
         # If the previously focused path is still visible, leave focus
-        # alone. Otherwise apply s6.2's next/prev fallback.
+        # alone.
         if not hide_state.is_hidden(prev_focus_path):
             return
-        prev_key = self._view.current_focus_key()
-        if prev_key is None:
-            # Empty-state was already shown; nothing to do.
+        # After ``view.refresh_hide()`` rebuilds ``_hunk_list``, the
+        # hidden file's slot is gone and ``_current_idx`` has shifted to
+        # the entry that was immediately after it in the list (or is
+        # clamped to the last entry if the hidden file was last).
+        # ``current_focus_key()`` therefore already returns the correct
+        # next-visible file -- calling ``next_visible_after`` on it
+        # would advance one more step and skip a file (the "f skips 2
+        # files" regression: DuplicateIds-safe reorder + index shift).
+        # We only need to call ``set_focus_key`` to wire up the widget
+        # focus; ``_current_idx`` is already correct.
+        focus_key = self._view.current_focus_key()
+        if focus_key is None:
+            # Every file is hidden; ``DiffView.refresh_hide`` already
+            # called ``_show_empty_state`` which focuses the container
+            # so keybindings continue to fire (s6.2 step 3).
             return
-        new_key = self._view.next_visible_after(
-            prev_key
-        ) or self._view.prev_visible_before(prev_key)
-        if new_key is not None:
-            self._view.set_focus_key(new_key)
-        # Else: every file is hidden. ``DiffView.refresh_hide`` already
-        # focused the empty-state container so keybindings continue to
-        # fire (s6.2 step 3).
+        self._view.set_focus_key(focus_key)
 
     def _focused_path(self) -> str | None:
         """Return the path of the file owning the currently focused
