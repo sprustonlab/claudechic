@@ -23,7 +23,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Header, Static
 
 from claudechic.features.diff import DiffSidebar, DiffView, get_changes
 from claudechic.features.diff.git import FileChange, HunkComment
@@ -107,8 +107,10 @@ class DiffScreen(Screen[list[HunkComment]]):
         self._view: DiffView | None = None
 
     def compose(self) -> ComposeResult:
+        yield Header()
         # Placeholder; replaced with real content on mount.
         yield Static("Loading...", id="diff-empty")
+        yield Footer()
 
     async def on_mount(self) -> None:
         """Fetch changes and build the diff view."""
@@ -124,7 +126,10 @@ class DiffScreen(Screen[list[HunkComment]]):
                 if self._target != "HEAD"
                 else "No uncommitted changes"
             )
-            self.mount(Static(msg, id="diff-empty", markup=False))
+            self.mount(
+                Static(msg, id="diff-empty", markup=False),
+                before=self.query_one(Footer),
+            )
             return
 
         # Build the DisplayTree on mount (SPECIFICATION s4 composition
@@ -146,7 +151,7 @@ class DiffScreen(Screen[list[HunkComment]]):
         # preview; without it _show_preview() returns early.
         self._view = DiffView(self._tree, cwd=self._cwd, id="diff-view")
 
-        self.mount(container)
+        self.mount(container, before=self.query_one(Footer))
         container.mount(self._sidebar)
         container.mount(self._view)
 
@@ -363,11 +368,12 @@ class DiffScreen(Screen[list[HunkComment]]):
 
     def on_diff_file_item_clicked(self, event: DiffFileItem.Clicked) -> None:
         """Handle user click on a (non-hidden) sidebar item -- scroll
-        to file."""
+        to file and update DiffView focus so f/d act on the clicked file."""
         if self._sidebar:
             self._sidebar.set_active(event.path)
         if self._view:
             self._view.scroll_to_file(event.path)
+            self._view.set_focus_key((event.path, 0))
 
     def on_resize(self) -> None:
         """Hide sidebar when screen is narrow."""
