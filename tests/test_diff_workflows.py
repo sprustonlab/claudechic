@@ -45,9 +45,11 @@ from claudechic.features.diff.widgets import (
     DiffFileItem,
     FileDiffPanel,
     HunkWidget,
+    _path_to_hex,
     _path_to_id,
 )
 from claudechic.screens.diff import DiffScreen
+from textual.widgets import Static
 
 from tests.conftest import submit_command, wait_for_workers
 
@@ -162,6 +164,40 @@ def nested_repo(tmp_path: Path) -> Path:
             "README.md": "# v1\n",
         },
     )
+
+
+@pytest.fixture
+def two_repos(tmp_path: Path) -> tuple[Path, Path]:
+    """Two-repos topology (W5): repo_a and repo_b in DIFFERENT subdirs.
+
+    Each repo is independently set up via ``make_repo`` (hermetic git
+    env, per-repo identity, .gitignore covers .claudechic/, one initial
+    commit). Files are dirtied in both so each repo has a non-empty
+    diff. Distinct cwd ``Path`` values are the input -- per-cwd
+    HideStore isolation (s5.4) is the property under test.
+    """
+    repo_a = make_repo(
+        tmp_path,
+        name="repo_a",
+        initial={
+            "a1.py": "print('a1 v1')\n",
+            "a2.py": "print('a2 v1')\n",
+        },
+    )
+    repo_b = make_repo(
+        tmp_path,
+        name="repo_b",
+        initial={
+            "b1.py": "print('b1 v1')\n",
+            "b2.py": "print('b2 v1')\n",
+        },
+    )
+    # Dirty every file -- each repo's /diff has two 1-hunk panels.
+    (repo_a / "a1.py").write_text("print('a1 v2')\n", encoding="utf-8")
+    (repo_a / "a2.py").write_text("print('a2 v2')\n", encoding="utf-8")
+    (repo_b / "b1.py").write_text("print('b1 v2')\n", encoding="utf-8")
+    (repo_b / "b2.py").write_text("print('b2 v2')\n", encoding="utf-8")
+    return repo_a, repo_b
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +399,284 @@ async def test_w1_edit_commit_diff_prunes_committed_file_keeps_externally_modifi
 
 
 # ---------------------------------------------------------------------------
+# W4 -- Hide everything; see the empty-state placeholder; press r;
+#       diff returns (TEST_SPECIFICATION s4 W4; SPECIFICATION s6.4
+#       empty-state placeholder, s6.2 focus policy from empty-state).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def two_file_repo(tmp_path: Path) -> Path:
+    """Single-repo topology with exactly two tracked files (W4).
+
+    Distinct from ``single_repo`` (3 files) because s6.4's verbatim
+    placeholder text ("All N files hidden.") interpolates ``N`` from
+    the count, and the spec example uses ``N == 2``. Two dirty files
+    -> two ``FileDiffPanel``s -> ``All 2 files hidden.`` after both
+    are hidden.
+    """
+    return make_repo(
+        tmp_path,
+        name="two_file",
+        initial={
+            "a.py": "print('a v1')\n",
+            "b.py": "print('b v1')\n",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_w4_hide_all_show_empty_state_then_reset(
+    mock_sdk, two_file_repo: Path
+) -> None:
+    """User hides every file in the diff, sees the s6.4 empty-state,
+    presses ``r`` to recover.
+
+    Sequence (TEST_SPECIFICATION W4):
+      - ``/diff`` opens. Two files dirty.
+      - Pilot presses ``f`` once per file (with ``j`` between to
+        advance focus).
+      - Pilot presses ``r``.
+
+    Asserts:
+      - After all hides: every ``FileDiffPanel.display`` is False; a
+        ``Static`` with id ``diff-view-empty-state`` is mounted; its
+        plain-text content equals exactly the s6.4 verbatim block:
+
+            All 2 files hidden.
+            Click any greyed entry in the sidebar to un-hide it,
+            or press r to reset all hides.
+
+      - After ``r``: empty-state ``Static`` is removed; both panels'
+        ``display`` is True; current focus is on a hunk in the first
+        visible file (s6.2: ``r`` from the empty-state moves focus to
+        the first hunk of the first visible file).
+
+    Covers: s6.4 placeholder text verbatim; reset semantics from the
+    empty-state; s6.2 focus-from-empty-state carve-out.
+    """
+    repo = two_file_repo
+
+    # Dirty both files so each becomes a 1-hunk diff.
+    (repo / "a.py").write_text("print('a v2')\n", encoding="utf-8")
+    (repo / "b.py").write_text("print('b v2')\n", encoding="utf-8")
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        await _redirect_active_agent(app, pilot, repo)
+        screen = await _open_diff(app, pilot)
+
+        # Sanity: two panels mounted, neither hidden initially.
+        panels_initial = list(screen.query(FileDiffPanel))
+        assert len(panels_initial) == 2, (
+            f"two_file_repo should produce exactly two panels -- got "
+            f"{[p.change.path for p in panels_initial]}"
+        )
+        for panel in panels_initial:
+            assert panel.display is True, (
+                f"panel {panel.change.path} should be visible at /diff open"
+            )
+
+        # Hide both files: f, j, f. The j between advances the focused
+        # hunk so the second f hides the second file (rather than
+        # idempotently re-hiding the first).
+        await pilot.press("f")
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+        await pilot.press("f")
+        await pilot.pause()
+
+        # Every panel hidden.
+        for panel in screen.query(FileDiffPanel):
+            assert panel.display is False, (
+                f"panel {panel.change.path} should be hidden (display=False) "
+                "after both 'f' presses"
+            )
+
+        # Empty-state placeholder mounted with verbatim s6.4 text.
+        empty = screen.query_one("#diff-view-empty-state", Static)
+        expected_text = (
+            "All 2 files hidden.\n"
+            "Click any greyed entry in the sidebar to un-hide it,\n"
+            "or press r to reset all hides."
+        )
+        # ``Static.render()`` returns the renderable; ``str()`` on a
+        # plain-text Static yields the literal string. The Static was
+        # mounted with ``markup=False`` (per ``_show_empty_state``) so
+        # there is no Rich-markup tag interpretation to strip.
+        rendered = str(empty.render())
+        assert rendered == expected_text, (
+            f"s6.4 empty-state placeholder must match VERBATIM -- got "
+            f"{rendered!r}, expected {expected_text!r}"
+        )
+
+        # Press 'r' -- reset hide state for current cwd.
+        await pilot.press("r")
+        await pilot.pause()
+
+        # Empty-state Static removed.
+        assert not screen.query("#diff-view-empty-state"), (
+            "empty-state Static should be removed after 'r'"
+        )
+        # Every panel re-displays.
+        for panel in screen.query(FileDiffPanel):
+            assert panel.display is True, (
+                f"panel {panel.change.path} should be visible after 'r'"
+            )
+
+        # Per SPECIFICATION s6.2: ``r`` from the empty-state moves
+        # focus to the first hunk of the first visible file. Verify
+        # via app.focused (a HunkWidget belonging to the first visible
+        # file in DisplayTree order). After ``r``, sort=directory
+        # (default) so the file order is alphabetical: a.py first.
+        assert isinstance(app.focused, HunkWidget), (
+            f"after 'r' from empty-state, focus should be on a HunkWidget "
+            f"-- got {type(app.focused).__name__ if app.focused else None}"
+        )
+        assert app.focused.path == "a.py", (
+            f"focus should be on the first visible file's hunk after 'r' "
+            f"from empty-state (s6.2) -- got path={app.focused.path!r}"
+        )
+
+        await _dismiss_diff(app, pilot)
+
+
+# ---------------------------------------------------------------------------
+# W5 -- Two-repos isolation: hides in repo A do not appear in repo B
+#       within the same session (TEST_SPECIFICATION s4 W5;
+#       SPECIFICATION s5.4 per-cwd HideStore isolation, s7
+#       same-cwd persistence across DiffScreen dismiss/reopen).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_w5_two_repos_hide_isolation(
+    mock_sdk, two_repos: tuple[Path, Path]
+) -> None:
+    """User hides a file in repo A; switches to repo B (no leakage);
+    returns to repo A (hide survives).
+
+    Sequence (TEST_SPECIFICATION W5):
+      - Active agent in ``repo_a``. ``/diff`` opens. Pilot presses
+        ``f`` to hide a file. Dismiss.
+      - Active agent's cwd is switched to ``repo_b`` (mutation of
+        ``app._agent.cwd``; the spec defers the exact mechanism to
+        testing-implementation, asserting only the resulting
+        behavior). ``/diff`` opens for ``repo_b``.
+      - cwd is switched back to ``repo_a``. ``/diff`` opens.
+
+    Asserts:
+      - After ``/diff`` in ``repo_b``: zero ``.hidden-entry`` classes;
+        zero ``FileDiffPanel.display == False``.
+      - After re-opening ``/diff`` in ``repo_a``: the previously
+        hidden file is still greyed (per-cwd persistence within the
+        same App lifetime).
+
+    Covers: HideStore per-cwd isolation (s5.4); same-cwd persistence
+    across DiffScreen dismiss/reopen.
+
+    cwd-switch mechanism note: the live agent's ``cwd`` attribute is
+    mutated directly. This matches W1-W3's ``_redirect_active_agent``
+    helper -- ``HideStore.get(repo_key)`` is keyed by the raw
+    ``cwd: Path`` per s5.4 (no symlink resolution, no
+    ``rev-parse --show-toplevel``), so two distinct ``Path`` values
+    are independent ``HideState`` slots regardless of how the cwd was
+    set. The agent-manager swap path (which would spawn a second SDK
+    client) is unnecessary for this property.
+    """
+    repo_a, repo_b = two_repos
+
+    app = ChatApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Initial cwd: repo_a.
+        await _redirect_active_agent(app, pilot, repo_a)
+
+        # ── Step 1: /diff in repo_a; hide a1.py via 'f'. ─────────────
+        screen_a1 = await _open_diff(app, pilot)
+        # Sanity: repo_a's panels are exactly {a1.py, a2.py}.
+        a1_paths = {p.change.path for p in screen_a1.query(FileDiffPanel)}
+        assert a1_paths == {"a1.py", "a2.py"}, (
+            f"repo_a /diff should show only repo_a's files -- got {a1_paths}"
+        )
+        # Default focus lands on the first hunk (alphabetical first =
+        # a1.py). Press 'f' to hide that file.
+        await pilot.press("f")
+        await pilot.pause()
+        a1_item = screen_a1.query_one(f"#{_path_to_id('a1.py')}", DiffFileItem)
+        assert a1_item.has_class("hidden-entry"), (
+            "a1.py should be greyed in repo_a after 'f' (sanity check before "
+            "the cross-repo isolation assertion)"
+        )
+
+        # Dismiss /diff -- DiffScreen pops; HideStore[repo_a] survives.
+        await _dismiss_diff(app, pilot)
+
+        # ── Step 2: switch agent's cwd to repo_b; open /diff. ────────
+        # Direct mutation of the live agent's cwd. Per the test docstring
+        # rationale, HideStore is keyed by raw Path so this is sufficient.
+        assert app._agent is not None  # already true post-_redirect; satisfies pyright
+        app._agent.cwd = repo_b
+        await pilot.pause()
+
+        screen_b = await _open_diff(app, pilot)
+        b_paths = {p.change.path for p in screen_b.query(FileDiffPanel)}
+        assert b_paths == {"b1.py", "b2.py"}, (
+            f"repo_b /diff should show only repo_b's files -- got {b_paths}; "
+            "if repo_a's files appear, the cwd switch did not redirect "
+            "get_changes correctly."
+        )
+        # No leakage: every DiffFileItem in repo_b is NOT greyed; every
+        # FileDiffPanel is visible.
+        for item in screen_b.query(DiffFileItem):
+            assert not item.has_class("hidden-entry"), (
+                f"{item.path} in repo_b carries .hidden-entry -- HideStore "
+                "isolation broken: repo_a's hide leaked across cwd switch."
+            )
+        for panel in screen_b.query(FileDiffPanel):
+            assert panel.display is True, (
+                f"{panel.change.path} panel in repo_b is hidden -- HideStore "
+                "leaked across cwd switch."
+            )
+
+        await _dismiss_diff(app, pilot)
+
+        # ── Step 3: switch back to repo_a; verify a1.py still hidden. ─
+        assert app._agent is not None
+        app._agent.cwd = repo_a
+        await pilot.pause()
+
+        screen_a2 = await _open_diff(app, pilot)
+        # Should re-render repo_a's files.
+        a2_paths = {p.change.path for p in screen_a2.query(FileDiffPanel)}
+        assert a2_paths == {"a1.py", "a2.py"}, (
+            f"return-to-repo_a /diff should show repo_a's files again -- got {a2_paths}"
+        )
+        # The earlier hide on a1.py must still apply (HideStore[repo_a]
+        # is alive for the App's lifetime).
+        a1_item_2 = screen_a2.query_one(f"#{_path_to_id('a1.py')}", DiffFileItem)
+        assert a1_item_2.has_class("hidden-entry"), (
+            "a1.py should STILL be greyed after the round-trip through "
+            "repo_b -- per-cwd persistence within the App lifetime "
+            "(s5.4) is broken."
+        )
+        a1_panel_2 = screen_a2.query_one(
+            f"#panel-{_path_to_hex('a1.py')}",
+            FileDiffPanel,
+        )
+        assert a1_panel_2.display is False, (
+            "a1.py's panel should still be hidden after returning to repo_a"
+        )
+        # a2.py was never hidden -- still visible.
+        a2_item_2 = screen_a2.query_one(f"#{_path_to_id('a2.py')}", DiffFileItem)
+        assert not a2_item_2.has_class("hidden-entry"), (
+            "a2.py should still be visible -- it was never hidden"
+        )
+
+        await _dismiss_diff(app, pilot)
+
+
+# ---------------------------------------------------------------------------
 # W3 -- Comment a hunk + toggle sort + dismiss + re-open: comment is
 #       preserved across sort flip; persisted sort mode round-trips
 #       (TEST_SPECIFICATION s4 W3; SPECIFICATION s9.2, s10).
@@ -542,7 +856,7 @@ async def test_w2_hide_unhide_via_keyboard_and_click(
       - Press ``d`` on src/b.py -> src/ prefix hides; both src/* greys;
         tests/x.py and README.md unaffected.
       - Click src/b.py's greyed sidebar entry -> only b.py un-greys
-        (A2 force_visible: per-file un-hide of prefix-greyed file --
+        (A2 force_visible: per-file unhide of prefix-greyed file --
         siblings stay hidden).
       - Click src/a.py's greyed sidebar entry -> the doubly-hidden
         file (in BOTH ``hide_files`` AND under the ``src/`` prefix)
@@ -587,10 +901,7 @@ async def test_w2_hide_unhide_via_keyboard_and_click(
             return screen.query_one(f"#{_path_to_id(path)}", DiffFileItem)
 
         def _file_panel(path: str) -> FileDiffPanel:
-            return screen.query_one(
-                f"#panel-{_path_to_id(path).removeprefix('sidebar-')}",
-                FileDiffPanel,
-            )
+            return screen.query_one(f"#panel-{_path_to_hex(path)}", FileDiffPanel)
 
         def _hunk_widget(path: str, idx: int = 0) -> HunkWidget:
             return screen.query_one(f"#{_path_to_id(path, idx)}", HunkWidget)
@@ -676,15 +987,24 @@ async def test_w2_hide_unhide_via_keyboard_and_click(
         _hunk_widget("README.md").focus()
         await pilot.pause()
         # Drain any prior notifications so the assertion below is
-        # specific to the d-on-root keypress.
+        # specific to the d-on-root keypress. Textual test-API
+        # convention: ``run_test(notifications=True)`` (above) enables
+        # capture; ``app._notifications`` is the documented
+        # introspection point for test code (Skeptic CP-A S1). Not a
+        # SUT private-state read.
         prior_notifications = list(app._notifications)
         await pilot.press("d")
         await pilot.pause()
         new_notifications = [
             n for n in app._notifications if n not in prior_notifications
         ]
+        # Per SPEC s5.5 the footer hint is the locked verbatim string
+        # ``"no parent directory to hide"`` -- equality, not substring.
+        # If Textual ever wraps the message in a way that breaks
+        # equality, treat that as a regression and escalate (don't
+        # carve out a substring fallback).
         assert any(
-            "no parent directory to hide" in str(n.message) for n in new_notifications
+            str(n.message) == "no parent directory to hide" for n in new_notifications
         ), (
             "footer hint 'no parent directory to hide' should surface on "
             f"d-at-repo-root -- new notifications: "
