@@ -84,8 +84,6 @@ class FileStat:
     untracked: bool = False
 
 
-# Skip untracked files if there are more than this many
-MAX_UNTRACKED_FILES = 4
 # Skip reading contents of untracked files larger than this
 MAX_UNTRACKED_FILE_SIZE = 1024
 
@@ -138,24 +136,18 @@ async def get_file_stats(cwd: str, target: str = "HEAD") -> list[FileStat]:
             for line in stdout.decode().strip().split("\n")
             if line and line not in seen_paths
         ]
-        # Skip all untracked files if too many
-        if len(untracked) <= MAX_UNTRACKED_FILES:
-            for line in untracked:
-                file_path = Path(cwd, line)
-                line_count = 0
-                try:
-                    # Only read small files
-                    if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                        line_count = len(
-                            file_path.read_text(encoding="utf-8").splitlines()
-                        )
-                except (OSError, UnicodeDecodeError):
-                    pass
-                stats.append(
-                    FileStat(
-                        path=line, additions=line_count, deletions=0, untracked=True
-                    )
-                )
+        for line in untracked:
+            file_path = Path(cwd, line)
+            line_count = 0
+            try:
+                # Only read small files
+                if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
+                    line_count = len(file_path.read_text(encoding="utf-8").splitlines())
+            except (OSError, UnicodeDecodeError):
+                pass
+            stats.append(
+                FileStat(path=line, additions=line_count, deletions=0, untracked=True)
+            )
 
     return stats
 
@@ -217,36 +209,101 @@ async def get_changes(cwd: str, target: str = "HEAD") -> list[FileChange]:
             for line in stdout.decode().strip().split("\n")
             if line and line not in tracked_paths
         ]
-        # Skip all untracked files if too many
-        if len(untracked) <= MAX_UNTRACKED_FILES:
-            for line in untracked:
-                file_path = Path(cwd, line)
-                try:
-                    # Only read small files for synthetic diff
-                    if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                        content = file_path.read_text(encoding="utf-8")
-                        lines = content.splitlines()
-                        hunk = Hunk(
-                            old_start=0,
-                            old_count=0,
-                            new_start=1,
-                            new_count=len(lines),
-                            old_lines=[],
-                            new_lines=lines,
-                        )
-                        files.append(
-                            FileChange(path=line, status="untracked", hunks=[hunk])
-                        )
-                    else:
-                        # Large file - include but without diff content
-                        files.append(
-                            FileChange(path=line, status="untracked", hunks=[])
-                        )
-                except (OSError, UnicodeDecodeError):
-                    # Binary or unreadable - include but without diff content
+        for line in untracked:
+            file_path = Path(cwd, line)
+            try:
+                # Only read small files for synthetic diff
+                if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
+                    content = file_path.read_text(encoding="utf-8")
+                    lines = content.splitlines()
+                    hunk = Hunk(
+                        old_start=0,
+                        old_count=0,
+                        new_start=1,
+                        new_count=len(lines),
+                        old_lines=[],
+                        new_lines=lines,
+                    )
+                    files.append(
+                        FileChange(path=line, status="untracked", hunks=[hunk])
+                    )
+                else:
+                    # Large file - include but without diff content
                     files.append(FileChange(path=line, status="untracked", hunks=[]))
+            except (OSError, UnicodeDecodeError):
+                # Binary or unreadable - include but without diff content
+                files.append(FileChange(path=line, status="untracked", hunks=[]))
 
     return files
+
+
+async def get_dirty_paths(cwd: str) -> set[str]:
+    """Return paths dirty in the working tree relative to HEAD.
+
+    Includes tracked-modified, staged, and ALL untracked entries -- no
+    truncation. For renames/copies (status R / C), returns the destination
+    path; the source path is dropped. On subprocess failure (non-zero
+    exit, e.g. not a git repo), returns an empty set so callers can fail
+    open.
+
+    The prune basis is always HEAD (per SPECIFICATION s8.6); this helper
+    intentionally takes no `target` argument.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "status",
+        "--porcelain",
+        "-z",
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return set()
+
+    # `git status --porcelain -z` emits NUL-terminated entries.
+    # Each regular entry: "XY <path>\0" (2 status chars + space + path).
+    # For renames/copies (status R or C), an additional "<source>\0" chunk
+    # follows the destination entry; the source is consumed but not
+    # included in the result (destination only, per spec s8.2).
+    #
+    # ``errors="replace"`` keeps the helper consistent with its own
+    # docstring contract: the helper only reports "subprocess failure"
+    # via the empty-set return; non-UTF-8 path bytes (rare; legacy
+    # filenames on Linux) yield a replacement-char path rather than
+    # raising. Such a path will not match anything in
+    # ``FilesSection._files`` (whose keys are real ``Path`` objects),
+    # so the prune-only invariant (s8.5) is preserved.
+    text = stdout.decode("utf-8", errors="replace")
+    chunks = text.split("\0")
+    # Trailing NUL produces a final empty chunk; drop it.
+    if chunks and chunks[-1] == "":
+        chunks.pop()
+
+    paths: set[str] = set()
+    i = 0
+    while i < len(chunks):
+        entry = chunks[i]
+        if len(entry) < 4:
+            # Malformed entry -- skip defensively. Real-world `git status`
+            # output is always well-formed (XY + space + non-empty path),
+            # so this branch is theoretical; if it ever fires on rename
+            # input, the pair-skip below may misalign subsequent chunks,
+            # but the only consequence is an over- or under-counted dirty
+            # set on already-malformed input -- the orchestrator's
+            # prune-only invariant (s8.5) still holds.
+            i += 1
+            continue
+        status = entry[:2]
+        path = entry[3:]
+        paths.add(path)
+        if "R" in status or "C" in status:
+            # Skip the trailing source-path chunk for rename/copy entries.
+            i += 2
+        else:
+            i += 1
+    return paths
 
 
 def _parse_name_status(output: str) -> list[FileChange]:

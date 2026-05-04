@@ -704,6 +704,25 @@ DiffFileItem.active {
     background: $primary 35%;
 }
 
+/* Hidden render variant for DiffFileItem (SPECIFICATION s7).
+   The Label markup inside the row applies muted color and strike-through
+   directly via Rich tags; this rule provides a hover affordance and
+   ensures the .active highlight cannot apply to a hidden entry. */
+DiffFileItem.hidden-entry {
+    background: transparent;
+}
+DiffFileItem.hidden-entry:hover {
+    background: $surface 50%;
+}
+
+/* Empty-state placeholder rendered by DiffView when every file is
+   hidden (SPECIFICATION s6.4). */
+DiffView .diff-empty-state {
+    padding: 2;
+    color: $text-muted;
+    text-align: center;
+}
+
 DiffView {
     padding: 1;
 }

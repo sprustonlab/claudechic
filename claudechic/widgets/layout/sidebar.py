@@ -388,6 +388,22 @@ class FilesSection(SidebarSection):
         self._files.clear()
         self.add_class("hidden")
 
+    def prune_to(self, dirty: set[Path]) -> None:
+        """Remove items whose path is not in ``dirty``. Never adds.
+
+        ``self._files`` is the source of truth for "files in this
+        section." Files appearing in ``dirty`` that are NOT currently in
+        ``self._files`` are ignored (prune-only invariant; SPECIFICATION
+        s8.5). If the section becomes empty, applies the ``.hidden``
+        class to mirror existing ``clear()`` behavior.
+        """
+        to_remove = [path for path in self._files if path not in dirty]
+        for path in to_remove:
+            item = self._files.pop(path)
+            item.remove()
+        if not self._files:
+            self.add_class("hidden")
+
     async def async_clear(self) -> None:
         """Remove all files from the section (async, awaits removal)."""
         if self._files:

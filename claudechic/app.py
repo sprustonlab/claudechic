@@ -404,6 +404,14 @@ class ChatApp(App):
         self.completions: asyncio.Queue[ResponseComplete] = asyncio.Queue()
         # File index for fuzzy file search
         self.file_index: FileIndex | None = None
+        # Diff feature stores (constructor-injected into DiffScreen).
+        # Lazy-imported to avoid pulling Textual widgets into module
+        # init; created here as singletons per ChatApp instance.
+        from claudechic.features.diff.hide import HideStore
+        from claudechic.features.diff.sort import SortModeStore
+
+        self._hide_store = HideStore()
+        self._sort_mode_store = SortModeStore()
         # Cached widget references (initialized lazily)
         self._agent_section: AgentSection | None = None
         self._plan_section: PlanSection | None = None
@@ -1412,9 +1420,7 @@ class ChatApp(App):
         try:
             self._project_config = ProjectConfig.load(self._cwd)
         except ConfigValidationError as e:
-            self.show_error(
-                f"Project config rejected: {e}. Using defaults.", e
-            )
+            self.show_error(f"Project config rejected: {e}. Using defaults.", e)
             self._project_config = ProjectConfig()
 
         # Discover workflow manifests and register slash commands
@@ -3931,13 +3937,13 @@ class ChatApp(App):
         editor = os.environ.get("EDITOR", "vi")
         handle_command(self, f"/shell -i {editor} {event.plan_path}")
 
-    def on_file_item_selected(self, event: FileItem.Selected) -> None:
+    async def on_file_item_selected(self, event: FileItem.Selected) -> None:
         """Handle file item click - open diff view focused on that file."""
-        self._toggle_diff_mode_for_file(str(event.file_path))
+        await self._toggle_diff_mode_for_file(str(event.file_path))
 
-    def on_diff_button_diff_requested(self, event) -> None:
+    async def on_diff_button_diff_requested(self, event) -> None:
         """Handle /diff button click from FilesSection header - open full diff view."""
-        self._toggle_diff_mode()
+        await self._toggle_diff_mode()
 
     def on_hamburger_button_sidebar_toggled(
         self, event: HamburgerButton.SidebarToggled
@@ -5223,7 +5229,31 @@ class ChatApp(App):
 
     # ── Diff Mode ──────────────────────────────────────────────────────────────
 
-    def _toggle_diff_mode(self, target: str | None = None) -> None:
+    async def _prune_files_section_to_git(self, agent: Agent) -> None:
+        """Prune FilesSection entries to the current dirty path set.
+
+        Called immediately before DiffScreen is pushed (per SPECIFICATION
+        s8.1 / s8.4). Remove-only -- never adds entries (s8.5). Subprocess
+        failures are silent (fail open; s8.7); the section retains its
+        current entries and DiffScreen still opens.
+
+        The prune basis is always HEAD via ``get_dirty_paths``; the
+        ``target`` argument that DiffScreen may receive is never used as
+        the prune basis (s8.6).
+        """
+        from claudechic.features.diff import get_dirty_paths
+
+        try:
+            dirty_strs = await get_dirty_paths(str(agent.cwd))
+        except Exception:
+            log.warning(
+                "get_dirty_paths failed; skipping FilesSection prune", exc_info=True
+            )
+            return
+        dirty = {Path(p) for p in dirty_strs}
+        self.files_section.prune_to(dirty)
+
+    async def _toggle_diff_mode(self, target: str | None = None) -> None:
         """Show diff screen for reviewing changes vs target (default HEAD)."""
         from claudechic.features.diff import HunkComment, format_hunk_comments
         from claudechic.screens import DiffScreen
@@ -5233,14 +5263,24 @@ class ChatApp(App):
             self.notify("No active agent", severity="error")
             return
 
+        await self._prune_files_section_to_git(agent)
+
         def on_dismiss(comments: list[HunkComment] | None) -> None:
             if comments:
                 self.chat_input.text = format_hunk_comments(comments)
             self.chat_input.focus()
 
-        self.push_screen(DiffScreen(agent.cwd, target or "HEAD"), on_dismiss)
+        self.push_screen(
+            DiffScreen(
+                agent.cwd,
+                target or "HEAD",
+                hide_store=self._hide_store,
+                sort_mode_store=self._sort_mode_store,
+            ),
+            on_dismiss,
+        )
 
-    def _toggle_diff_mode_for_file(self, file_path: str) -> None:
+    async def _toggle_diff_mode_for_file(self, file_path: str) -> None:
         """Show diff screen focused on a specific file."""
         from claudechic.features.diff import HunkComment, format_hunk_comments
         from claudechic.screens import DiffScreen
@@ -5250,13 +5290,22 @@ class ChatApp(App):
             self.notify("No active agent", severity="error")
             return
 
+        await self._prune_files_section_to_git(agent)
+
         def on_dismiss(comments: list[HunkComment] | None) -> None:
             if comments:
                 self.chat_input.text = format_hunk_comments(comments)
             self.chat_input.focus()
 
         self.push_screen(
-            DiffScreen(agent.cwd, "HEAD", focus_file=file_path), on_dismiss
+            DiffScreen(
+                agent.cwd,
+                "HEAD",
+                focus_file=file_path,
+                hide_store=self._hide_store,
+                sort_mode_store=self._sort_mode_store,
+            ),
+            on_dismiss,
         )
 
     def _update_vi_mode(self, enabled: bool) -> None:
