@@ -3,7 +3,8 @@
 Goal: Understand what the user wants before any setup.
 
 1. Read user's request
-2. Ask clarifying questions if needed
+2. Ask clarifying questions before drafting the Vision Summary. Wait
+   for the user's reply. Do not draft on a guess.
 3. Draft Vision Summary:
    - Goal (one sentence)
    - Value (why this matters)
