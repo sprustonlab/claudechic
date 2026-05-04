@@ -1,5 +1,21 @@
 # Testing Specification Phase
 
+## Step 0: Confirm with the user before delegating
+
+`userprompt_testing.md` was approved at the end of testing-vision, but
+days or messages may have passed. Before delegating spec synthesis to
+Leadership:
+
+1. Briefly confirm with the user that `userprompt_testing.md` still
+   reflects their intent.
+2. Ask if there are scoping constraints, infrastructure preferences,
+   or out-of-scope items they want forwarded to Leadership.
+3. Wait for the user's reply before kicking Leadership off.
+
+This is a checkpoint, not a re-vision pass. If the user signals
+significant change in intent, return to testing-vision rather than
+papering over it here.
+
 Leadership reviews the testing vision and produces a concrete test spec.
 
 ## Steps

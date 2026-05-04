@@ -7,6 +7,7 @@ from .git import (
     HunkComment,
     format_hunk_comments,
     get_changes,
+    get_dirty_paths,
     get_file_stats,
 )
 from .widgets import DiffSidebar, DiffView, EditFileRequested, FileDiffPanel, HunkWidget
@@ -18,6 +19,7 @@ __all__ = [
     "HunkComment",
     "format_hunk_comments",
     "get_changes",
+    "get_dirty_paths",
     "get_file_stats",
     "DiffSidebar",
     "DiffView",

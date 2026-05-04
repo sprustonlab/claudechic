@@ -15,15 +15,31 @@ from pathlib import Path
 
 import pytest
 from claudechic.features.diff.git import FileChange, Hunk
+from claudechic.features.diff.hide import HideState, HideStore
+from claudechic.features.diff.sort import SortModeStore, build_tree
+from claudechic.features.diff.tree import apply_hide
 from claudechic.features.diff.widgets import (
     DiffSidebar,
     DiffView,
     FileDiffPanel,
     HunkWidget,
+    _path_to_hex,
 )
 from claudechic.widgets.content.markdown_preview import PreviewToggle
 from claudechic.widgets.layout.sidebar import DiffButton, FilesSection
 from textual.app import App, ComposeResult
+
+
+def _build_test_tree(changes):
+    """Test helper: build a fresh DisplayTree with no files hidden.
+
+    Mirrors the s4 composition pipeline (build_tree + apply_hide) used
+    by DiffScreen on mount, so widget tests exercise the same data
+    shape the production controller produces.
+    """
+    tree = build_tree(changes, "alphabetical")
+    apply_hide(tree, HideState())
+    return tree
 
 
 class WidgetTestApp(App):
@@ -123,20 +139,21 @@ async def test_diff_button_and_md_preview_toggle(tmp_path: Path):
             from textual.containers import Horizontal
 
             with Horizontal():
-                yield DiffSidebar(changes, id="diff-sidebar")
-                yield DiffView(changes, cwd=tmp_path, id="diff-view")
+                tree = _build_test_tree(changes)
+                yield DiffSidebar(tree, HideState(), id="diff-sidebar")
+                yield DiffView(tree, cwd=tmp_path, id="diff-view")
 
     app = DiffTestApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
         # The .md file's FileDiffPanel should have a PreviewToggle
-        md_panel = app.query_one("#panel-README-md", FileDiffPanel)
+        md_panel = app.query_one(f"#panel-{_path_to_hex('README.md')}", FileDiffPanel)
         preview_toggle = md_panel.query_one(PreviewToggle)
         assert preview_toggle is not None
 
         # The .py file's panel should NOT have a PreviewToggle
-        py_panel = app.query_one("#panel-main-py", FileDiffPanel)
+        py_panel = app.query_one(f"#panel-{_path_to_hex('main.py')}", FileDiffPanel)
         py_toggles = py_panel.query(PreviewToggle)
         assert len(py_toggles) == 0
 
@@ -205,14 +222,15 @@ async def test_md_preview_rejects_large_files(tmp_path: Path):
             from textual.containers import Horizontal
 
             with Horizontal():
-                yield DiffSidebar([big_change], id="diff-sidebar")
-                yield DiffView([big_change], cwd=tmp_path, id="diff-view")
+                tree = _build_test_tree([big_change])
+                yield DiffSidebar(tree, HideState(), id="diff-sidebar")
+                yield DiffView(tree, cwd=tmp_path, id="diff-view")
 
     app = DiffTestApp()
     async with app.run_test(size=(120, 40), notifications=True) as pilot:
         await pilot.pause()
 
-        panel = app.query_one("#panel-BIGFILE-md", FileDiffPanel)
+        panel = app.query_one(f"#panel-{_path_to_hex('BIGFILE.md')}", FileDiffPanel)
         panel.query_one(PreviewToggle)
 
         # Click [Preview] on the large file
@@ -279,7 +297,14 @@ async def test_diffscreen_shows_preview_toggle_for_md(tmp_path: Path):
             yield Label("")  # empty placeholder
 
         async def on_mount(self) -> None:
-            await self.push_screen(DiffScreen(cwd, "HEAD"))
+            await self.push_screen(
+                DiffScreen(
+                    cwd,
+                    "HEAD",
+                    hide_store=HideStore(),
+                    sort_mode_store=SortModeStore(),
+                )
+            )
 
     app = TestApp()
     async with app.run_test(size=(120, 40)) as pilot:
@@ -556,7 +581,13 @@ async def test_diffscreen_passes_cwd_to_diffview(tmp_path: Path):
 
         class ScreenTestApp(App):
             def on_mount(self):
-                self.push_screen(DiffScreen(cwd=tmp_path))
+                self.push_screen(
+                    DiffScreen(
+                        cwd=tmp_path,
+                        hide_store=HideStore(),
+                        sort_mode_store=SortModeStore(),
+                    )
+                )
 
         app = ScreenTestApp()
         async with app.run_test(size=(120, 40)) as pilot:
@@ -565,7 +596,9 @@ async def test_diffscreen_passes_cwd_to_diffview(tmp_path: Path):
 
             # Verify PreviewToggle exists and is visible for .md file
             screen = app.screen
-            md_panel = screen.query_one("#panel-README-md", FileDiffPanel)
+            md_panel = screen.query_one(
+                f"#panel-{_path_to_hex('README.md')}", FileDiffPanel
+            )
             toggle = md_panel.query_one(PreviewToggle)
             assert toggle.display is True
 

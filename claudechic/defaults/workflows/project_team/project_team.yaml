@@ -73,8 +73,19 @@ rules:
     detect:
       field: file_path
       pattern: ".+"
-    exclude_if_matches: "\\.md$"
+    exclude_if_matches: "\\.(md|gitignore)$"
     message: "Coordinator should delegate code writing to Implementer agents"
+    roles: [coordinator]
+
+  - id: no_direct_spec_edit_coordinator
+    trigger: [PreToolUse/Edit, PreToolUse/Write]
+    enforcement: warn
+    detect:
+      field: file_path
+      pattern: "(?i)(?:\\.project_team|\\.claudechic/runs)/[^/]+/(?:.*/)?spec[^/]*\\.md$"
+    message: >-
+      Coordinator should delegate spec edits to a Leadership/Implementer agent
+      rather than editing artifact spec files directly.
     roles: [coordinator]
 
   - id: no_push_before_testing

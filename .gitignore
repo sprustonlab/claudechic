@@ -21,6 +21,7 @@ wheels/
 # Claudechic runtime state (post Group B boundary relocation; SPEC §2)
 .claudechic/hits.jsonl
 .claudechic/hints_state.json
+.claudechic/diff.yaml
 
 # Claudechic session state
 .chicsessions/
@@ -73,5 +74,9 @@ data/processed/
 *.csv
 *.parquet
 
-# Project team (tracked on develop, blocked from main via pre-commit hook)
+# Project team artifacts (tracked on develop, blocked from main via pre-commit hook).
 .project_team/
+
+# Vim swap files
+*.swp
+*.swo

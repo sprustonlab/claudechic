@@ -345,7 +345,18 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
     if cmd == "/diff" or cmd == "/d" or cmd.startswith("/diff "):
         _track_command(app, "diff")
         target = cmd.split(maxsplit=1)[1] if cmd.startswith("/diff ") else None
-        app._toggle_diff_mode(target)
+        # _toggle_diff_mode is async (awaits FilesSection prune before
+        # pushing DiffScreen, per SPECIFICATION s8.1). Schedule it via
+        # run_worker so handle_command stays sync for its callers.
+        # exit_on_error=True preserves the pre-async observability
+        # contract: spec s8.7 fail-open is scoped to the prune step
+        # (handled inside _prune_files_section_to_git); any other
+        # exception inside _toggle_diff_mode (push_screen failure, etc.)
+        # must still propagate to Textual's error handler.
+        # exclusive=True prevents double-fire on rapid /diff keypresses.
+        app.run_worker(
+            app._toggle_diff_mode(target), exclusive=True, exit_on_error=True
+        )
         return True
 
     if cmd == "/rewind" or cmd.startswith("/rewind "):
