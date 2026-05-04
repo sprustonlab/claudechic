@@ -4521,6 +4521,17 @@ class ChatApp(App):
             event.stop()
 
     def on_key(self, event) -> None:
+        # The "type-anywhere-routes-to-chat-input" UX is intentional only
+        # for ChatScreen. On other screens (e.g. DiffScreen) this handler
+        # would otherwise consume single-character keys before Textual's
+        # screen-level Binding lookup runs, breaking single-char bindings
+        # like ``s f d r j k`` on those screens. Local import to match
+        # the existing pattern used elsewhere in this file (e.g.
+        # ``_make_screen``).
+        from claudechic.screens.chat import ChatScreen
+
+        if not isinstance(self.screen, ChatScreen):
+            return
         if self.query(SelectionPrompt) or self.query(QuestionPrompt):
             return
         if not self._chat_input or self.focused == self._chat_input:
