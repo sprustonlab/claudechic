@@ -494,6 +494,39 @@ async def test_command_output_check_substitutes_artifact_dir_token(tmp_path):
     assert result.passed is True
 
 
+async def test_file_exists_check_substitutes_artifact_dir_token(tmp_path):
+    """Engine substitutes ${CLAUDECHIC_ARTIFACT_DIR} in file-exists-check path.
+
+    Regression for issue #30: bundled project_team.yaml advance checks
+    were rewritten from POSIX-shell `test -f` (cmd.exe-incompatible) to
+    `file-exists-check` (pure-Python, cross-platform). This test pins
+    the substitution path that fix relies on.
+    """
+    engine = _make_engine()
+    target = tmp_path / "art"
+    target.mkdir()
+    (target / "STATUS.md").write_text("hi")
+    await engine.set_artifact_dir(str(target))
+
+    decl = CheckDecl(
+        id="proj:setup:advance:1",
+        namespace="proj",
+        type="file-exists-check",
+        params={"path": "${CLAUDECHIC_ARTIFACT_DIR}/STATUS.md"},
+    )
+    pass_result = await engine._run_single_check(decl)
+    assert pass_result.passed is True
+
+    missing_decl = CheckDecl(
+        id="proj:setup:advance:2",
+        namespace="proj",
+        type="file-exists-check",
+        params={"path": "${CLAUDECHIC_ARTIFACT_DIR}/MISSING.md"},
+    )
+    fail_result = await engine._run_single_check(missing_decl)
+    assert fail_result.passed is False
+
+
 # ---------------------------------------------------------------------------
 # Path.samefile + symlink edge cases (Skeptic2 / Leadership review)
 # ---------------------------------------------------------------------------
