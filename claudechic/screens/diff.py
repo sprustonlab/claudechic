@@ -261,11 +261,27 @@ class DiffScreen(Screen[list[HunkComment]]):
         self._after_hide_change(prev_focus_path=path)
 
     def action_reset_hides(self) -> None:
-        """Reset hide state for the current cwd only (s5.5)."""
+        """Reset hide state for the current cwd only (s5.5).
+
+        SPECIFICATION s6.2 carve-out: ``r`` from the empty-state
+        placeholder moves focus to the first hunk of the first visible
+        file. Detected by ``current_focus_key() is None`` BEFORE the
+        reset (the empty-state placeholder is the only state where the
+        focus key is ``None`` while the screen is mounted). The
+        carve-out is local to this action -- it is intentionally NOT
+        widened to ``DiffView.refresh_hide``, since that would also
+        change focus on click-unhide-from-empty-state which the user
+        rejected at the testing-spec checkpoint.
+        """
         if self._view and self._view.is_editing():
             return
+        was_empty = self._view is not None and self._view.current_focus_key() is None
         self._hide_store.reset(self._cwd)
         self._after_hide_change(prev_focus_path=self._focused_path())
+        if was_empty and self._view is not None:
+            first_key = self._view.first_focus_key()
+            if first_key is not None:
+                self._view.set_focus_key(first_key)
 
     # ── Click-to-unhide (s5.5) ───────────────────────────────────────
 

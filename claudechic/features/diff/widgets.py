@@ -849,6 +849,18 @@ class DiffView(VerticalScroll):
             return None
         return self._hunk_list[self._current_idx]
 
+    def first_focus_key(self) -> tuple[str, int] | None:
+        """Return the first visible focus key, or ``None`` if every
+        file is hidden.
+
+        Used by the controller's ``r``-from-empty-state carve-out
+        (SPECIFICATION s6.2): when the user resets hides while in the
+        empty-state placeholder, focus moves to the first hunk of the
+        first visible file. Exposed as a public read so DiffScreen
+        does not have to index ``_hunk_list`` directly.
+        """
+        return self._hunk_list[0] if self._hunk_list else None
+
     def set_focus_key(self, key: tuple[str, int]) -> None:
         """Focus the hunk identified by ``key``, if it is in the
         currently visible hunk list."""
