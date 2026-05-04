@@ -75,3 +75,7 @@ data/processed/
 *.parquet
 
 # Project team artifacts: tracked on develop, blocked from main via pre-commit hook.
+
+# Vim swap files
+*.swp
+*.swo
