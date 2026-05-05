@@ -188,6 +188,15 @@ For live testing by AI agents, run with remote control enabled:
 
 This starts an HTTP server on port 9999 with endpoints for sending messages, taking screenshots, and checking state. See [docs/dev/remote-testing.md](docs/dev/remote-testing.md) for full API documentation.
 
+## Branch policy
+
+- `develop` is the trunk. All work commits land here first.
+- `main` is the public release branch. PRs target `main` from `develop` (or feature branches).
+- `.project_team/` is **develop-only** audit-trail material. PRs to main must not include `.project_team/` paths.
+  - Enforced by `.github/workflows/no-project-team-additions-on-main.yml` (required status check).
+  - The local `block-project-team-on-main` pre-commit hook is a belt-and-suspenders for direct-on-main commits.
+- Cleanup PRs that delete `.project_team/` paths from main are explicitly allowed.
+
 ## Pre-commit Hooks
 
 ```bash
@@ -195,7 +204,7 @@ uv run pre-commit install  # Install hooks (one-time)
 uv run pre-commit run --all-files  # Run manually
 ```
 
-Hooks: ruff (lint + fix), ruff-format, pyright. Run automatically on commit.
+Hooks: ruff (lint + fix), ruff-format, check-added-large-files, pyright, block-project-team-on-main. Run automatically on commit.
 
 ## GitHub
 
