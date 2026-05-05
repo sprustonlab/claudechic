@@ -171,6 +171,7 @@ async def test_b3_workflow_activation_promotes_agent_no_sdk_reconnect(
             # Same agent instance, same session: the role was flipped
             # in-place, no reconnect.
             assert id(app._agent) == agent_id_before
+            assert app._agent is not None  # set by ChatApp.on_mount
             assert app._agent.session_id == agent_session_before
             assert app._agent.agent_type == "coordinator"
 
@@ -207,6 +208,7 @@ async def test_b3_workflow_deactivation_reverts_agent_to_default(
 
             await app._activate_workflow("test_workflow")
             await pilot.pause()
+            assert app._agent is not None  # set by ChatApp.on_mount
             assert app._agent.agent_type == "coordinator"
 
             app._deactivate_workflow()

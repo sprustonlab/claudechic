@@ -9,7 +9,14 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-added-large-files
-        args: ['--maxkb=100']
+        # Bumped from 100 to 200 KB to admit
+        # `.project_team/pyright_cleanup/specification/manifest.jsonl`
+        # (~145 KB), the canonical audit trail for the pyright_cleanup
+        # project per SPECIFICATION.md s 4 (Compositional Law). Headroom
+        # leaves room for similar manifest-as-law artifacts in future
+        # multi-agent workflow projects without being permissive enough
+        # to slip large binaries past review.
+        args: ['--maxkb=200']
   - repo: local
     hooks:
       - id: pyright

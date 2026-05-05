@@ -71,9 +71,7 @@ def test_gate_phase_advance_default_set_excludes_identity_and_environment():
     settings = GateSettings()
     # Make this NOT a standing-by cell so the standing-by branch is moot
     # and we exercise only the default-segment-set + sites layers.
-    manifest = GateManifest(
-        role_phase_files=frozenset({("coordinator", "design")})
-    )
+    manifest = GateManifest(role_phase_files=frozenset({("coordinator", "design")}))
     # Excluded
     for place in ("identity", "environment", "constraints_stable"):
         assert (
@@ -246,9 +244,7 @@ def test_gate_purity_same_inputs_same_output(monkeypatch):
     # Pin: gate is pure. Patching wall-clock between calls must not
     # change behavior; same inputs -> same bool.
     settings = GateSettings()
-    manifest = GateManifest(
-        role_phase_files=frozenset({("coordinator", "design")})
-    )
+    manifest = GateManifest(role_phase_files=frozenset({("coordinator", "design")}))
     first = gate(
         time="spawn",
         place="phase",

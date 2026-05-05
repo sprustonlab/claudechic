@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 from claude_agent_sdk import ToolUseBlock
-from claudechic.app import ChatApp
 from claudechic.widgets.content.tools import AgentToolWidget
 from claudechic.widgets.primitives.collapsible import QuietCollapsible
 from textual.app import App, ComposeResult

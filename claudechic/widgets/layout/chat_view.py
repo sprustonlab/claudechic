@@ -29,6 +29,7 @@ from claudechic.widgets.primitives.scroll import AutoHideScroll
 
 if TYPE_CHECKING:
     from claude_agent_sdk import ToolResultBlock, ToolUseBlock
+    from claudechic.agent import MessageMetadata
 
 # Tools to collapse by default
 COLLAPSE_BY_DEFAULT = {
@@ -139,7 +140,6 @@ class ChatView(AutoHideScroll):
             return
 
         # Group messages into turns (user + assistant pairs) with metadata
-        from claudechic.agent import MessageMetadata
 
         turns: list[
             tuple[

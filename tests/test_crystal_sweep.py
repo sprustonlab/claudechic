@@ -397,6 +397,8 @@ async def test_crystal_5_sub_agent_spawn_receives_constraints(
 
             from claudechic.mcp import _make_spawn_agent
 
+            assert app._agent is not None  # set by ChatApp.on_mount
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
             await spawn_tool.handler(
@@ -488,6 +490,7 @@ async def test_crystal_6_disabled_rule_absent_from_hook_and_mcp(
             # mention warn_sudo. (Seam #5 -- registry layer source-of-truth.)
             from claudechic.mcp import _make_get_applicable_rules
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             tool = _make_get_applicable_rules(caller_name=app._agent.name)
             result = await tool.handler({})
             text = result["content"][0]["text"]
@@ -607,6 +610,8 @@ async def test_crystal_8_broadcast_phase_advance_delivers_constraints_to_sub_age
 
             from claudechic.mcp import _make_advance_phase, _make_spawn_agent
 
+            assert app._agent is not None  # set by ChatApp.on_mount
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
             await spawn_tool.handler(

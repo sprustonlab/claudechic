@@ -409,9 +409,7 @@ def test_project_config_unknown_site_token_dropped_with_warning(tmp_path):
 
     pc = ProjectConfig.load(tmp_path)
     sites = pc.constraints_segment.get("sites")
-    assert sites == frozenset({"spawn"}), (
-        f"Unknown token must be dropped; got {sites}"
-    )
+    assert sites == frozenset({"spawn"}), f"Unknown token must be dropped; got {sites}"
 
 
 @pytest.mark.timeout(30)
@@ -435,15 +433,13 @@ def test_build_gate_settings_project_tier_overrides_user_tier(tmp_path):
     user_config = {
         "constraints_segment": {
             "compact": True,
-            "scope": {"sites": ["spawn", "activation", "phase-advance", "post-compact"]},
+            "scope": {
+                "sites": ["spawn", "activation", "phase-advance", "post-compact"]
+            },
         },
     }
     yaml_body = (
-        "constraints_segment:\n"
-        "  compact: false\n"
-        "  scope:\n"
-        "    sites:\n"
-        "      - spawn\n"
+        "constraints_segment:\n  compact: false\n  scope:\n    sites:\n      - spawn\n"
     )
     _write_project_yaml(tmp_path, yaml_body)
     pc = ProjectConfig.load(tmp_path)

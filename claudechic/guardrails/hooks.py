@@ -12,9 +12,9 @@ from __future__ import annotations
 import dataclasses
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from claude_agent_sdk.types import HookMatcher
+from claude_agent_sdk.types import HookCallback, HookMatcher
 
 from claudechic.guardrails.hits import HitLogger, HitRecord
 from claudechic.guardrails.rules import (
@@ -180,4 +180,5 @@ def create_guardrail_hooks(
             }
         return {}  # No blocking rule matched — allow
 
-    return {"PreToolUse": [HookMatcher(matcher=None, hooks=[evaluate])]}
+    hooks = cast("list[HookCallback]", [evaluate])
+    return {"PreToolUse": [HookMatcher(matcher=None, hooks=hooks)]}

@@ -116,9 +116,7 @@ async def test_advanced_constraints_sites_screen_clearing_last_checkbox_reverts_
         await pilot.pause()
 
         # Capture notify calls (observation of UI affordance, not mocking SUT).
-        monkeypatch.setattr(
-            app, "notify", lambda *a, **kw: captured.append((a, kw))
-        )
+        monkeypatch.setattr(app, "notify", lambda *a, **kw: captured.append((a, kw)))
 
         # Start with exactly one site checked.
         await _push_and_settle(
@@ -151,9 +149,7 @@ async def test_advanced_environment_sites_screen_clearing_last_checkbox_reverts_
     app = ChatApp()
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
-        monkeypatch.setattr(
-            app, "notify", lambda *a, **kw: captured.append((a, kw))
-        )
+        monkeypatch.setattr(app, "notify", lambda *a, **kw: captured.append((a, kw)))
         await _push_and_settle(
             app,
             pilot,
@@ -169,9 +165,7 @@ async def test_advanced_environment_sites_screen_clearing_last_checkbox_reverts_
         assert spawn_row.checked
 
         notices = [a[0] for (a, kw) in captured if a]
-        assert any(
-            "at least one site must remain checked" in str(n) for n in notices
-        )
+        assert any("at least one site must remain checked" in str(n) for n in notices)
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +187,7 @@ async def test_advanced_constraints_sites_screen_enter_dismisses_with_frozenset_
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
         app.push_screen(
-            AdvancedConstraintsSitesScreen(
-                frozenset({"spawn", "activation"})
-            ),
+            AdvancedConstraintsSitesScreen(frozenset({"spawn", "activation"})),
             callback=_on_dismiss,
         )
         for _ in range(4):

@@ -171,7 +171,7 @@ async def run_pipeline(
 
         # Track taught command for learn-command rotation (duck typing)
         if hasattr(hint.trigger, "_pick_command"):
-            cmd = hint.trigger._pick_command()
+            cmd = hint.trigger._pick_command()  # pyright: ignore[reportAttributeAccessIssue]  # duck-typed: hasattr-guarded above
             if cmd:
                 state_store.add_taught_command(cmd.name, hint.id)
 

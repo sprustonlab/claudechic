@@ -59,9 +59,7 @@ def test_peer_roster_unknown_role_renders_with_empty_description_cell(tmp_path):
 def test_peer_roster_skeptic_role_does_not_emit_table(tmp_path):
     """Coordinator-only segment -- non-coordinator roles get no table."""
     peers = {"test_engineer": "te_1"}
-    out = _render_environment(
-        _coord_ctx(tmp_path, role="skeptic", peer_agents=peers)
-    )
+    out = _render_environment(_coord_ctx(tmp_path, role="skeptic", peer_agents=peers))
     assert "| role | name | description |" not in out
 
 

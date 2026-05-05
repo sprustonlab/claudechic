@@ -255,9 +255,7 @@ def test_assemble_constraints_block_compact_true_yields_bullet_list(monkeypatch)
         phase=None,
         compact=True,
     )
-    bullet_lines = [
-        ln for ln in out.splitlines() if ln.startswith("- global:foo")
-    ]
+    bullet_lines = [ln for ln in out.splitlines() if ln.startswith("- global:foo")]
     assert bullet_lines, f"Expected bullet line for global:foo in:\n{out}"
     assert "|----" not in out
 
@@ -321,9 +319,7 @@ def test_assemble_constraints_block_post_compact_full_refresh_single_constraints
 # ---------------------------------------------------------------------------
 
 
-def test_at_broadcast_emits_phase_and_constraints_phase_only(
-    monkeypatch, tmp_path
-):
+def test_at_broadcast_emits_phase_and_constraints_phase_only(monkeypatch, tmp_path):
     """At T3 (phase-advance): identity is suppressed, environment is
     suppressed, only phase + constraints_phase render. Single
     ``## Constraints`` heading.
@@ -338,12 +334,8 @@ def test_at_broadcast_emits_phase_and_constraints_phase_only(
 
     role_dir = tmp_path / "coordinator"
     role_dir.mkdir()
-    (role_dir / "identity.md").write_text(
-        "IDENT-MARK", encoding="utf-8"
-    )
-    (role_dir / "design.md").write_text(
-        "PHASE-MARK", encoding="utf-8"
-    )
+    (role_dir / "identity.md").write_text("IDENT-MARK", encoding="utf-8")
+    (role_dir / "design.md").write_text("PHASE-MARK", encoding="utf-8")
 
     loader = _StubLoader(LoadResult())
     out = assemble_agent_prompt(
@@ -408,7 +400,9 @@ def test_at_broadcast_standing_by_role_emits_only_constraints_phase(
         active_workflow="proj",
         time="phase-advance",
     )
-    assert out is not None, "constraints_phase must still fire for standing-by recipient"
+    assert out is not None, (
+        "constraints_phase must still fire for standing-by recipient"
+    )
     # Identity and phase both suppressed.
     assert "SKEPTIC-IDENT" not in out
     assert "COORD-IDENT" not in out

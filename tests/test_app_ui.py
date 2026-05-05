@@ -1107,6 +1107,7 @@ async def test_advance_check_toast_for_inactive_agent(mock_sdk):
 
         # Switch to first agent via API (avoids flaky WaitForScreenTimeout)
         first_id = agent_ids[0]
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(first_id)
         await pilot.pause()
         second_agent = app.agents[agent_ids[1]]
@@ -1200,6 +1201,7 @@ async def test_advance_check_no_auto_switch(mock_sdk):
         agent_ids = list(app.agents.keys())
         # Switch to first agent via API (avoids flaky WaitForScreenTimeout)
         first_id = agent_ids[0]
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(first_id)
         await pilot.pause()
         second_agent = app.agents[agent_ids[1]]
@@ -1312,6 +1314,7 @@ async def test_override_prompt_toast_for_inactive_agent(mock_sdk):
 
         agent_ids = list(app.agents.keys())
         # Use agent_mgr.switch to avoid flaky WaitForScreenTimeout
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(agent_ids[0])
         await pilot.pause()
         second_agent = app.agents[agent_ids[1]]
@@ -1389,6 +1392,7 @@ async def test_toast_debounce_suppresses_repeat(mock_sdk):
 
         agent_ids = list(app.agents.keys())
         # Use agent_mgr.switch to avoid flaky ctrl+1 WaitForScreenTimeout
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(agent_ids[0])
         await pilot.pause()
         second_agent = app.agents[agent_ids[1]]
@@ -1440,6 +1444,7 @@ async def test_toast_debounce_allows_different_keys(mock_sdk):
 
         agent_ids = list(app.agents.keys())
         # Use agent_mgr.switch to avoid flaky WaitForScreenTimeout
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(agent_ids[0])
         await pilot.pause()
         second_agent = app.agents[agent_ids[1]]
@@ -1545,6 +1550,7 @@ async def test_prompt_visible_and_focused_after_agent_switch(mock_sdk):
         second_agent = app.agents[second_id]
 
         # Make first agent active so second is inactive
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(first_id)
         await pilot.pause()
 
@@ -1575,6 +1581,7 @@ async def test_prompt_visible_and_focused_after_agent_switch(mock_sdk):
             return original_ci_focus(*a, **kw)
 
         with patch.object(app.chat_input, "focus", side_effect=spy_ci_focus):
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             app.agent_mgr.switch(second_id)
             await pilot.pause()
             await pilot.pause()
@@ -1621,6 +1628,7 @@ async def test_prompt_refocused_after_switch_away_and_back(mock_sdk):
         first_id, second_id = agent_ids[0], agent_ids[1]
         first_agent = app.agents[first_id]
 
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(first_id)
         await pilot.pause()
 
@@ -1641,6 +1649,7 @@ async def test_prompt_refocused_after_switch_away_and_back(mock_sdk):
         assert not prompt.has_class("hidden")
 
         # Switch away
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         app.agent_mgr.switch(second_id)
         await pilot.pause()
         assert prompt.has_class("hidden")
@@ -1662,6 +1671,7 @@ async def test_prompt_refocused_after_switch_away_and_back(mock_sdk):
             patch.object(app, "refresh_css", side_effect=spy_refresh),
             patch.object(prompt, "focus", side_effect=spy_pfocus),
         ):
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             app.agent_mgr.switch(first_id)
             await pilot.pause()
             await pilot.pause()

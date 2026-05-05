@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -581,6 +582,7 @@ async def test_e2e_activation_delivers_prompt_to_real_agent(
             await pilot.pause()
             await pilot.pause()
 
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             agent = app.agent_mgr.active
             assert agent is not None, "Active agent must exist after activation"
 

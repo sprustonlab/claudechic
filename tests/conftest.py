@@ -246,6 +246,9 @@ def workflow_dir_factory(tmp_path):
     ) -> Path:
         if root is None:
             root = tmp_path
+        # Pyright loses the narrowing across the closure-captured tmp_path
+        # assignment above; reassert so the / operators below are valid.
+        assert root is not None
         roles = roles or {}
         with_identity = with_identity or {}
         (root / "global").mkdir(parents=True, exist_ok=True)

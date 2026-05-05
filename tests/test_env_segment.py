@@ -124,17 +124,13 @@ def test_render_environment_peer_roster_coordinator_only(tmp_path):
     )
     assert "| role | name | description |" in coord_out
 
-    skep_out = _render_environment(
-        _ctx(tmp_path, role="skeptic", peer_agents=peers)
-    )
+    skep_out = _render_environment(_ctx(tmp_path, role="skeptic", peer_agents=peers))
     assert "| role | name | description |" not in skep_out
 
 
 def test_render_environment_peer_roster_renders_provided_peers_only(tmp_path):
     peers = {"skeptic": "sk_1"}
-    out = _render_environment(
-        _ctx(tmp_path, role="coordinator", peer_agents=peers)
-    )
+    out = _render_environment(_ctx(tmp_path, role="coordinator", peer_agents=peers))
     # Provided peer name is present.
     assert "sk_1" in out
     # Roles NOT in peer_agents do not appear as roster rows. The overlay

@@ -11,7 +11,7 @@ import signal
 import subprocess
 import sys
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 # PTY support is Unix-only
 UNIX_PTY_SUPPORT = sys.platform != "win32"
@@ -257,7 +257,16 @@ def _run_in_subprocess_with_cancel(
                 break
             # Read in small chunks with a timeout via poll
             if proc.stdout is not None:
-                data = proc.stdout.read1(4096) if hasattr(proc.stdout, "read1") else b""
+                # `read1` is on BufferedReader, not the generic IO[bytes]
+                # that Popen.stdout is typed as. Cast inside the hasattr
+                # guard so pyright resolves the attribute statically.
+                from io import BufferedReader
+
+                data = (
+                    cast(BufferedReader, proc.stdout).read1(4096)
+                    if hasattr(proc.stdout, "read1")
+                    else b""
+                )
                 if data:
                     output += data
                 elif proc.poll() is not None:

@@ -19,7 +19,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
@@ -323,8 +323,9 @@ def _make_spawn_agent(caller_name: str | None = None):
                         # get_agent_info) report. Helper is exposed by
                         # slot 4 in app.py.
                         get_disabled = getattr(_app, "_get_disabled_rules", None)
-                        disabled_rules = (
-                            get_disabled() if callable(get_disabled) else None
+                        disabled_rules = cast(
+                            "frozenset[str] | None",
+                            get_disabled() if callable(get_disabled) else None,
                         )
                         folder_prompt = assemble_agent_prompt(
                             agent_type,
@@ -1028,8 +1029,9 @@ def _make_advance_phase(caller_name: str | None = None):
                     # report. Computed once outside the loop -- the set
                     # is invariant across recipients.
                     get_disabled = getattr(_app, "_get_disabled_rules", None)
-                    disabled_rules_b = (
-                        get_disabled() if callable(get_disabled) else None
+                    disabled_rules_b = cast(
+                        "frozenset[str] | None",
+                        get_disabled() if callable(get_disabled) else None,
                     )
                     # Computed once outside the loop -- the peer roster
                     # snapshot is invariant across recipients in a single
@@ -1373,7 +1375,10 @@ def _make_get_applicable_rules(caller_name: str | None = None):
             # fires on, what the four prompt-injection sites embed, and
             # what get_agent_info aggregates. Helper is exposed by slot 4.
             get_disabled = getattr(_app, "_get_disabled_rules", None)
-            disabled_rules_app = get_disabled() if callable(get_disabled) else None
+            disabled_rules_app = cast(
+                "frozenset[str] | None",
+                get_disabled() if callable(get_disabled) else None,
+            )
             block = assemble_constraints_block(
                 loader,
                 role,
@@ -1557,7 +1562,10 @@ def _make_get_agent_info(caller_name: str | None = None):
             # active/inactive set as get_applicable_rules and the four
             # prompt-injection sites. Helper is exposed by slot 4.
             get_disabled = getattr(_app, "_get_disabled_rules", None)
-            disabled_rules_info = get_disabled() if callable(get_disabled) else None
+            disabled_rules_info = cast(
+                "frozenset[str] | None",
+                get_disabled() if callable(get_disabled) else None,
+            )
             # SPEC §3.7 / §3.12: the get_agent_info ``compact`` parameter
             # is the sole control over rendering shape; the user-tier
             # constraints_segment.compact setting is NOT consulted here.
@@ -1744,7 +1752,7 @@ def create_chic_server(
 
     # LSF cluster tools (always registered; LSF availability checked at runtime)
     try:
-        from claudechic.cluster import (
+        from claudechic.cluster import (  # pyright: ignore[reportMissingImports]  # claudechic.cluster is an optional plugin module (try/except ImportError at runtime)
             _make_cluster_watch,
             cluster_jobs,
             cluster_kill,

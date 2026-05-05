@@ -50,7 +50,7 @@ def test_a2_paths_module_absent() -> None:
     # ``compute_state_dir`` was the helper that would have lived in
     # claudechic.paths -- prove it never landed elsewhere either.
     with pytest.raises(ImportError):
-        from claudechic.paths import compute_state_dir  # noqa: F401
+        from claudechic.paths import compute_state_dir  # noqa: F401  # pyright: ignore[reportMissingImports]  # negative test: claudechic.paths is the assertion subject
 
 
 # ---------------------------------------------------------------------------

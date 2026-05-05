@@ -206,9 +206,7 @@ def parse_constraints_segment(
     if raw is None:
         return {}
     if not isinstance(raw, dict):
-        log.warning(
-            "%s: 'constraints_segment' must be a mapping; ignoring", source
-        )
+        log.warning("%s: 'constraints_segment' must be a mapping; ignoring", source)
         return {}
     out: dict[str, Any] = {}
     if "compact" in raw:
@@ -251,9 +249,7 @@ def parse_environment_segment(
     if raw is None:
         return {}
     if not isinstance(raw, dict):
-        log.warning(
-            "%s: 'environment_segment' must be a mapping; ignoring", source
-        )
+        log.warning("%s: 'environment_segment' must be a mapping; ignoring", source)
         return {}
     out: dict[str, Any] = {}
     if "enabled" in raw:
