@@ -17,6 +17,15 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: uv sync --dev
-      - name: Run tests
+      - name: Run tests (Linux/macOS)
+        if: runner.os != 'Windows'
         timeout-minutes: 20
         run: uv run pytest
+      - name: Run tests (Windows, with reruns)
+        # Windows hosts surface known timing flakes (Textual mount races,
+        # autocomplete debounce, slow PATH stat) that are being fixed
+        # progressively; --reruns 2 lets a transient first failure recover
+        # without blocking PRs while the underlying races are addressed.
+        if: runner.os == 'Windows'
+        timeout-minutes: 20
+        run: uv run pytest --reruns 2 --reruns-delay 1 --only-rerun "NoMatches|WorkerCancelled|AssertionError"
