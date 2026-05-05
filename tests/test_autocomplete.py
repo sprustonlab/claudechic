@@ -53,6 +53,22 @@ async def test_path_autocomplete(mock_sdk, tmp_path: Path):
     """Test file path autocomplete with @ trigger."""
     import asyncio
 
+    async def _wait_for(predicate, timeout: float = 3.0, step: float = 0.05):
+        """Poll predicate up to ``timeout`` seconds, pumping the event loop.
+
+        Replaces a fixed ``asyncio.sleep(0.2)`` (150ms debounce + 50ms buffer)
+        which was tight enough to flake on slow CI runners (Windows / Py3.10).
+        See CI flake report for ``test_path_autocomplete`` --
+        ``assert 'none' == 'block'``.
+        """
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            if predicate():
+                return
+            await asyncio.sleep(step)
+            await pilot.pause()
+        # Final assertion will fail with a useful message; we just exit here.
+
     app = ChatApp()
     async with app.run_test(size=(80, 24)) as pilot:
         autocomplete = app.query_one(TextAreaAutoComplete)
@@ -64,9 +80,9 @@ async def test_path_autocomplete(mock_sdk, tmp_path: Path):
 
         # Type @ to start path completion
         input_widget.text = "@"
-        # Wait for debounce (150ms) + buffer
-        await asyncio.sleep(0.2)
-        await pilot.pause()
+        # Wait for debounce + reactive style propagation. Polling instead of a
+        # fixed sleep avoids flakes on slow runners.
+        await _wait_for(lambda: autocomplete.styles.display == "block")
 
         # Should show files from index
         assert autocomplete.styles.display == "block"
@@ -74,9 +90,7 @@ async def test_path_autocomplete(mock_sdk, tmp_path: Path):
 
         # Filter to just .txt files
         input_widget.text = "@file"
-        # Wait for debounce
-        await asyncio.sleep(0.2)
-        await pilot.pause()
+        await _wait_for(lambda: autocomplete.option_list.option_count == 2)
 
         assert autocomplete.option_list.option_count == 2
 
