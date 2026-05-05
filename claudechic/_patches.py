@@ -57,7 +57,7 @@ def _patch_textarea_undo_crash() -> None:
                 "Textual %s — textarea undo bug already fixed in source, skipping patch",
                 version,
             )
-            TextArea._chic_undo_patched = True
+            TextArea._chic_undo_patched = True  # pyright: ignore[reportAttributeAccessIssue]  # runtime monkey-patch marker on TextArea class
             return
     except (TypeError, ValueError, OSError):
         # Can't inspect source — apply patch defensively
@@ -146,7 +146,7 @@ def _patch_textarea_undo_crash() -> None:
 
     TextArea._undo_batch = _patched_undo_batch
     TextArea._redo_batch = _patched_redo_batch
-    TextArea._chic_undo_patched = True
+    TextArea._chic_undo_patched = True  # pyright: ignore[reportAttributeAccessIssue]  # runtime monkey-patch marker on TextArea class
     log.debug("Textual %s — textarea undo/redo crash patch applied", version)
 
 

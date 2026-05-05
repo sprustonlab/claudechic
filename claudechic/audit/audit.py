@@ -479,7 +479,7 @@ def cmd_extract(
 ) -> None:
     """Extract messages from chicsession JSONL files into the database."""
     # Late import to avoid hard dependency when db.py is tested standalone
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     try:
         sys.path.insert(0, str(PROJECT_ROOT / "submodules" / "claudechic"))
@@ -690,7 +690,7 @@ def cmd_list_sessions(
     project_root: Path,
 ) -> None:
     """List available chicsessions with DB status."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     try:
         sys.path.insert(0, str(PROJECT_ROOT / "submodules" / "claudechic"))
@@ -766,7 +766,7 @@ def cmd_unclassified(
     project_root: Path,
 ) -> None:
     """Output unclassified messages as JSON for the classifier."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     conn = db.open_db(project_root, create=False)
     chunk_size = getattr(args, "chunk_size", 200) or 200
@@ -780,7 +780,7 @@ def cmd_corrections(
     project_root: Path,
 ) -> None:
     """Output classified corrections as JSON for the judge."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     conn = db.open_db(project_root, create=False)
     chunk_size = getattr(args, "chunk_size", 200) or 200
@@ -800,7 +800,7 @@ def cmd_aggregate(
     project_root: Path,
 ) -> None:
     """Output aggregated correction patterns as JSON."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     conn = db.open_db(project_root, create=False)
     min_count = getattr(args, "min_count", 2) or 2
@@ -819,7 +819,7 @@ def cmd_store_classifications(
     project_root: Path,
 ) -> None:
     """Read JSON array from stdin and store classifications."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     raw = sys.stdin.read()
     try:
@@ -843,7 +843,7 @@ def cmd_store_suggestions(
     project_root: Path,
 ) -> None:
     """Read JSON array from stdin and store suggestions."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     raw = sys.stdin.read()
     try:
@@ -872,7 +872,7 @@ def cmd_update_suggestion(
     project_root: Path,
 ) -> None:
     """Update fields on an existing suggestion."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     updates: dict[str, Any] = {}
     if getattr(args, "critic_verdict", None):
@@ -908,7 +908,7 @@ def cmd_check(
     project_root: Path,
 ) -> None:
     """Run a structured advance check."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     use_json = getattr(args, "json", False)
     check_name = args.check_name
@@ -970,7 +970,7 @@ def cmd_reset(
     project_root: Path,
 ) -> None:
     """Clear derived data for re-iteration."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     if not getattr(args, "confirm", False):
         _err("Use --confirm to confirm data deletion.")
@@ -1003,7 +1003,7 @@ def cmd_status(
     project_root: Path,
 ) -> None:
     """Display database status dashboard."""
-    from scripts.audit import db
+    from scripts.audit import db  # pyright: ignore[reportMissingImports]  # scripts.audit resolved via runtime sys.path insertion (host repo layout)
 
     use_json = getattr(args, "json", False)
 

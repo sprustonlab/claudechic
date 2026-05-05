@@ -408,8 +408,7 @@ async def test_d4_get_agent_info_default_returns_markdown_table(monkeypatch):
 
     # Markdown-table shape: alignment row is the canonical marker.
     assert "|----" in text, (
-        f"Default get_agent_info output must be markdown-table form. "
-        f"Got: {text[:300]}"
+        f"Default get_agent_info output must be markdown-table form. Got: {text[:300]}"
     )
 
 

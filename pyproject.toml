@@ -11,12 +11,17 @@ requires-python = ">=3.10"
 dependencies = [
     "aiofiles>=25.1.0",
     "aiohttp>=3.9.0",
-    "anthropic>=0.75.0",
+    # anthropic and textual are pinned for the duration of the pyright_cleanup
+    # project (see .project_team/pyright_cleanup -- SPECIFICATION.md s 9 and
+    # APPENDIX A16). Both are heavy stub-issue sources; a version bump
+    # mid-cleanup would invalidate stub-fix manifest rows already done.
+    # Bumps require explicit re-triage of stub-dep rows.
+    "anthropic==0.97.0",
     "claude-agent-sdk>=0.1.40",  # 0.1.40 fixes rate_limit_event crash, enables Opus 4.6
     "psutil>=5.9.0",
     "pyperclip>=1.11.0",
     "pyyaml>=6.0",
-    "textual>=7.4.0",
+    "textual==8.2.4",
     "textual-autocomplete>=4.0.6",
 ]
 authors = [{ name = "Matthew Rocklin", email = "mrocklin@gmail.com" }]
@@ -78,6 +83,27 @@ claudechic = [
 
 [tool.pyright]
 exclude = ["build", ".venv", "dist", "site", "**/__pycache__"]
+
+# Test-region rule relaxation lives in this block (see
+# .project_team/pyright_cleanup/SPECIFICATION.md s 6 Seam 1, s 9, and
+# user_alignment.md Q1). The block is scoped to tests/ and exists so that
+# triage-driven `config-relax` manifest rows can downgrade specific rules
+# here. tests/ remains type-checked: only individual rule severities may
+# be lowered. `[tool.pyright].exclude` of tests/ is forbidden by I7+I8.
+# Initial state: no rule overrides; sweep amends per manifest.
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["."]
+# C3 (per .project_team/pyright_cleanup/specification/config-changes.md):
+# downgrade three rules in tests/ to silence stub-class-as-protocol noise
+# (`_StubLoader` / `SimpleNamespace` / `_MockApp` substituted for typed
+# parameters), Mock attribute access, and `SdkMcpTool[Any]` callability.
+# Resolves the 197 manifest rows tagged `disposition: config-relax`.
+# `reportOptionalMemberAccess` and `reportOptionalOperand` stay at error
+# severity so genuine None-derefs continue to surface in tests.
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportCallIssue = "none"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

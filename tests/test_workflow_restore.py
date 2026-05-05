@@ -436,6 +436,7 @@ class TestFilesSectionAfterRestore:
 
                         # Run _async_refresh_files directly -- this is what
                         # create_safe_task would schedule after on_agent_switched
+                        assert app.agent_mgr is not None  # set by ChatApp.__init__
                         active = app.agent_mgr.active
                         assert active is not None
                         await app._async_refresh_files(active)
@@ -516,6 +517,7 @@ class TestFilesSectionAfterRestore:
                     await pilot.pause()
 
                     # Confirm agent points at our git repo
+                    assert app.agent_mgr is not None  # set by ChatApp.__init__
                     active = app.agent_mgr.active
                     assert active is not None, "No active agent after startup"
                     assert Path(active.cwd) == tmp_path, (
@@ -612,6 +614,7 @@ class TestPromptWorkflowRestoreOrFresh:
 
                 assert result == "restore"
                 # Dialog must have been shown with all three options.
+                assert dialog.await_args is not None  # narrowed by await_count above
                 opts = dialog.await_args.kwargs["options"]
                 values = [v for v, _ in opts]
                 assert values == ["restore", "fresh", "cancel"]
@@ -721,6 +724,7 @@ class TestPromptWorkflowRestoreOrFresh:
                     )
 
                 assert dialog.await_count == 1
+                assert dialog.await_args is not None  # narrowed by await_count above
                 opts = dialog.await_args.kwargs["options"]
                 values = [v for v, _ in opts]
                 # Always three options, in this order.

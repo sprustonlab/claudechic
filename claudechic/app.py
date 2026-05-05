@@ -10,6 +10,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -901,17 +902,18 @@ class ChatApp(App):
         # B4: prefer the live agent.agent_type closure when an Agent is
         # provided. Falls back to the explicit agent_role kwarg (sub-agents)
         # or to a manifest-bound dynamic resolver (legacy main-agent path).
-        effective_role: Any
+        def _effective_role_default() -> str | None:
+            if self._workflow_engine:
+                return getattr(self._workflow_engine.manifest, "main_role", None)
+            return None
+
+        effective_role: Callable[[], str | None] | str
         if agent is not None:
             effective_role = lambda: agent.agent_type  # noqa: E731
         elif agent_role:
             effective_role = agent_role
         else:
-
-            def effective_role() -> str | None:  # type: ignore[no-redef]
-                if self._workflow_engine:
-                    return getattr(self._workflow_engine.manifest, "main_role", None)
-                return None
+            effective_role = _effective_role_default
 
         # D6: route the hook layer through the same filtered LoadResult
         # the registry reads. The adapter exposes a ``.load()`` method so
@@ -1203,7 +1205,7 @@ class ChatApp(App):
             get_peer_agents=self._build_peer_agents,
         )
         for event, matchers in compact_hooks.items():
-            hooks.setdefault(event, []).extend(matchers)
+            hooks.setdefault(cast("HookEvent", event), []).extend(matchers)
 
         return hooks
 
@@ -2002,8 +2004,17 @@ class ChatApp(App):
                     out[k] = a.get(k, frozenset()) | b.get(k, frozenset())
                 return out
 
-            disabled_workflows_by_tier = _merge(user_dw_targeted, proj_dw_targeted)
-            disabled_ids_by_tier = _merge(user_di_targeted, proj_di_targeted)
+            # _merge takes dict[str, frozenset[str]] (invariant in K).
+            # The Tier literal alias is a str subtype but the dict-key
+            # invariance forces an explicit widen to plain str at the call.
+            disabled_workflows_by_tier = _merge(
+                cast("dict[str, frozenset[str]]", user_dw_targeted),
+                cast("dict[str, frozenset[str]]", proj_dw_targeted),
+            )
+            disabled_ids_by_tier = _merge(
+                cast("dict[str, frozenset[str]]", user_di_targeted),
+                cast("dict[str, frozenset[str]]", proj_di_targeted),
+            )
 
             self._load_result = self._manifest_loader.load(
                 disabled_workflows_by_tier=disabled_workflows_by_tier,  # type: ignore[arg-type]
@@ -2137,6 +2148,10 @@ class ChatApp(App):
                 should_restore = False
                 self._workflow_should_restore = False
             else:
+                # Control flow at L2114-2126 ensures chicsession_name is set
+                # by this branch (either pre-existing or set by the prompt;
+                # cancelled prompts return out at L2126).
+                assert self._chicsession_name is not None
                 decision = await self._prompt_workflow_restore_or_fresh(
                     workflow_id, self._chicsession_name
                 )
@@ -2191,6 +2206,10 @@ class ChatApp(App):
             if active_agent is not None and wf_data.main_role:
                 active_agent.agent_type = wf_data.main_role
 
+            # _workflow_engine was just constructed at L2168/L2176 above; the
+            # branch-narrow at L2196 doesn't carry forward across the
+            # ``set_loader`` call, so reassert here.
+            assert self._workflow_engine is not None
             phase = self._workflow_engine.get_current_phase()
 
             if not should_restore:
@@ -2692,6 +2711,10 @@ class ChatApp(App):
             if active_agent is not None and wf_data.main_role:
                 active_agent.agent_type = wf_data.main_role
 
+            # Restore path: _workflow_engine is set in the wrapping branch
+            # at L2703 above, but the narrowing doesn't survive the
+            # set_loader / promote-agent steps in pyright's view.
+            assert self._workflow_engine is not None
             phase = self._workflow_engine.get_current_phase()
             self.notify(f"Restored workflow '{wf_id}' — phase: {phase or 'none'}")
         except Exception:

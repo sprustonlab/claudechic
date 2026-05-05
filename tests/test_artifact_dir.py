@@ -194,6 +194,7 @@ async def test_set_artifact_dir_triggers_persist(tmp_path):
     await engine.set_artifact_dir(str(target))
 
     persist.assert_awaited()
+    assert persist.await_args is not None  # narrowed by assert_awaited above
     state = persist.await_args.args[0]
     assert state["artifact_dir"] == str(target.resolve())
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import ClassVar
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -121,7 +122,7 @@ class _SitesScreenBase(Screen[frozenset[str] | None]):
     """
 
     SITES: tuple[_SiteSpec, ...] = ()
-    TITLE: str = ""
+    TITLE: ClassVar[str | None] = ""
     HELPER: str = ""
 
     BINDINGS = [
@@ -177,7 +178,7 @@ class _SitesScreenBase(Screen[frozenset[str] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="sites-container"):
-            yield Static(self.TITLE, id="sites-title")
+            yield Static(self.TITLE or "", id="sites-title")
             yield Static(self.HELPER, id="sites-helper")
             with VerticalScroll():
                 yield ListView(id="sites-list")

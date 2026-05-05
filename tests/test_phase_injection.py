@@ -164,6 +164,7 @@ async def test_agent_manager_passes_agent_type_to_agent(
             await pilot.pause()
 
             # Spawn agent with type= (goes through real AgentManager.create)
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
             await spawn_tool.handler(
@@ -176,7 +177,9 @@ async def test_agent_manager_passes_agent_type_to_agent(
             )
             await pilot.pause()
 
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             agent = app.agent_mgr.find_by_name("TypedAgent")
+            assert agent is not None  # populated by upstream spawn_tool.handler
             assert agent is not None, "TypedAgent not found"
             assert agent.agent_type == "skeptic", (
                 f"Agent.agent_type should be 'skeptic' but is "
@@ -215,6 +218,7 @@ async def test_spawn_agent_no_name_fallback(mock_sdk, tmp_path, monkeypatch) -> 
             await app._activate_workflow("test-workflow")
             await pilot.pause()
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
 
@@ -230,7 +234,9 @@ async def test_spawn_agent_no_name_fallback(mock_sdk, tmp_path, monkeypatch) -> 
             )
             await pilot.pause()
 
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             agent = app.agent_mgr.find_by_name("skeptic")
+            assert agent is not None  # populated by upstream spawn_tool.handler
             assert agent is not None, "Agent 'skeptic' not found"
 
             # Check the agent's first user message does NOT contain
@@ -292,6 +298,7 @@ async def test_spawn_agent_warns_when_type_missing(
             await pilot.pause()
 
             # Spawn agent WITHOUT type= parameter
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
             result = await spawn_tool.handler(
@@ -357,6 +364,7 @@ async def test_advance_phase_broadcasts_to_typed_sub_agents(
             await app._activate_workflow("test-workflow")
             await pilot.pause()
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
 
             # Spawn skeptic sub-agent with type=
@@ -379,7 +387,9 @@ async def test_advance_phase_broadcasts_to_typed_sub_agents(
             assert "isError" not in result, f"advance_phase failed: {result}"
 
             # Skeptic must have received implement-phase agent prompt
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             skeptic = app.agent_mgr.find_by_name("Skeptic")
+            assert skeptic is not None  # populated by upstream spawn_tool.handler
             assert skeptic is not None, "Skeptic agent not found"
 
             skeptic_msgs = [m for m in skeptic.messages if m.role == "user"]
@@ -446,6 +456,7 @@ async def test_advance_phase_broadcast_skips_coordinator(
             await app._activate_workflow("test-workflow")
             await pilot.pause()
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
 
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
@@ -460,6 +471,7 @@ async def test_advance_phase_broadcast_skips_coordinator(
             await pilot.pause()
 
             # Record coordinator message count before advance
+            assert app._agent is not None  # set by ChatApp.on_mount
             coordinator = app._agent
             msgs_before = len([m for m in coordinator.messages if m.role == "user"])
 
@@ -470,7 +482,9 @@ async def test_advance_phase_broadcast_skips_coordinator(
             assert "isError" not in result
 
             # Prove broadcast exists: skeptic must have received implement content
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             skeptic = app.agent_mgr.find_by_name("Skeptic")
+            assert skeptic is not None  # populated by upstream spawn_tool.handler
             skeptic_msgs = [m for m in skeptic.messages if m.role == "user"]
             has_implement = any(
                 "Review implementation" in m.content.text for m in skeptic_msgs
@@ -530,6 +544,7 @@ async def test_advance_phase_broadcast_skips_untyped_sub_agents(
             await app._activate_workflow("test-workflow")
             await pilot.pause()
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
 
@@ -555,7 +570,9 @@ async def test_advance_phase_broadcast_skips_untyped_sub_agents(
             await pilot.pause()
 
             # Record helper messages before advance
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             helper = app.agent_mgr.find_by_name("Helper")
+            assert helper is not None  # populated by upstream spawn_tool.handler
             helper_msgs_before = len([m for m in helper.messages if m.role == "user"])
 
             advance_tool = _make_advance_phase(caller_name=caller_name)
@@ -565,7 +582,9 @@ async def test_advance_phase_broadcast_skips_untyped_sub_agents(
             assert "isError" not in result
 
             # Prove broadcast exists
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             skeptic = app.agent_mgr.find_by_name("Skeptic")
+            assert skeptic is not None  # populated by upstream spawn_tool.handler
             skeptic_msgs = [m for m in skeptic.messages if m.role == "user"]
             has_implement = any(
                 "Review implementation" in m.content.text for m in skeptic_msgs
@@ -639,6 +658,7 @@ async def test_advance_phase_broadcast_handles_missing_role_folder(
                 "Review the implementation carefully.", encoding="utf-8"
             )
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
 
@@ -664,7 +684,9 @@ async def test_advance_phase_broadcast_handles_missing_role_folder(
             )
             await pilot.pause()
 
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             skeptic = app.agent_mgr.find_by_name("Skeptic")
+            assert skeptic is not None  # populated by upstream spawn_tool.handler
             assert skeptic is not None
             skeptic_msgs_before = len([m for m in skeptic.messages if m.role == "user"])
 
@@ -682,7 +704,9 @@ async def test_advance_phase_broadcast_handles_missing_role_folder(
 
             # Prove broadcast exists: reviewer (intact folder) must have
             # received implement-phase content
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             reviewer = app.agent_mgr.find_by_name("Reviewer")
+            assert reviewer is not None  # populated by upstream spawn_tool.handler
             reviewer_msgs = [m for m in reviewer.messages if m.role == "user"]
             has_review_content = any(
                 "Review the implementation" in m.content.text for m in reviewer_msgs
@@ -745,7 +769,9 @@ async def test_advance_phase_no_double_agent_prompt_for_coordinator(
             await app._activate_workflow("test-workflow")
             await pilot.pause()
 
+            assert app._agent is not None  # set by ChatApp.on_mount
             caller_name = app._agent.name
+            assert app._agent is not None  # set by ChatApp.on_mount
             coordinator = app._agent
 
             spawn_tool = _make_spawn_agent(caller_name=caller_name)
@@ -777,7 +803,9 @@ async def test_advance_phase_no_double_agent_prompt_for_coordinator(
             )
 
             # Prove broadcast exists
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             skeptic = app.agent_mgr.find_by_name("Skeptic")
+            assert skeptic is not None  # populated by upstream spawn_tool.handler
             skeptic_msgs = [m for m in skeptic.messages if m.role == "user"]
             has_implement = any(
                 "Review implementation" in m.content.text for m in skeptic_msgs
@@ -1072,6 +1100,7 @@ async def test_create_unconnected_passes_agent_type(mock_sdk, tmp_path) -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         agent = app.agent_mgr.create_unconnected(
             name="UncAgent", cwd=tmp_path, agent_type="skeptic", switch_to=False
         )
@@ -1093,11 +1122,13 @@ async def test_connect_agent_preserves_agent_type(mock_sdk, tmp_path) -> None:
     async with app.run_test(size=(120, 40)) as pilot:
         await pilot.pause()
 
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         agent = app.agent_mgr.create_unconnected(
             name="ConAgent", cwd=tmp_path, agent_type="skeptic", switch_to=False
         )
         assert agent.agent_type == "skeptic"
 
+        assert app.agent_mgr is not None  # set by ChatApp.__init__
         await app.agent_mgr.connect_agent(agent)
         await pilot.pause()
 
@@ -1122,9 +1153,11 @@ async def test_reconnect_agent_preserves_agent_type(mock_sdk, tmp_path) -> None:
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause()
 
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             agent = app.agent_mgr.create_unconnected(
                 name="ReconAgent", cwd=tmp_path, agent_type="skeptic", switch_to=False
             )
+            assert app.agent_mgr is not None  # set by ChatApp.__init__
             await app.agent_mgr.connect_agent(agent)
             await pilot.pause()
 

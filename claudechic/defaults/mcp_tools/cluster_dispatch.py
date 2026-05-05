@@ -68,6 +68,16 @@ def _unsupported_backend_response(backend: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+class BackendNotAvailable(RuntimeError):
+    """Raised when a cluster backend module cannot be loaded.
+
+    Surfaces a clean, actionable message to MCP callers instead of the
+    bare ``AttributeError: 'NoneType' object has no attribute '_<method>'``
+    that would otherwise occur if a tool dereferenced the result of
+    :func:`_get_backend_module` without a None guard.
+    """
+
+
 def _get_backend_module(backend: str):
     """Return the backend module for the given backend name, or None.
 
@@ -95,6 +105,26 @@ def _get_backend_module(backend: str):
     return mod
 
 
+def _require_backend_module(backend: str):
+    """Resolve the backend helper module or raise :class:`BackendNotAvailable`.
+
+    Wraps :func:`_get_backend_module` with a None-check so callers can
+    rely on a non-None return. Callers should invoke this inside the
+    per-tool ``try / except`` so the descriptive error message reaches
+    the MCP caller via :func:`_error_response` instead of producing an
+    ``AttributeError`` at deref time.
+    """
+    mod = _get_backend_module(backend)
+    if mod is None:
+        raise BackendNotAvailable(
+            f"Cluster backend {backend!r} module is not available "
+            f"(missing sibling file _{backend}.py next to "
+            f"cluster_dispatch.py). Run cluster_setup to reconfigure or "
+            f"reinstall the cluster plugin."
+        )
+    return mod
+
+
 # ---------------------------------------------------------------------------
 # MCP tool definitions -- always registered
 # ---------------------------------------------------------------------------
@@ -118,8 +148,8 @@ def get_tools(**kwargs) -> list:
             return _not_configured_response()
         if backend not in _BACKENDS:
             return _unsupported_backend_response(backend)
-        mod = _get_backend_module(backend)
         try:
+            mod = _require_backend_module(backend)
             jobs = await asyncio.to_thread(mod._list_jobs, config)
             readiness = _check_config_readiness(config)
             if readiness != "ready":
@@ -145,9 +175,9 @@ def get_tools(**kwargs) -> list:
             return _not_configured_response()
         if backend not in _BACKENDS:
             return _unsupported_backend_response(backend)
-        mod = _get_backend_module(backend)
         job_id = args["job_id"]
         try:
+            mod = _require_backend_module(backend)
             path_mapper = _create_path_mapper(config)
             detail = await asyncio.to_thread(mod._get_job_status, job_id, config)
             _translate_status_paths(detail, path_mapper)
@@ -192,8 +222,8 @@ def get_tools(**kwargs) -> list:
             return _not_configured_response()
         if backend not in _BACKENDS:
             return _unsupported_backend_response(backend)
-        mod = _get_backend_module(backend)
         try:
+            mod = _require_backend_module(backend)
             path_mapper = _create_path_mapper(config)
             readiness = _check_config_readiness(config)
             if readiness == "needs_setup":
@@ -247,9 +277,9 @@ def get_tools(**kwargs) -> list:
             return _not_configured_response()
         if backend not in _BACKENDS:
             return _unsupported_backend_response(backend)
-        mod = _get_backend_module(backend)
         job_id = args["job_id"]
         try:
+            mod = _require_backend_module(backend)
             result = await asyncio.to_thread(mod._kill_job, job_id, config)
             return _json_response(result)
         except Exception as e:
@@ -277,10 +307,10 @@ def get_tools(**kwargs) -> list:
             return _not_configured_response()
         if backend not in _BACKENDS:
             return _unsupported_backend_response(backend)
-        mod = _get_backend_module(backend)
         job_id = args["job_id"]
         tail = args.get("tail", 100)
         try:
+            mod = _require_backend_module(backend)
             path_mapper = _create_path_mapper(config)
             profile = config.get("lsf_profile") if backend == "lsf" else None
             log_reader = _create_log_reader(config, path_mapper, profile=profile)
@@ -321,7 +351,10 @@ def get_tools(**kwargs) -> list:
                 "Watch not available: notification wiring not configured."
             )
 
-        mod = _get_backend_module(backend)
+        try:
+            mod = _require_backend_module(backend)
+        except BackendNotAvailable as e:
+            return _error_response(str(e))
         job_id = args["job_id"]
         poll_interval = int(config.get("watch_poll_interval", 30))
 

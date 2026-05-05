@@ -24,9 +24,9 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
-from claude_agent_sdk.types import HookMatcher
+from claude_agent_sdk.types import HookCallback, HookMatcher
 
 from claudechic.agent import DEFAULT_ROLE
 from claudechic.workflows._substitute import (
@@ -411,9 +411,7 @@ def _render_environment(ctx: RenderContext) -> str:
         "AGENT_ROLE": ctx.role or "",
         "ACTIVE_WORKFLOW": ctx.active_workflow or "",
         "WORKFLOW_ROOT": str(ctx.project_root) if ctx.project_root else "",
-        "CLAUDECHIC_ARTIFACT_DIR": (
-            str(ctx.artifact_dir) if ctx.artifact_dir else ""
-        ),
+        "CLAUDECHIC_ARTIFACT_DIR": (str(ctx.artifact_dir) if ctx.artifact_dir else ""),
         "PEER_ROSTER": peer_roster_value,
         "COORDINATOR_NAME": _coordinator_name_from(ctx),
     }
@@ -775,7 +773,7 @@ def assemble_constraints_block(
                     active_workflow,
                     role if role else DEFAULT_ROLE,
                     phase,
-                    disabled_rules or frozenset(),
+                    set(disabled_rules) if disabled_rules else None,
                 )
             )
         except Exception as e:
@@ -882,8 +880,12 @@ def assemble_constraints_block(
     else:
         if rules_rows:
             if skip_reason_used:
-                sections.append("| id | enforcement | trigger | message | skip_reason |")
-                sections.append("|----|-------------|---------|---------|-------------|")
+                sections.append(
+                    "| id | enforcement | trigger | message | skip_reason |"
+                )
+                sections.append(
+                    "|----|-------------|---------|---------|-------------|"
+                )
             else:
                 sections.append("| id | enforcement | trigger | message |")
                 sections.append("|----|-------------|---------|---------|")
@@ -1146,9 +1148,7 @@ def create_session_start_compact_hook(
         try:
             wf_dir_eff = get_workflow_dir()
         except Exception as e:
-            logger.debug(
-                "session-start (compact): get_workflow_dir raised: %s", e
-            )
+            logger.debug("session-start (compact): get_workflow_dir raised: %s", e)
             return {}
         if wf_dir_eff is None:
             return {}
@@ -1175,17 +1175,13 @@ def create_session_start_compact_hook(
             try:
                 settings = get_settings()
             except Exception as e:
-                logger.debug(
-                    "session-start (compact): get_settings raised: %s", e
-                )
+                logger.debug("session-start (compact): get_settings raised: %s", e)
         peer_agents: dict[str, str] | None = None
         if get_peer_agents is not None:
             try:
                 peer_agents = get_peer_agents()
             except Exception as e:
-                logger.debug(
-                    "session-start (compact): get_peer_agents raised: %s", e
-                )
+                logger.debug("session-start (compact): get_peer_agents raised: %s", e)
 
         prompt = assemble_agent_prompt(
             role_eff,
@@ -1230,8 +1226,9 @@ def create_session_start_compact_hook(
     # SessionStart, it filters by the source value (``"startup"`` /
     # ``"resume"`` / ``"compact"``). Per Claude Code hooks docs, this is
     # the documented post-compact context-injection mechanism.
+    hooks = cast("list[HookCallback]", [reinject_phase_context])
     return {
         "SessionStart": [
-            HookMatcher(matcher="compact", hooks=[reinject_phase_context]),
+            HookMatcher(matcher="compact", hooks=hooks),
         ],
     }

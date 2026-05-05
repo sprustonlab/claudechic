@@ -477,6 +477,10 @@ def store_suggestions(
             ),
         )
         sid = cursor.lastrowid
+        # SQLite contract: an INSERT into a table with INTEGER PRIMARY KEY
+        # always populates lastrowid. cursor.lastrowid is typed Optional[int]
+        # to cover statements that do not produce a row (e.g. CREATE TABLE).
+        assert sid is not None, "INSERT must produce a rowid"
         new_ids.append(sid)
 
         # Link evidence

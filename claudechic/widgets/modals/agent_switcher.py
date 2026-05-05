@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView
+
+if TYPE_CHECKING:
+    from claudechic.enums import AgentStatus
 
 
 class AgentSwitcherItem(ListItem):
@@ -91,12 +97,14 @@ class AgentSwitcher(ModalScreen[str | None]):
 
     def __init__(
         self,
-        agents: list[tuple[str, str, str]],
+        agents: "Sequence[tuple[str, str, AgentStatus | str]]",
     ) -> None:
         """Initialize with agent list.
 
         Args:
-            agents: List of (agent_id, name, status) tuples.
+            agents: List of (agent_id, name, status) tuples. ``status`` is
+                an ``AgentStatus`` (StrEnum) or a plain str; both work
+                identically at runtime since ``AgentStatus`` is a str.
         """
         super().__init__()
         self._agents = agents

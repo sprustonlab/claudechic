@@ -72,18 +72,14 @@ def test_render_phase_returns_empty_string_when_phase_md_missing(tmp_path):
     role_dir = tmp_path / "coordinator"
     role_dir.mkdir()
     # No specification.md exists.
-    ctx = _make_ctx(
-        role="coordinator", phase="specification", workflow_dir=tmp_path
-    )
+    ctx = _make_ctx(role="coordinator", phase="specification", workflow_dir=tmp_path)
     assert _render_phase(ctx) == ""
 
 
 def test_render_phase_strips_namespace_from_qualified_phase(tmp_path):
     role_dir = tmp_path / "coordinator"
     role_dir.mkdir()
-    (role_dir / "specification.md").write_text(
-        "PHASE-CONTENT-X", encoding="utf-8"
-    )
+    (role_dir / "specification.md").write_text("PHASE-CONTENT-X", encoding="utf-8")
     # Qualified phase ID -- bare name "specification" should be looked up.
     ctx = _make_ctx(
         role="coordinator",
@@ -120,9 +116,7 @@ def test_render_constraints_phase_purity_same_inputs_same_output(monkeypatch):
     def fake_digest(*_args, **_kwargs):
         return [_stub_entry(id_="global:foo", phases=["design"])]
 
-    monkeypatch.setattr(
-        "claudechic.guardrails.digest.compute_digest", fake_digest
-    )
+    monkeypatch.setattr("claudechic.guardrails.digest.compute_digest", fake_digest)
 
     loader = _StubLoader(LoadResult())
     ctx = _make_ctx(
@@ -154,9 +148,7 @@ def test_render_constraints_phase_advance_checks_coordinator_only(monkeypatch):
     def fake_checks_digest(*_args, **_kwargs):
         return [fake_check]
 
-    monkeypatch.setattr(
-        "claudechic.guardrails.digest.compute_digest", fake_digest
-    )
+    monkeypatch.setattr("claudechic.guardrails.digest.compute_digest", fake_digest)
     monkeypatch.setattr(
         "claudechic.guardrails.checks_digest.compute_advance_checks_digest",
         fake_checks_digest,
@@ -198,9 +190,7 @@ def test_render_constraints_stable_omits_phase_only_rules(monkeypatch):
     def fake_digest(*_args, **_kwargs):
         return entries
 
-    monkeypatch.setattr(
-        "claudechic.guardrails.digest.compute_digest", fake_digest
-    )
+    monkeypatch.setattr("claudechic.guardrails.digest.compute_digest", fake_digest)
 
     loader = _StubLoader(LoadResult())
     ctx = _make_ctx(
