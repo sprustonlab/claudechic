@@ -1,11 +1,15 @@
 """Regression test for the threading excepthook.
 
-The hook installed by `claudechic.__main__` is invoked by the Python runtime
-when an unhandled exception escapes a thread. The runtime passes a
-`threading.ExceptHookArgs` named-tuple whose traceback field is
-`exc_traceback` (NOT `exc_tb`). A previous version of the hook accessed
-`args.exc_tb`, which raises AttributeError and silently swallows the real
-underlying thread exception.
+The hook is invoked by the Python runtime when an unhandled exception
+escapes a thread. The runtime passes a `threading.ExceptHookArgs`
+named-tuple whose traceback field is `exc_traceback` (NOT `exc_tb`). A
+previous version of the hook accessed `args.exc_tb`, which raises
+AttributeError and silently swallows the real underlying thread exception.
+
+Imports from `claudechic.errors` rather than `claudechic.__main__` to avoid
+triggering __main__'s module-level `setup_logging()` side effect, which
+sets `propagate=False` on the `claudechic` logger and would break pytest's
+`caplog` fixture for every subsequent test in the same xdist worker.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from claudechic.__main__ import _threading_excepthook
+from claudechic.errors import threading_excepthook
 
 
 class _CaptureHandler(logging.Handler):
@@ -30,8 +34,10 @@ class _CaptureHandler(logging.Handler):
 def _attach_capture():
     """Attach a capture handler to the `claudechic` logger.
 
-    The package logger has `propagate = False`, so pytest's `caplog`
-    fixture (rooted at the root logger) does not see its records.
+    Robust to either propagate state: if some other test in the same
+    worker has triggered `setup_logging()` (which sets propagate=False),
+    `caplog` (rooted at the root logger) wouldn't see records. Attaching
+    directly to the package logger sidesteps that.
     """
     capture = _CaptureHandler()
     capture.setLevel(logging.CRITICAL)
@@ -45,7 +51,7 @@ def test_threading_excepthook_handles_real_thread_exception():
     raising. Regression for the `args.exc_tb` typo."""
     capture, logger = _attach_capture()
     original = threading.excepthook
-    threading.excepthook = _threading_excepthook
+    threading.excepthook = threading_excepthook
     try:
 
         def boom():
@@ -80,7 +86,7 @@ def test_threading_excepthook_skips_keyboard_interrupt():
         args = threading.ExceptHookArgs(
             [KeyboardInterrupt, KeyboardInterrupt(), None, threading.current_thread()]
         )
-        _threading_excepthook(args)
+        threading_excepthook(args)
     finally:
         logger.removeHandler(capture)
 
