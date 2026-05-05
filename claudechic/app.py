@@ -762,7 +762,6 @@ class ChatApp(App):
     def action_cycle_permission_mode(self) -> None:
         """Cycle global permission mode: bypassPermissions -> default -> acceptEdits -> plan.
 
-        planSwarm is not in the cycle - use /plan-swarm to enter, shift-tab to exit.
         Changes apply to ALL agents immediately.
         """
         if not self.agent_mgr:
@@ -771,12 +770,8 @@ class ChatApp(App):
         modes = ["bypassPermissions", "auto", "acceptEdits", "plan", "default"]
         current = self.agent_mgr.global_permission_mode
 
-        # If in planSwarm, exit to bypassPermissions (not in normal cycle)
-        if current not in modes:
-            next_mode = "bypassPermissions"
-        else:
-            next_idx = (modes.index(current) + 1) % len(modes)
-            next_mode = modes[next_idx]
+        next_idx = (modes.index(current) + 1) % len(modes)
+        next_mode = modes[next_idx]
 
         # Schedule the async call to update all agents
         agent_mgr = self.agent_mgr
@@ -2950,13 +2945,6 @@ class ChatApp(App):
             exit_on_error=False,
         )
 
-        # If in planSwarm mode, this is the task - spawn agents and send orchestrator prompt
-        if agent and agent.permission_mode == "planSwarm":
-            from claudechic.commands import start_plan_swarm
-
-            start_plan_swarm(self, prompt)
-            return
-
         # User message will be mounted by _on_agent_prompt_sent callback
         self._send_to_active_agent(prompt)
 
@@ -4367,7 +4355,7 @@ class ChatApp(App):
         if result and result != agent.model:
             self._set_agent_model(result)
 
-    # exclusive=False allows parallel agent creation (needed for plan-swarm).
+    # exclusive=False allows parallel agent creation.
     # Race on switch_to is acceptable - last created wins for active agent.
     @work(group="new_agent", exclusive=False, exit_on_error=False)
     async def _create_new_agent(
