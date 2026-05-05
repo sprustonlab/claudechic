@@ -112,8 +112,28 @@ class DiffScreen(Screen[list[HunkComment]]):
         yield Static("Loading...", id="diff-empty")
         yield Footer()
 
-    async def on_mount(self) -> None:
-        """Fetch changes and build the diff view."""
+    def on_mount(self) -> None:
+        """Schedule the change-fetch off the mount path.
+
+        Returning synchronously lets Textual paint the ``Loading...``
+        placeholder from ``compose()`` before the (potentially slow on
+        Windows) git subprocesses run. The actual data load + UI
+        construction happens in ``_load_changes`` via ``run_worker``.
+        """
+        self.run_worker(
+            self._load_changes(),
+            group="diff-load",
+            exclusive=True,
+            exit_on_error=False,
+        )
+
+    async def _load_changes(self) -> None:
+        """Worker: fetch changes and build the diff view.
+
+        Lifted out of ``on_mount`` so the ``Loading...`` placeholder
+        from ``compose()`` actually renders during the git subprocess
+        round-trip. Issue #45.
+        """
         self._changes = await get_changes(str(self._cwd), self._target)
 
         # Remove placeholder.

@@ -1,10 +1,17 @@
 """Tests for git diff feature."""
 
+import subprocess
+
+import pytest
+
 from claudechic.features.diff.git import (
+    MAX_UNTRACKED_FILES,
     FileChange,
     _merge_diff_content,
     _parse_hunks,
     _parse_name_status,
+    get_changes,
+    get_file_stats,
 )
 
 
@@ -112,3 +119,79 @@ index abc..def 100644
         assert len(result) == 1
         assert len(result[0].hunks) == 1
         assert "new" in result[0].hunks[0].new_lines
+
+
+def _init_repo(path) -> None:
+    """Create a minimal git repo with one tracked commit so HEAD exists."""
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    seed = path / "seed.txt"
+    seed.write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "seed.txt"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=path, check=True)
+
+
+class TestUntrackedCap:
+    """MAX_UNTRACKED_FILES guards against pathological repos (1000s of
+    untracked files in node_modules / build / data dirs) hanging the diff
+    screen for tens of seconds.
+
+    Skip-all-if-many semantics: when the cap fires, the untracked listing
+    is dropped entirely; tracked changes are unaffected.
+    """
+
+    @pytest.mark.asyncio
+    async def test_under_cap_includes_all_untracked(self, tmp_path):
+        _init_repo(tmp_path)
+        n = MAX_UNTRACKED_FILES  # exactly at the cap -> still included
+        for i in range(n):
+            (tmp_path / f"u{i}.txt").write_text(f"hello {i}\n", encoding="utf-8")
+
+        changes = await get_changes(str(tmp_path))
+        untracked_paths = {c.path for c in changes if c.status == "untracked"}
+        assert len(untracked_paths) == n
+
+        stats = await get_file_stats(str(tmp_path))
+        untracked_stat_paths = {s.path for s in stats if s.untracked}
+        assert len(untracked_stat_paths) == n
+
+    @pytest.mark.asyncio
+    async def test_over_cap_skips_all_untracked(self, tmp_path, caplog):
+        _init_repo(tmp_path)
+        n = MAX_UNTRACKED_FILES + 1
+        for i in range(n):
+            (tmp_path / f"u{i}.txt").write_text(f"hi {i}\n", encoding="utf-8")
+
+        # Subscribe at WARNING so the cap-skip notice is captured. Attach
+        # to the package logger directly because `claudechic` may have
+        # propagate=False after setup_logging() runs in another test.
+        import logging
+
+        capture_logger = logging.getLogger("claudechic.features.diff.git")
+        with caplog.at_level(logging.WARNING, logger=capture_logger.name):
+            changes = await get_changes(str(tmp_path))
+            stats = await get_file_stats(str(tmp_path))
+
+        # No untracked entries should appear in either result.
+        assert not [c for c in changes if c.status == "untracked"]
+        assert not [s for s in stats if s.untracked]
+
+        # Cap-fire should be logged so users have a breadcrumb.
+        cap_msgs = [r for r in caplog.records if "exceeds cap" in r.getMessage()]
+        assert cap_msgs, "Expected a WARNING log when untracked cap fires"
+
+    @pytest.mark.asyncio
+    async def test_over_cap_keeps_tracked_changes(self, tmp_path):
+        """The cap on untracked files must not affect tracked-change rendering."""
+        _init_repo(tmp_path)
+        # One tracked modification.
+        (tmp_path / "seed.txt").write_text("seed\nmod\n", encoding="utf-8")
+        # And many untracked files.
+        for i in range(MAX_UNTRACKED_FILES + 5):
+            (tmp_path / f"u{i}.txt").write_text("x\n", encoding="utf-8")
+
+        changes = await get_changes(str(tmp_path))
+        tracked = [c for c in changes if c.status != "untracked"]
+        assert len(tracked) == 1
+        assert tracked[0].path == "seed.txt"

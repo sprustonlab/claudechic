@@ -2,9 +2,12 @@
 
 import asyncio
 import difflib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -87,25 +90,54 @@ class FileStat:
 # Skip reading contents of untracked files larger than this
 MAX_UNTRACKED_FILE_SIZE = 1024
 
+# If a working tree has more than this many untracked files, skip the
+# untracked-file enumeration entirely. Reading content + stat-ing thousands
+# of files (common in repos with weak .gitignore -- node_modules, build/,
+# data/, etc.) blocks the diff screen for tens of seconds. The earlier cap
+# of 4 was too aggressive for the W6 fixture case (a feature branch with a
+# few new files); 40 is a comfortable upper bound for "interactive review"
+# while still keeping pathological repos responsive. When the cap fires,
+# the rest of the diff (tracked changes) still renders normally.
+MAX_UNTRACKED_FILES = 40
 
-async def get_file_stats(cwd: str, target: str = "HEAD") -> list[FileStat]:
-    """Get file stats (additions/deletions) for tracked changes and untracked files."""
-    stats = []
-    seen_paths: set[str] = set()
 
-    # Get tracked file changes via git diff
+async def _run_git(cwd: str, *args: str) -> tuple[int, str]:
+    """Run a git subprocess and return (returncode, stdout-decoded).
+
+    Centralizes the create_subprocess_exec + communicate dance so callers
+    can launch multiple git invocations concurrently via ``asyncio.gather``.
+    On Windows ``create_subprocess_exec`` adds ~100-300 ms of process-startup
+    latency per call; gathering removes the cumulative tax.
+    """
     proc = await asyncio.create_subprocess_exec(
         "git",
-        "diff",
-        target,
-        "--numstat",
+        *args,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, _ = await proc.communicate()
-    if proc.returncode == 0:
-        for line in stdout.decode().strip().split("\n"):
+    rc = proc.returncode if proc.returncode is not None else -1
+    return rc, stdout.decode()
+
+
+async def get_file_stats(cwd: str, target: str = "HEAD") -> list[FileStat]:
+    """Get file stats (additions/deletions) for tracked changes and untracked files.
+
+    The two git subprocesses (``diff --numstat`` and ``ls-files --others``)
+    are independent and run concurrently to avoid sequential process-startup
+    latency on Windows.
+    """
+    stats: list[FileStat] = []
+    seen_paths: set[str] = set()
+
+    (numstat_rc, numstat_out), (untracked_rc, untracked_out) = await asyncio.gather(
+        _run_git(cwd, "diff", target, "--numstat"),
+        _run_git(cwd, "ls-files", "--others", "--exclude-standard"),
+    )
+
+    if numstat_rc == 0:
+        for line in numstat_out.strip().split("\n"):
             if not line:
                 continue
             parts = line.split("\t")
@@ -119,127 +151,128 @@ async def get_file_stats(cwd: str, target: str = "HEAD") -> list[FileStat]:
             stats.append(FileStat(path=path, additions=adds, deletions=dels))
             seen_paths.add(path)
 
-    # Get untracked files
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "ls-files",
-        "--others",
-        "--exclude-standard",
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    if proc.returncode == 0:
+    if untracked_rc == 0:
         untracked = [
             line
-            for line in stdout.decode().strip().split("\n")
+            for line in untracked_out.strip().split("\n")
             if line and line not in seen_paths
         ]
-        for line in untracked:
-            file_path = Path(cwd, line)
-            line_count = 0
-            try:
-                # Only read small files
-                if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                    line_count = len(file_path.read_text(encoding="utf-8").splitlines())
-            except (OSError, UnicodeDecodeError):
-                pass
-            stats.append(
-                FileStat(path=line, additions=line_count, deletions=0, untracked=True)
+        if len(untracked) > MAX_UNTRACKED_FILES:
+            log.warning(
+                "Skipping untracked-file enumeration in %s: %d untracked files exceeds cap of %d.",
+                cwd,
+                len(untracked),
+                MAX_UNTRACKED_FILES,
             )
+        else:
+            for line in untracked:
+                file_path = Path(cwd, line)
+                line_count = 0
+                try:
+                    # Only read small files
+                    if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
+                        line_count = len(
+                            file_path.read_text(encoding="utf-8").splitlines()
+                        )
+                except (OSError, UnicodeDecodeError):
+                    pass
+                stats.append(
+                    FileStat(
+                        path=line, additions=line_count, deletions=0, untracked=True
+                    )
+                )
 
     return stats
 
 
 async def get_changes(cwd: str, target: str = "HEAD") -> list[FileChange]:
-    """Get all changes vs target (default HEAD) via git diff."""
-    # Get list of changed files with status
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "diff",
-        target,
-        "--name-status",
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    """Get all changes vs target (default HEAD) via git diff.
+
+    Runs the three git subprocesses concurrently:
+
+      1. ``git diff <target> --name-status`` -- tracked-change list
+      2. ``git diff <target> --no-ext-diff``  -- full unified diff (hunks)
+      3. ``git ls-files --others --exclude-standard`` -- untracked files
+
+    None of the calls reads the others' output, so ``asyncio.gather`` runs
+    them in parallel. On Windows, sequential ``create_subprocess_exec``
+    adds ~100-300 ms per call; gathering removes the cumulative tax.
+
+    The middle call is *speculative*: its output is only used when
+    ``--name-status`` is non-empty. We pay for one always-run ``git diff``
+    even when there are no tracked changes; that is far cheaper than
+    serializing three subprocess startups in the common case.
+    """
+    (
+        (name_status_rc, name_status_out),
+        (full_diff_rc, full_diff_out),
+        (untracked_rc, untracked_out),
+    ) = await asyncio.gather(
+        _run_git(cwd, "diff", target, "--name-status"),
+        _run_git(cwd, "diff", target, "--no-ext-diff"),
+        _run_git(cwd, "ls-files", "--others", "--exclude-standard"),
     )
-    stdout, _ = await proc.communicate()
-    if proc.returncode != 0:
+
+    if name_status_rc != 0:
         return []
 
-    files = _parse_name_status(stdout.decode())
+    files = _parse_name_status(name_status_out)
     # NOTE: do NOT early-return when ``files`` is empty. ``--name-status``
     # only reports tracked changes vs ``target``; untracked files (which
-    # are scanned below via ``git ls-files --others``) must still
-    # participate. Empty tracked diff with non-empty untracked set is
-    # the W6 fixture case (feature branch matches ``origin/main`` but
-    # working tree has new files). This complements the s8a count-cap
-    # removal (commit 4dfe650) -- both bugs gated untracked rendering
-    # on the tracked diff; this is the second gate.
-    if files:
-        # Get full diff content for parsing only when we have tracked
-        # changes to merge it into. Use ``--no-ext-diff`` to ensure
-        # unified diff format (not difft, delta, etc.).
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "diff",
-            target,
-            "--no-ext-diff",
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        if proc.returncode == 0:
-            files = _merge_diff_content(files, stdout.decode())
-        # If the second git diff failed, ``files`` already has the
-        # tracked entries from --name-status (without hunks); fall
-        # through to the untracked scan below.
+    # are scanned below) must still participate. Empty tracked diff with
+    # non-empty untracked set is the W6 fixture case (feature branch
+    # matches ``origin/main`` but working tree has new files). This
+    # complements the s8a count-cap removal (commit 4dfe650) -- both
+    # bugs gated untracked rendering on the tracked diff; this is the
+    # second gate.
+    if files and full_diff_rc == 0:
+        # Merge hunk content from the speculative full-diff call. If the
+        # full diff failed, ``files`` keeps the tracked entries from
+        # --name-status (without hunks); fall through to untracked scan.
+        files = _merge_diff_content(files, full_diff_out)
 
     # Add untracked files as synthetic diffs
-    proc = await asyncio.create_subprocess_exec(
-        "git",
-        "ls-files",
-        "--others",
-        "--exclude-standard",
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-
-    if proc.returncode == 0:
+    if untracked_rc == 0:
         tracked_paths = {f.path for f in files}
         untracked = [
             line
-            for line in stdout.decode().strip().split("\n")
+            for line in untracked_out.strip().split("\n")
             if line and line not in tracked_paths
         ]
-        for line in untracked:
-            file_path = Path(cwd, line)
-            try:
-                # Only read small files for synthetic diff
-                if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
-                    content = file_path.read_text(encoding="utf-8")
-                    lines = content.splitlines()
-                    hunk = Hunk(
-                        old_start=0,
-                        old_count=0,
-                        new_start=1,
-                        new_count=len(lines),
-                        old_lines=[],
-                        new_lines=lines,
-                    )
-                    files.append(
-                        FileChange(path=line, status="untracked", hunks=[hunk])
-                    )
-                else:
-                    # Large file - include but without diff content
+        if len(untracked) > MAX_UNTRACKED_FILES:
+            log.warning(
+                "Skipping untracked-file enumeration in %s: %d untracked files exceeds cap of %d.",
+                cwd,
+                len(untracked),
+                MAX_UNTRACKED_FILES,
+            )
+        else:
+            for line in untracked:
+                file_path = Path(cwd, line)
+                try:
+                    # Only read small files for synthetic diff
+                    if file_path.stat().st_size <= MAX_UNTRACKED_FILE_SIZE:
+                        content = file_path.read_text(encoding="utf-8")
+                        lines = content.splitlines()
+                        hunk = Hunk(
+                            old_start=0,
+                            old_count=0,
+                            new_start=1,
+                            new_count=len(lines),
+                            old_lines=[],
+                            new_lines=lines,
+                        )
+                        files.append(
+                            FileChange(path=line, status="untracked", hunks=[hunk])
+                        )
+                    else:
+                        # Large file - include but without diff content
+                        files.append(
+                            FileChange(path=line, status="untracked", hunks=[])
+                        )
+                except (OSError, UnicodeDecodeError):
+                    # Binary or unreadable - include but without diff content
                     files.append(FileChange(path=line, status="untracked", hunks=[]))
-            except (OSError, UnicodeDecodeError):
-                # Binary or unreadable - include but without diff content
-                files.append(FileChange(path=line, status="untracked", hunks=[]))
 
     return files
 
