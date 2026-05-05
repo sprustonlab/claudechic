@@ -8,39 +8,19 @@ import threading
 from importlib.metadata import version
 
 from claudechic.app import ChatApp
-from claudechic.errors import setup_logging
+from claudechic.errors import excepthook, setup_logging, threading_excepthook
 
 # Set up file logging to ~/claudechic.log
 setup_logging()
 
 logger = logging.getLogger("claudechic")
 
-
-# --- Global exception hooks: capture ANY unhandled exception to the log ---
-
-
-def _excepthook(exc_type, exc_value, exc_tb):
-    """Log unhandled exceptions (except KeyboardInterrupt) before the interpreter dies."""
-    if exc_type is KeyboardInterrupt:
-        sys.__excepthook__(exc_type, exc_value, exc_tb)
-        return
-    logger.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
-    sys.__excepthook__(exc_type, exc_value, exc_tb)
-
-
-def _threading_excepthook(args):
-    """Log unhandled exceptions in threads."""
-    if args.exc_type is KeyboardInterrupt:
-        return
-    logger.critical(
-        "Unhandled thread exception in %s",
-        args.thread,
-        exc_info=(args.exc_type, args.exc_value, args.exc_tb),
-    )
-
-
-sys.excepthook = _excepthook
-threading.excepthook = _threading_excepthook
+# Install global exception hooks: capture ANY unhandled exception to the log.
+# (Definitions live in claudechic.errors so test modules can import the hooks
+# without also triggering this file's module-level setup_logging() side effect,
+# which would set propagate=False on the claudechic logger and break caplog.)
+sys.excepthook = excepthook
+threading.excepthook = threading_excepthook
 
 
 def main():

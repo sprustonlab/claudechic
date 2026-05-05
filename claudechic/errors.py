@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 import sys
+import threading
 import traceback
 from collections.abc import Callable
 from pathlib import Path
+from types import TracebackType
 from typing import Literal
 
 from claudechic.config import CONFIG
@@ -125,3 +127,44 @@ def log_exception(e: Exception, context: str = "") -> str:
     else:
         log.error(f"{e}\n{tb}")
         return str(e)
+
+
+# --- Global exception hooks ---
+#
+# Defined here (NOT in __main__.py) so test modules can import them without
+# also triggering __main__.py's module-level setup_logging() side effect,
+# which sets propagate=False on the claudechic logger and breaks pytest's
+# caplog fixture for any subsequent test in the same worker process.
+
+
+def excepthook(
+    exc_type: type[BaseException],
+    exc_value: BaseException,
+    exc_tb: TracebackType | None,
+) -> None:
+    """Log unhandled exceptions (except KeyboardInterrupt) before the interpreter dies."""
+    if exc_type is KeyboardInterrupt:
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+        return
+    log.critical("Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+def threading_excepthook(args: threading.ExceptHookArgs) -> None:
+    """Log unhandled exceptions in threads.
+
+    The runtime field is ``exc_traceback`` (NOT ``exc_tb``); using the wrong
+    name raises AttributeError inside the hook, which the runtime swallows,
+    losing the original thread exception entirely.
+    """
+    if args.exc_type is KeyboardInterrupt:
+        return
+    # exc_value is typed as Optional, but is always set when exc_type is not None.
+    # Construct a fallback instance for the type checker; the runtime always
+    # provides a real exception alongside the type.
+    exc_value = args.exc_value if args.exc_value is not None else args.exc_type()
+    log.critical(
+        "Unhandled thread exception in %s",
+        args.thread,
+        exc_info=(args.exc_type, exc_value, args.exc_traceback),
+    )
