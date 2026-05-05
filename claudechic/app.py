@@ -37,6 +37,7 @@ from textual import work
 from textual.app import App
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.events import MouseUp
 from textual.screen import Screen
 
@@ -3097,6 +3098,20 @@ class ChatApp(App):
 
     def _position_right_sidebar(self) -> None:
         """Show/hide right sidebar and adjust centering based on terminal width."""
+        # Bail if widgets aren't mounted yet -- this method is called from many
+        # reactive triggers (worker callbacks, screen pushes, agent switches) and
+        # any of them can fire mid-compose on a slow runner before child widgets
+        # like #process-panel, #main, #todo-panel, #files-section are present.
+        # The next reactive tick will re-call us once mount is complete.
+        # See CI flake reports for tests/test_diff_workflows.py W4/W5/W8 and
+        # tests/test_app_ui.py::test_prompt_refocused_after_switch_away_and_back
+        # which surface as ``NoMatches: No nodes match '#process-panel' / '#main'``.
+        try:
+            self._layout_right_sidebar_inner()
+        except NoMatches:
+            pass
+
+    def _layout_right_sidebar_inner(self) -> None:
         # Show sidebar when wide enough and we have multiple agents, worktrees, or todos
         agent_count = len(self.agent_mgr) if self.agent_mgr else 0
         has_content = bool(
@@ -3165,6 +3180,15 @@ class ChatApp(App):
 
         Priority order (highest first): active agent > todos > other agents > processes > plan
         """
+        try:
+            self._layout_sidebar_contents_inner()
+        except NoMatches:
+            # Mid-mount race: a child sidebar widget (#process-panel, #todo-panel,
+            # etc.) isn't queryable yet. Skip this layout pass; the next reactive
+            # tick will re-call us once mount is complete.
+            pass
+
+    def _layout_sidebar_contents_inner(self) -> None:
         # Get available height (terminal height minus footer)
         height = self.size.height - 1  # StatusFooter is 1 line
 
