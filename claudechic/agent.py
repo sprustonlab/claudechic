@@ -30,6 +30,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
+from claude_agent_sdk import (
+    TextBlock as SDKTextBlock,
+)  # local TextBlock (line 91) is the chat-history dataclass
 from claude_agent_sdk.types import (
     PermissionResult,
     PermissionResultAllow,
@@ -1000,23 +1003,25 @@ Key Rules:
             if message.uuid:
                 self.checkpoint_uuids.append(message.uuid)
 
-            # UserMessage can contain tool results or command output
+            # UserMessage can contain tool results or command output. Per the
+            # SDK's typing (claude-agent-sdk 0.1.68), ``content`` is
+            # ``str | list[ContentBlock]``. Recent SDK versions favour the
+            # list-of-blocks shape, so the SDK-side echo of ``/context``
+            # arrives as ``[TextBlock(text="<command-name>/context</...>"
+            # "<local-command-stdout>...## Context Usage...</...>"))]``
+            # rather than a flat string. We must scan BOTH shapes for the
+            # local-command-stdout / command-name markers; otherwise the
+            # TUI shows nothing while the markdown still leaks into the
+            # model's conversation transcript.
             content = getattr(message, "content", "")
             if isinstance(content, str):
-                # Handle local command output (e.g., /context)
-                if "<local-command-stdout>" in content:
-                    self._handle_command_output(content)
-                # Detect SDK-loaded skills (e.g., /cleanup -> <command-name>/cleanup</command-name>)
-                if "<command-name>/" in content:
-                    match = re.search(
-                        r"<command-name>(/[\w:-]+)</command-name>", content
-                    )
-                    if match and self.observer:
-                        self.observer.on_skill_loaded(self, match.group(1))
+                self._scan_user_text_for_commands(content)
             elif isinstance(content, list):
                 for block in content:
                     if isinstance(block, ToolResultBlock):
                         self._handle_tool_result(block)
+                    elif isinstance(block, SDKTextBlock):
+                        self._scan_user_text_for_commands(block.text)
 
         elif isinstance(message, StreamEvent):
             self._handle_stream_event(message)
@@ -1129,10 +1134,34 @@ Key Rules:
                 item.metadata.cost_usd = result.total_cost_usd
                 break
 
+    def _scan_user_text_for_commands(self, text: str) -> None:
+        """Scan a UserMessage text fragment for SDK-side command echoes.
+
+        Two payloads claudechic intercepts here:
+
+        - ``<local-command-stdout>...</local-command-stdout>`` -- the SDK's
+          local-command output (e.g. ``/context``); routed to
+          ``observer.on_command_output`` for ``ContextReport`` rendering.
+        - ``<command-name>/...</command-name>`` -- the SDK's notice that a
+          slash command has been resolved as a skill; routed to
+          ``observer.on_skill_loaded`` so claudechic can clear pending
+          slash-command tracking.
+
+        Called from BOTH the ``str`` and ``list[TextBlock]`` content
+        shapes of ``UserMessage`` so the SDK's choice of payload shape is
+        invisible to the rest of the TUI. Without the list-shape coverage,
+        ``/context`` and similar commands would silently drop in the TUI
+        even while the markdown leaked into the model's transcript.
+        """
+        if "<local-command-stdout>" in text:
+            self._handle_command_output(text)
+        if "<command-name>/" in text:
+            match = re.search(r"<command-name>(/[\w:-]+)</command-name>", text)
+            if match and self.observer:
+                self.observer.on_skill_loaded(self, match.group(1))
+
     def _handle_command_output(self, content: str) -> None:
         """Handle command output from UserMessage (e.g., /context)."""
-        import re
-
         # Extract content from <local-command-stdout>...</local-command-stdout>
         match = re.search(
             r"<local-command-stdout>(.*?)</local-command-stdout>", content, re.DOTALL
