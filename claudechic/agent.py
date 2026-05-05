@@ -1014,14 +1014,47 @@ Key Rules:
             # TUI shows nothing while the markdown still leaks into the
             # model's conversation transcript.
             content = getattr(message, "content", "")
+            # DIAGNOSTIC (issue: /context renders nothing in TUI). Logs the
+            # shape and a head-snippet of every UserMessage so we can see
+            # exactly how /context output is delivered. Remove once fixed.
             if isinstance(content, str):
+                log.info(
+                    "USERMSG-DIAG str len=%d head=%r has_localstdout=%s has_cmdname=%s",
+                    len(content),
+                    content[:200],
+                    "<local-command-stdout>" in content,
+                    "<command-name>/" in content,
+                )
                 self._scan_user_text_for_commands(content)
             elif isinstance(content, list):
-                for block in content:
+                kinds = [type(b).__name__ for b in content]
+                log.info("USERMSG-DIAG list len=%d kinds=%s", len(content), kinds)
+                for i, block in enumerate(content):
                     if isinstance(block, ToolResultBlock):
                         self._handle_tool_result(block)
                     elif isinstance(block, SDKTextBlock):
+                        log.info(
+                            "USERMSG-DIAG block[%d]=SDKTextBlock len=%d head=%r has_localstdout=%s has_cmdname=%s",
+                            i,
+                            len(block.text),
+                            block.text[:200],
+                            "<local-command-stdout>" in block.text,
+                            "<command-name>/" in block.text,
+                        )
                         self._scan_user_text_for_commands(block.text)
+                    else:
+                        log.info(
+                            "USERMSG-DIAG block[%d]=%s repr=%r",
+                            i,
+                            type(block).__name__,
+                            repr(block)[:200],
+                        )
+            else:
+                log.info(
+                    "USERMSG-DIAG content_type=%s repr=%r",
+                    type(content).__name__,
+                    repr(content)[:200],
+                )
 
         elif isinstance(message, StreamEvent):
             self._handle_stream_event(message)
