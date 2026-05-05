@@ -1404,7 +1404,6 @@ Key Rules:
         "auto",
         "acceptEdits",
         "plan",
-        "planSwarm",
         "bypassPermissions",
     }
 

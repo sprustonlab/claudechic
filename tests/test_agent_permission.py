@@ -62,7 +62,6 @@ class TestPermissionModes:
             "auto",
             "acceptEdits",
             "plan",
-            "planSwarm",
             "bypassPermissions",
         }
         assert expected == Agent.PERMISSION_MODES
