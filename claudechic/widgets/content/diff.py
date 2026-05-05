@@ -36,13 +36,25 @@ LIGHT_THEME_STYLES = {
 def _get_cached_lexer(language: str):
     """Cache Pygments lexers to avoid repeated loading (~15% CPU savings)."""
     try:
-        return get_lexer_by_name(language, stripnl=False, ensurenl=True, tabsize=8)
+        return get_lexer_by_name(language, stripnl=False, ensurenl=False)
     except ClassNotFound:
         return None
 
 
 def _highlight_text(text: str, language: str) -> Content:
-    """Syntax highlight text using cached lexer and default HighlightTheme."""
+    """Syntax highlight text using cached lexer and default HighlightTheme.
+
+    Accumulates span positions from token-text lengths rather than trusting
+    the lexer's reported source indices. Some lexers (notably ``markdown``,
+    which delegates fenced code blocks to a sub-lexer) emit indices that
+    reset to 0 inside embedded blocks, so using those indices directly would
+    splat inner-block spans onto the start of the document.
+
+    Safe because the cached lexer is built with ``stripnl=False,
+    ensurenl=False`` (see ``_get_cached_lexer``) and default ``tabsize=0``,
+    and we expand tabs at the diff input — so tokens preserve source text
+    exactly (verified across markdown/python/go/js/rust).
+    """
     if not language:
         return Content(text)
 
@@ -51,19 +63,18 @@ def _highlight_text(text: str, language: str) -> Content:
         return Content(text)
 
     text = "\n".join(text.splitlines())
-    token_start = 0
     spans: list[Span] = []
 
+    pos = 0
     for token_type, token in lexer.get_tokens(text):
-        token_end = token_start + len(token)
         current_type = token_type
         while True:
             if style := HighlightTheme.STYLES.get(current_type):
-                spans.append(Span(token_start, token_end, style))
+                spans.append(Span(pos, pos + len(token), style))
                 break
             if (current_type := current_type.parent) is None:
                 break
-        token_start = token_end
+        pos += len(token)
 
     return Content(text, spans=spans).stylize_before("$text")
 
@@ -217,6 +228,9 @@ class DiffWidget(HorizontalScroll):
     # Minimum width to show side-by-side (each side needs ~60 chars)
     SIDE_BY_SIDE_MIN_WIDTH = 130
 
+    # Expand tabs at input so ``len(text)`` matches rendered cell width.
+    TAB_SIZE = 8
+
     def __init__(
         self,
         old: str,
@@ -229,8 +243,8 @@ class DiffWidget(HorizontalScroll):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self._old = old
-        self._new = new
+        self._old = old.expandtabs(self.TAB_SIZE)
+        self._new = new.expandtabs(self.TAB_SIZE)
         self._path = path
         self._context_lines = context_lines
         self._replace_all = replace_all
