@@ -1691,14 +1691,28 @@ class ChatApp(App):
             await self.file_index.refresh()
 
     def _poll_background_processes(self) -> None:
-        """Poll for background processes and update the panel and footer."""
-        agent = self._agent
-        if not agent:
-            return
-        processes = agent.get_background_processes()
-        self.process_panel.update_processes(processes)
-        self.status_footer.update_processes(processes)
-        self._position_right_sidebar()
+        """Poll for background processes and update the panel and footer.
+
+        This is a 2s interval timer registered in on_mount; it can fire
+        after a test's run_test() context exits but before the timer is
+        cancelled, by which point ``#process-panel`` is no longer
+        queryable and the lazy-init ``self.process_panel`` property
+        raises NoMatches. Surfaced as ``NoMatches: No nodes match
+        '#process-panel' on ChatScreen()`` in run_test's __aexit__
+        (CI run 25381113853, macOS-3.13). Same root cause as the
+        sidebar layout race; same swallow-and-let-the-next-tick-retry
+        treatment.
+        """
+        try:
+            agent = self._agent
+            if not agent:
+                return
+            processes = agent.get_background_processes()
+            self.process_panel.update_processes(processes)
+            self.status_footer.update_processes(processes)
+            self._position_right_sidebar()
+        except NoMatches:
+            pass
 
     async def _run_hints(self, *, is_startup: bool = True, budget: int = 2) -> None:
         """Evaluate project hints via claudechic.hints pipeline."""
