@@ -339,7 +339,10 @@ async def _redirect_active_agent(app: ChatApp, pilot, repo: Path) -> None:
     # -> ``self.process_panel.process_count`` -> ``query_one("#process-panel")``,
     # which raises ``NoMatches`` if that widget hasn't mounted yet.
     # Wait until ``#process-panel`` is queryable before proceeding.
-    for _ in range(20):
+    # Bumped from 20 to 100 iterations to cover slow CI runners where the
+    # 20-tick budget (~1s) was too tight; W4/W5/W8 flakes on macOS/Windows
+    # surfaced as ``NoMatches: No nodes match '#process-panel'``.
+    for _ in range(100):
         if app.query("#process-panel"):
             break
         await pilot.pause()

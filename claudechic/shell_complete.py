@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 from pathlib import Path
 
 # Cached executables from PATH
@@ -13,6 +14,14 @@ _executable_future: asyncio.Task[list[str]] | None = None
 
 # Windows executable extensions (from PATHEXT env var)
 _WINDOWS_EXE_EXTS = {".exe", ".cmd", ".bat", ".com", ".ps1"}
+
+# Hard caps on PATH enumeration to prevent ``get_executables`` from blowing
+# the per-test 30s pytest --timeout on hosted runners. Symptom on Windows
+# GH runners (Py 3.13) was tests hanging in ``Path.is_file()`` while walking
+# a long, slow-stat'd PATH; see CI flake report for test_agent_role_identity.
+_MAX_ENTRIES_PER_DIR = 2000  # avoid pathological dirs (e.g. C:\Windows\WinSxS)
+_MAX_TOTAL_ENTRIES = 20000  # absolute ceiling across all PATH dirs
+_MAX_DURATION_SECONDS = 5.0  # soft time budget; bail and cache partial result
 
 
 def _is_executable(entry: Path) -> bool:
@@ -31,20 +40,40 @@ def _is_executable(entry: Path) -> bool:
 
 
 def get_executables() -> list[str]:
-    """Get all executable commands from PATH (cached)."""
+    """Get all executable commands from PATH (cached).
+
+    Bounded by ``_MAX_ENTRIES_PER_DIR``, ``_MAX_TOTAL_ENTRIES``, and
+    ``_MAX_DURATION_SECONDS`` to prevent the walk from hanging under
+    autocomplete preload on machines with very long PATH or slow stat
+    (Windows GH runners are the worst offender). When a budget is hit
+    we cache and return what we have -- partial completion beats hang.
+    """
     global _executable_cache
     if _executable_cache is not None:
         return _executable_cache
 
-    executables = set()
+    executables: set[str] = set()
     path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    deadline = time.monotonic() + _MAX_DURATION_SECONDS
+    total_seen = 0
 
     for dir_path in path_dirs:
+        if time.monotonic() >= deadline or total_seen >= _MAX_TOTAL_ENTRIES:
+            break
         p = Path(dir_path)
         if not p.is_dir():
             continue
         try:
+            per_dir = 0
             for entry in p.iterdir():
+                if (
+                    per_dir >= _MAX_ENTRIES_PER_DIR
+                    or total_seen >= _MAX_TOTAL_ENTRIES
+                    or time.monotonic() >= deadline
+                ):
+                    break
+                per_dir += 1
+                total_seen += 1
                 if _is_executable(entry):
                     # On Windows, add both with and without extension for common exts
                     name = entry.name
