@@ -1,0 +1,29 @@
+name: Block .project_team/ additions on main
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject PR if it adds or modifies .project_team/ paths
+        run: |
+          set -euo pipefail
+          base="origin/${{ github.event.pull_request.base.ref }}"
+          # --diff-filter=AM = additions or modifications only.
+          # Deletions (cleanup PRs) are allowed.
+          violators=$(git diff --name-only --diff-filter=AM "${base}...HEAD" | grep '^\.project_team/' || true)
+          if [ -n "$violators" ]; then
+            echo "ERROR: This PR adds or modifies .project_team/ paths."
+            echo ".project_team/ is develop-only audit-trail material and must not land on main."
+            echo ""
+            echo "Violating paths:"
+            printf '  %s\n' $violators
+            exit 1
+          fi
+          echo "OK: no .project_team/ additions in this PR."
