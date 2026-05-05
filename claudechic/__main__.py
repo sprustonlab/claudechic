@@ -35,7 +35,7 @@ def _threading_excepthook(args):
     logger.critical(
         "Unhandled thread exception in %s",
         args.thread,
-        exc_info=(args.exc_type, args.exc_value, args.exc_tb),
+        exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
     )
 
 
