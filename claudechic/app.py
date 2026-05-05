@@ -1298,6 +1298,27 @@ class ChatApp(App):
             lambda msg, severity: self.notify(msg, severity=severity, timeout=5)
         )
 
+        # Warn on washed-out colors over SSH (COLORTERM rarely propagates,
+        # so Textual falls back to 256-color). Skip locally to avoid nagging
+        # users whose terminal genuinely can't do truecolor.
+        is_ssh = any(
+            os.environ.get(v) for v in ("SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY")
+        )
+        color_system = self.console.color_system
+        log.debug(
+            "color_system=%s TERM=%s COLORTERM=%s SSH=%s",
+            color_system,
+            os.environ.get("TERM"),
+            os.environ.get("COLORTERM"),
+            is_ssh,
+        )
+        if is_ssh and color_system != "truecolor":
+            log.warning(
+                "Colors look washed out? Terminal is %s, not truecolor. "
+                "Try `export COLORTERM=truecolor` on the remote host.",
+                color_system or "unknown",
+            )
+
         # Start CPU sampling profiler + event loop lag monitor
         start_sampler()
         self._monitor_lag_task = create_safe_task(
@@ -1583,6 +1604,18 @@ class ChatApp(App):
             self.exit(
                 message=f"Connection failed: {e}\n\nPlease run `claude /login` to authenticate."
             )
+            return
+        except Exception as e:
+            # Catch-all (e.g. SDK "Control request timeout: initialize") so
+            # the user sees a clean message rather than a crashing traceback.
+            await capture(
+                "error_occurred",
+                error_type=type(e).__name__,
+                error_subtype=str(e)[:200],
+                context="initial_connect",
+            )
+            self.exit(message=f"Connection failed: {e}")
+            return
 
         # Load history if resuming
         if resume:
