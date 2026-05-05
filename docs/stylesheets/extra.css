@@ -33,9 +33,17 @@
   --md-footer-bg-color--dark: #000000;
 }
 
-/* Header - hidden */
-.md-header {
-  display: none;
+/* Header - hidden on wide screens, visible on mobile for hamburger nav */
+@media screen and (min-width: 76.25em) {
+  .md-header {
+    display: none;
+  }
+}
+
+@media screen and (max-width: 76.1875em) {
+  .md-header {
+    background-color: #000000;
+  }
 }
 
 /* Responsive video container */
