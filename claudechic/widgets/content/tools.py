@@ -10,7 +10,7 @@ from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.message import Message
-from textual.widgets import Markdown, Static
+from textual.widgets import Static
 
 from claudechic.enums import ToolName
 from claudechic.formatting import (
@@ -23,6 +23,10 @@ from claudechic.formatting import (
 )
 from claudechic.widgets.base.tool_base import BaseToolWidget
 from claudechic.widgets.content.diff import DiffWidget
+from claudechic.widgets.content.safe_markdown import SafeMarkdown as Markdown
+
+# ``Markdown`` above is ``SafeMarkdown`` (no synchronous link-open
+# freeze). See widgets/content/safe_markdown.py for rationale.
 from claudechic.widgets.content.message import ChatMessage
 from claudechic.widgets.primitives.button import Button
 from claudechic.widgets.primitives.collapsible import QuietCollapsible

@@ -9,12 +9,21 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import Markdown, Static, TextArea
+from textual.widgets import Static, TextArea
 
 from claudechic.errors import log_exception
+from claudechic.widgets.content.safe_markdown import SafeMarkdown as Markdown
 from claudechic.widgets.input.vi_mode import ViHandler, ViMode
 from claudechic.widgets.primitives.button import Button
 from claudechic.widgets.primitives.spinner import Spinner
+
+# Note: ``Markdown`` above is ``SafeMarkdown`` -- the bare
+# ``textual.widgets.Markdown`` opens links via a synchronous
+# ``webbrowser.open`` call that freezes the TUI for several seconds
+# while the OS spawns a browser. ``SafeMarkdown`` defaults
+# ``open_links=False`` and the LinkClicked event bubbles to
+# ``ChatApp.on_markdown_link_clicked`` for confirmation. Do NOT
+# revert this import or click freezes return.
 
 
 class MessageMetadataHeader(Static):

@@ -3491,6 +3491,56 @@ class ChatApp(App):
         if handler:
             handler(event)
 
+    def on_markdown_link_clicked(self, event) -> None:
+        """Confirm before opening a clicked URL in the system browser.
+
+        All Markdown content in claudechic is rendered via SafeMarkdown
+        (open_links=False), so this event reaches us unhandled. We
+        prompt with URLConfirmModal; if the user confirms we run
+        webbrowser.open on a worker thread so the system-browser spawn
+        does not freeze the TUI event loop. See
+        widgets/content/safe_markdown.py for the underlying issue.
+
+        Why a confirm step at all: a single misclick on a URL in chat
+        output used to trigger a synchronous webbrowser.open that
+        blocked the TUI for several seconds (multiple seconds on WSL,
+        Linux without $DISPLAY, or remote SSH). The confirm modal
+        makes misclicks free (one keypress to dismiss) without
+        removing the convenience of intentional clicks.
+        """
+        from claudechic.widgets.modals.url_confirm import URLConfirmModal
+
+        event.stop()
+        url = getattr(event, "href", "") or ""
+        if not url:
+            return
+
+        def _on_dismiss(confirmed: bool | None) -> None:
+            if confirmed:
+                # Schedule the launch on the running loop so the modal
+                # fully tears down first (clean redraw) and the browser
+                # spawn never blocks the event loop.
+                asyncio.create_task(self._open_url_async(url))
+
+        self.push_screen(URLConfirmModal(url), _on_dismiss)
+
+    async def _open_url_async(self, url: str) -> None:
+        """Run webbrowser.open on a worker thread so spawning the OS
+        browser does not freeze the TUI.
+
+        ``webbrowser.open`` may take many seconds on Linux without
+        $DISPLAY, on WSL, or on remote SSH sessions; doing it inline
+        on the event loop is what produced the original "click a link
+        and the TUI hangs" bug.
+        """
+        import webbrowser
+
+        try:
+            await asyncio.to_thread(webbrowser.open, url)
+        except Exception as e:
+            log.warning("webbrowser.open failed for %s: %s", url, e)
+            self.notify(f"Could not open URL: {e}", severity="error")
+
     def on_mouse_up(self, event: MouseUp) -> None:
         # Close sidebar overlay if clicking outside of it
         if self._sidebar_overlay_open:
