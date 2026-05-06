@@ -204,6 +204,17 @@ def _check_config_readiness(config: dict) -> str:
 
     Returns:
         ``"ready"``, ``"incomplete"``, or ``"needs_setup"``.
+
+    ``path_map`` is treated as "configured" when the key is **present**
+    in the config, regardless of whether the list has entries. An empty
+    ``path_map: []`` is the correct value for shared-filesystem setups
+    where local paths and cluster paths are identical (e.g. NFS-mounted
+    home dirs visible from both the workstation and the compute nodes).
+    Treating it as ``"incomplete"`` -- the historical behavior, before
+    the key-presence check -- caused every successful ``cluster_*``
+    response to carry a misleading ``setup_needed`` field, which the
+    cluster_submit tool description tells consumer agents to react to
+    by interrupting the user to re-run setup.
     """
     ssh_target = config.get("ssh_target", "")
     has_local = shutil.which("bsub") is not None or shutil.which("sbatch") is not None
@@ -213,7 +224,7 @@ def _check_config_readiness(config: dict) -> str:
     # Jinja placeholder means the template hasn't been filled in yet
     if ssh_target and "{{" in ssh_target:
         return "needs_setup"
-    if ssh_target and not config.get("path_map"):
+    if ssh_target and "path_map" not in config:
         return "incomplete"
     return "ready"
 
