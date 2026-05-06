@@ -15,7 +15,7 @@ Determine how the user connects to the cluster, verify reachability, and confirm
    - If a likely match is found, propose it as the ssh_target
 
 3. **Check existing config:**
-   - Read `mcp_tools/cluster.yaml` for `ssh_target`
+   - Read `.claudechic/mcp_tools/cluster.yaml` for `ssh_target` (project tier)
    - If set, test reachability with passwordless SSH:
      ```
      ssh -o BatchMode=yes -o ConnectTimeout=5 <target> echo ok
@@ -40,7 +40,7 @@ Determine how the user connects to the cluster, verify reachability, and confirm
 Report: `{status: configured|missing|unreachable|auth_failed|skipped, ssh_target, local_scheduler, os_platform, passwordless_ssh: true|false}`
 
 ## Before advancing
-**Write `ssh_target` to `mcp_tools/cluster.yaml`** — the advance check requires it. Use Edit to set the confirmed hostname before calling `advance_phase`.
+**Write `ssh_target` to `.claudechic/mcp_tools/cluster.yaml`** (project tier) — the advance check requires it. Use Edit to set the confirmed hostname before calling `advance_phase`.
 
 **Important: Do NOT quote the value.** Write `ssh_target: submit.int.janelia.org` not `ssh_target: "submit.int.janelia.org"`. The advance checks use `awk '/^ssh_target:/{print $2}'` to extract the value, and quotes would be included literally, causing SSH to fail with "hostname contains invalid characters".
 
