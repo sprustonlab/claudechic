@@ -1,5 +1,17 @@
 name: Tests
-on: [push, pull_request]
+# Triggers are scoped to main so feature-branch and develop pushes do not burn
+# matrix minutes. CI fires only on PRs targeting main (the gate that actually
+# blocks releases) and on push-to-main itself (catches the post-merge SHA --
+# squash/merge-commit/rebase strategies all produce a new SHA that the PR's CI
+# never tested). workflow_dispatch lets a maintainer rerun the suite manually
+# on any branch when needed (smoke-testing develop before promoting it,
+# re-running a known flake, etc.).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 # Dedup the push+pull_request double-trigger: when you push a branch and open
 # a PR for it, both events fire for the same SHA, doubling matrix jobs (24
