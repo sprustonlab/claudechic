@@ -142,30 +142,6 @@ def test_no_ssh_target_but_local_scheduler_is_ready() -> None:
     assert result == "ready"
 
 
-def test_jinja_placeholder_in_ssh_target_needs_setup() -> None:
-    """An unfilled template placeholder is a hard 'needs_setup'
-    regardless of any other state -- the config is literally a stub."""
-    mod = _load_cluster_helper()
-    config = {
-        "ssh_target": "{{ cluster_login_node }}",
-        "path_map": [],
-    }
-    with patch.object(mod.shutil, "which", return_value=None):
-        result = mod._check_config_readiness(config)
-    assert result == "needs_setup"
-
-
-def test_jinja_placeholder_overrides_local_scheduler() -> None:
-    """A jinja placeholder forces needs_setup even if a local
-    scheduler is available -- the placeholder signals the config
-    template was never instantiated."""
-    mod = _load_cluster_helper()
-    config = {"ssh_target": "{{ host }}"}
-    with patch.object(mod.shutil, "which", return_value="/usr/bin/sbatch"):
-        result = mod._check_config_readiness(config)
-    assert result == "needs_setup"
-
-
 # ---------------------------------------------------------------------------
 # Empty ``path_map`` round-trip via YAML (the user-tier shape)
 # ---------------------------------------------------------------------------

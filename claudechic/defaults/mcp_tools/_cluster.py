@@ -221,9 +221,6 @@ def _check_config_readiness(config: dict) -> str:
 
     if not ssh_target and not has_local:
         return "needs_setup"
-    # Jinja placeholder means the template hasn't been filled in yet
-    if ssh_target and "{{" in ssh_target:
-        return "needs_setup"
     if ssh_target and "path_map" not in config:
         return "incomplete"
     return "ready"
