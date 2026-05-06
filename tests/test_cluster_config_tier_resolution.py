@@ -53,6 +53,19 @@ def _write_project_cluster_yaml(project_root: Path) -> Path:
     return project_yaml
 
 
+def _redirect_home(monkeypatch, home: Path) -> None:
+    """Point ``Path.home()`` at ``home`` on every supported OS.
+
+    POSIX reads ``$HOME``. Windows ``Path.home()`` reads ``USERPROFILE``
+    first (then ``HOMEDRIVE`` + ``HOMEPATH``), so setting only ``HOME``
+    is a no-op on Windows and leaves the user-tier candidate pointing
+    at the real account dir -- which on CI is ``C:/Users/runneradmin``
+    and tainted whatever the test thought it was isolating. Setting
+    both env vars covers Linux, macOS, and Windows uniformly."""
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+
 def _load_cluster_dispatch_module() -> types.ModuleType:
     """Import the bundled ``cluster_dispatch.py`` against the in-test
     helper namespace, mirroring the production loader in ``mcp.py``."""
@@ -101,7 +114,7 @@ def test_config_candidates_priority_order(monkeypatch, tmp_path) -> None:
     ``uv tool upgrade claudechic`` clobbers any in-place edits."""
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    _redirect_home(monkeypatch, home)
     monkeypatch.chdir(tmp_path)
 
     mod = _load_cluster_dispatch_module()
@@ -129,7 +142,7 @@ def test_load_dispatch_config_returns_empty_when_no_tier_config(
     Asserting equality with ``{}`` distinguishes the two cases."""
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    _redirect_home(monkeypatch, home)
     monkeypatch.chdir(tmp_path)
 
     mod = _load_cluster_dispatch_module()
@@ -176,7 +189,7 @@ async def test_real_tui_launch_loads_project_tier_cluster_yaml(
     # invalidate the test premise.
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    _redirect_home(monkeypatch, home)
     monkeypatch.chdir(tmp_path)
 
     project_yaml = _write_project_cluster_yaml(tmp_path)
@@ -251,7 +264,7 @@ async def test_real_tui_launch_without_tier_config_returns_empty(
     falsy-ish but populated, so equality is the discriminating check."""
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    _redirect_home(monkeypatch, home)
     monkeypatch.chdir(tmp_path)
 
     # Deliberately NO project- or user-tier file written.
