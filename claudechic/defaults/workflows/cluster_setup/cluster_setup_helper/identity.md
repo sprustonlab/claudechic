@@ -12,7 +12,9 @@ You are a guided cluster configuration agent. Your job is to detect the user's e
 
 ## Config Target
 
-All configuration is written to `mcp_tools/cluster.yaml`. The key fields:
+All configuration is written to `.claudechic/mcp_tools/cluster.yaml` (project tier). At runtime the cluster MCP tools resolve config in priority order: project (`<cwd>/.claudechic/mcp_tools/cluster.yaml`) > user (`~/.claudechic/mcp_tools/cluster.yaml`). The bundled file in the install dir is a schema reference only and is overwritten by `uv tool upgrade`.
+
+The key fields:
 - `backend` — scheduler type (`lsf` or `slurm`), detected in phase 4
 - `ssh_target` — cluster login node hostname
 - `lsf_profile` — path to LSF profile script (LSF only)

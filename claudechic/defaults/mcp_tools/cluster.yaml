@@ -1,8 +1,18 @@
-# Cluster configuration -- populated by cluster-setup workflow
+# Cluster configuration -- SCHEMA REFERENCE ONLY.
+#
+# This bundled file is NOT loaded at runtime. The cluster MCP tools
+# read config from project tier (<cwd>/.claudechic/mcp_tools/cluster.yaml)
+# or user tier (~/.claudechic/mcp_tools/cluster.yaml). See issue #50.
+#
+# Editing this file in place will NOT take effect, and `uv tool upgrade
+# claudechic` will overwrite it. Use the cluster_setup workflow to
+# write a real config to the project tier.
+#
+# Valid keys (with example values shown after the colon):
 backend: ""              # lsf | slurm
-ssh_target: ""
-lsf_profile: ""
-watch_poll_interval: 30
-remote_cwd: ""
-path_map: []
-log_access: auto
+ssh_target: ""           # cluster login node hostname (e.g. submit.example.org)
+lsf_profile: ""          # path to LSF profile script on the cluster (LSF only)
+watch_poll_interval: 30  # seconds between cluster_watch polls
+remote_cwd: ""           # override working directory on the cluster
+path_map: []             # list of {local: ..., cluster: ...} mappings
+log_access: auto         # auto | local | ssh

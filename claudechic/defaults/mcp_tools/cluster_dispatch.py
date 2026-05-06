@@ -41,9 +41,49 @@ _BACKENDS = ("lsf", "slurm")
 # ---------------------------------------------------------------------------
 
 
+def _config_candidates() -> list[Path]:
+    """Return cluster.yaml lookup paths in priority order.
+
+    Two tiers, project first then user:
+
+    1. Project tier: ``<cwd>/.claudechic/mcp_tools/cluster.yaml``
+    2. User tier:    ``~/.claudechic/mcp_tools/cluster.yaml``
+
+    The first existing file wins. ``Path.cwd()`` is read fresh on every
+    call so changing the launch directory takes effect without a
+    restart of the in-process MCP server.
+
+    Note: there is intentionally NO package-tier fallback. The bundled
+    ``claudechic/defaults/mcp_tools/cluster.yaml`` is a *schema example*
+    only -- it ships with empty placeholder values and is overwritten
+    by every ``uv tool upgrade``. Reading it would either be
+    indistinguishable from returning ``{}`` (template still empty) or
+    silently load stale in-place edits that an upgrade is about to
+    clobber. See issue #50 for the bug that motivated removing it.
+    """
+    return [
+        Path.cwd() / ".claudechic" / "mcp_tools" / "cluster.yaml",
+        Path.home() / ".claudechic" / "mcp_tools" / "cluster.yaml",
+    ]
+
+
 def _load_dispatch_config() -> dict:
-    """Load cluster config from the sibling cluster.yaml file."""
-    return _load_config(Path(__file__).parent / "cluster.py")
+    """Load cluster config in tier order: project > user.
+
+    Walks :func:`_config_candidates` and returns the contents of the
+    first file that exists. Returns ``{}`` when neither tier has a
+    config -- the cluster tools then surface a "not configured" message
+    that points the user at the ``cluster_setup`` workflow. The bundled
+    package YAML is intentionally NOT consulted (see
+    :func:`_config_candidates` for rationale).
+    """
+    for path in _config_candidates():
+        if path.is_file():
+            # ``_load_config`` takes the .py path and reads its sibling
+            # .yaml. We already have the .yaml path, so flip the suffix
+            # back to keep using the shared helper for the actual read.
+            return _load_config(path.with_suffix(".py"))
+    return {}
 
 
 def _not_configured_response() -> dict[str, Any]:

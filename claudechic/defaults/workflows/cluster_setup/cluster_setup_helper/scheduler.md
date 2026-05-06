@@ -25,7 +25,7 @@ Detect which job scheduler (LSF or SLURM) is available on the cluster.
    - `ssh <target> 'test -f /misc/lsf/conf/profile.lsf && echo exists'`
 
 ## Before advancing
-**Write `backend` and `lsf_profile` to `mcp_tools/cluster.yaml`** before calling `advance_phase`. The next phases rely on these values. Example for LSF:
+**Write `backend` and `lsf_profile` to `.claudechic/mcp_tools/cluster.yaml`** (project tier) before calling `advance_phase`. The next phases rely on these values. Example for LSF:
 ```yaml
 backend: lsf
 lsf_profile: /misc/lsf/conf/profile.lsf
