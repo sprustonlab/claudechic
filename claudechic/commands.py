@@ -9,6 +9,7 @@ It's used by autocomplete (app.py) and help (help_data.py).
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import time
@@ -16,6 +17,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from claudechic.analytics import capture
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from claudechic.app import ChatApp
@@ -313,6 +316,11 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
         context = cmd.split(maxsplit=1)[1] if cmd.startswith("/reviewer ") else None
         return _handle_review(app, context)
 
+    if cmd == "/context":
+        _track_command(app, "context")
+        app.run_worker(_handle_context(app))
+        return True
+
     if cmd == "/help":
         _track_command(app, "help")
         app.run_worker(_handle_help(app))
@@ -447,11 +455,18 @@ CLAUDE_CLI_COMMANDS = frozenset(
     }
 )
 
-# Built-in SDK commands that work in claudechic (pass through, no tracking)
+# Built-in SDK commands that work in claudechic (pass through, no tracking).
+# NB: /context is NOT in this set. Although the SDK's CLI processes /context
+# locally, it emits the output via "transcript_mirror" frames that
+# claude_agent_sdk silently strips from receive_response (see
+# claude_agent_sdk/_internal/query.py:280) and only writes to the session
+# JSONL on disk. Result: no SDK message reaches claudechic for the TUI to
+# render. Instead we intercept /context here and call
+# ClaudeSDKClient.get_context_usage() directly -- same data, no roundtrip,
+# no transcript_mirror dance.
 SDK_PASSTHROUGH_COMMANDS = frozenset(
     {
         "/compact",
-        "/context",
         "/init",
         "/ultrareview",  # Cloud-based parallel multi-agent review (Claude Code 2.1.111+)
     }
@@ -825,6 +840,71 @@ async def _handle_help(app: ChatApp) -> None:
         msg.add_class("system-message")
         chat_view.mount(msg)
         chat_view.scroll_if_tailing()
+
+
+async def _handle_context(app: ChatApp) -> None:
+    """Render /context via the SDK's get_context_usage() API.
+
+    The CLI's built-in /context command writes its markdown output via
+    ``transcript_mirror`` frames that the SDK strips from the consumer
+    stream (see claude_agent_sdk/_internal/query.py:280); the markdown
+    only ever lands in the session JSONL on disk. So forwarding /context
+    to the SDK as a normal prompt produces nothing the TUI can render.
+
+    Instead we call ``ClaudeSDKClient.get_context_usage()`` -- the same
+    structured data the CLI uses internally -- format it as the markdown
+    that ``ContextReport.parse_context_markdown`` already understands,
+    and post a ``CommandOutputMessage``. The existing
+    ``on_command_output_message`` handler then mounts the colored
+    ``ContextReport`` widget unchanged.
+    """
+    from claudechic.messages import CommandOutputMessage
+
+    agent = app._agent
+    if agent is None or agent.client is None:
+        app.notify("No active agent for /context", severity="warning")
+        return
+
+    try:
+        usage = await agent.client.get_context_usage()
+    except Exception as exc:
+        log.exception("get_context_usage failed")
+        app.notify(f"/context failed: {exc}", severity="error")
+        return
+
+    total = int(usage.get("totalTokens") or 0)
+    max_tokens = int(usage.get("maxTokens") or usage.get("rawMaxTokens") or 0)
+    pct = float(usage.get("percentage") or 0.0)
+    model = usage.get("model") or ""
+    categories = usage.get("categories") or []
+
+    # ContextReport.parse_context_markdown reads:
+    #   "**Model:** <name>"
+    #   "**Tokens:** <used> / <max> (<pct>%)" -- with optional k/m suffixes
+    #   "| <name> | <tokens>[k|m] | <pct>% |" rows
+    # Use plain integer counts so the parser's `[\d.]+[kmKM]?` accepts
+    # them (suffix is optional). Percentage is per-category share of
+    # max_tokens to match the existing display semantics.
+    denom = max_tokens or total or 1
+    lines = [
+        "## Context Usage",
+        "",
+        f"**Model:** {model}",
+        f"**Tokens:** {total} / {max_tokens} ({pct:.0f}%)",
+        "",
+        "| Category | Tokens | Percentage |",
+        "|----------|--------|------------|",
+    ]
+    for cat in categories:
+        if not isinstance(cat, dict):
+            continue
+        name = str(cat.get("name") or "")
+        tokens = int(cat.get("tokens") or 0)
+        cat_pct = (tokens / denom * 100) if denom else 0.0
+        lines.append(f"| {name} | {tokens} | {cat_pct:.1f}% |")
+
+    content = "\n".join(lines)
+    app.post_message(CommandOutputMessage(content, agent_id=agent.id))
 
 
 def _handle_processes(app: ChatApp) -> None:

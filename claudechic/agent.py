@@ -30,6 +30,9 @@ from claude_agent_sdk import (
     ToolUseBlock,
     UserMessage,
 )
+from claude_agent_sdk import (
+    TextBlock as SDKTextBlock,
+)  # local TextBlock (line 91) is the chat-history dataclass
 from claude_agent_sdk.types import (
     PermissionResult,
     PermissionResultAllow,
@@ -1000,23 +1003,23 @@ Key Rules:
             if message.uuid:
                 self.checkpoint_uuids.append(message.uuid)
 
-            # UserMessage can contain tool results or command output
+            # UserMessage content is ``str | list[ContentBlock]`` per the
+            # SDK typing. Both shapes are scanned for the SDK-side
+            # ``<command-name>/...</command-name>`` marker so we can
+            # clear pending slash-command tracking when the SDK resolves
+            # a command as a skill. (``/context``-style local-command
+            # output is handled in commands.py via
+            # ``ClaudeSDKClient.get_context_usage()``; the SDK does not
+            # deliver that envelope on receive_response.)
             content = getattr(message, "content", "")
             if isinstance(content, str):
-                # Handle local command output (e.g., /context)
-                if "<local-command-stdout>" in content:
-                    self._handle_command_output(content)
-                # Detect SDK-loaded skills (e.g., /cleanup -> <command-name>/cleanup</command-name>)
-                if "<command-name>/" in content:
-                    match = re.search(
-                        r"<command-name>(/[\w:-]+)</command-name>", content
-                    )
-                    if match and self.observer:
-                        self.observer.on_skill_loaded(self, match.group(1))
+                self._scan_user_text_for_commands(content)
             elif isinstance(content, list):
                 for block in content:
                     if isinstance(block, ToolResultBlock):
                         self._handle_tool_result(block)
+                    elif isinstance(block, SDKTextBlock):
+                        self._scan_user_text_for_commands(block.text)
 
         elif isinstance(message, StreamEvent):
             self._handle_stream_event(message)
@@ -1129,16 +1132,30 @@ Key Rules:
                 item.metadata.cost_usd = result.total_cost_usd
                 break
 
-    def _handle_command_output(self, content: str) -> None:
-        """Handle command output from UserMessage (e.g., /context)."""
-        import re
+    def _scan_user_text_for_commands(self, text: str) -> None:
+        """Detect SDK-side ``<command-name>/...</command-name>`` notices.
 
-        # Extract content from <local-command-stdout>...</local-command-stdout>
-        match = re.search(
-            r"<local-command-stdout>(.*?)</local-command-stdout>", content, re.DOTALL
-        )
-        if match and self.observer:
-            self.observer.on_command_output(self, match.group(1).strip())
+        The SDK emits this marker when a slash command resolves as a
+        skill; forwarding the slash-command name to
+        ``observer.on_skill_loaded`` lets claudechic clear pending
+        slash-command tracking.
+
+        Called from both ``str`` and ``list[TextBlock]`` content shapes
+        of ``UserMessage`` so the SDK's payload-shape choice is
+        invisible to callers.
+
+        Note: an earlier version of this helper also extracted
+        ``<local-command-stdout>...</local-command-stdout>`` envelopes
+        for ``/context``-style rendering. That envelope is no longer
+        delivered on receive_response under current claude-agent-sdk
+        versions (the SDK strips it via ``transcript_mirror``);
+        ``/context`` is now intercepted in commands.py and rendered
+        via the SDK's ``get_context_usage()`` API.
+        """
+        if "<command-name>/" in text:
+            match = re.search(r"<command-name>(/[\w:-]+)</command-name>", text)
+            if match and self.observer:
+                self.observer.on_skill_loaded(self, match.group(1))
 
     def _handle_tool_use(
         self, block: ToolUseBlock, parent_tool_use_id: str | None
