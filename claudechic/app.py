@@ -3147,16 +3147,16 @@ class ChatApp(App):
             pass
 
     def _layout_right_sidebar_inner(self) -> None:
-        # Show sidebar when wide enough and we have multiple agents, worktrees, or todos
-        agent_count = len(self.agent_mgr) if self.agent_mgr else 0
-        has_content = bool(
-            agent_count > 1
-            or self.agent_section._worktrees
-            or self.todo_panel.todos
-            or (self._review_panel and self._review_panel.review_count)
-            or self._workflow_engine
-            or self.files_section.item_count > 0
-        )
+        # Right sidebar is always reachable when the terminal has room: inline
+        # when wide enough, otherwise via the hamburger -> overlay path. The
+        # historical ``has_content`` gate (which hid the sidebar when there
+        # was only a single agent, no todos, no files, etc.) was removed
+        # because it also hid the ChicsessionLabel -- and a user on an empty
+        # session needs to see / interact with chicsession state to create
+        # one. Inner sections (FilesSection, PlanSection, ReviewPanel,
+        # ProcessPanel) still self-manage their own ``hidden`` class when
+        # empty, so the visible column never looks padded with empty
+        # headers.
         width = self.size.width
         main = self.query_one("#main", Horizontal)
 
@@ -3166,13 +3166,9 @@ class ChatApp(App):
         )
 
         # Compute desired state
-        show_sidebar_inline = width >= self.SIDEBAR_MIN_WIDTH and has_content
-        show_overlay = (
-            has_content and not show_sidebar_inline and self._sidebar_overlay_open
-        )
-        show_hamburger = (
-            has_content and not show_sidebar_inline and not self._sidebar_overlay_open
-        )
+        show_sidebar_inline = width >= self.SIDEBAR_MIN_WIDTH
+        show_overlay = not show_sidebar_inline and self._sidebar_overlay_open
+        show_hamburger = not show_sidebar_inline and not self._sidebar_overlay_open
         sidebar_shift = show_sidebar_inline and width < self.CENTERED_SIDEBAR_WIDTH
         hide_sidebar = not (show_sidebar_inline or show_overlay)
 
@@ -3185,8 +3181,9 @@ class ChatApp(App):
         )
         main.set_class(sidebar_shift, "sidebar-shift")
 
-        # Reset overlay state when not applicable
-        if not has_content or show_sidebar_inline:
+        # Reset overlay state when sidebar is shown inline (overlay is only
+        # meaningful on narrow terminals).
+        if show_sidebar_inline:
             self._sidebar_overlay_open = False
 
         # Layout sidebar contents when visible
