@@ -1,0 +1,3 @@
+/groups/spruston/home/moharb/claudechic/claudechic/workflows/loader.py
+  /groups/spruston/home/moharb/claudechic/claudechic/workflows/loader.py:78:7 - warning: Type variable "T_co" used in generic Protocol "ManifestSection" should be invariant (reportInvalidTypeVarUse)
+0 errors, 1 warning, 0 informations
