@@ -9,10 +9,10 @@ phases:
         lifecycle: show-once
     advance_checks:
       - type: file-content-check
-        path: "mcp_tools/cluster.yaml"
+        path: ".claudechic/mcp_tools/cluster.yaml"
         pattern: "ssh_target:\\s+\\S+"
         on_failure:
-          message: "ssh_target must be set in mcp_tools/cluster.yaml before advancing."
+          message: "ssh_target must be set in .claudechic/mcp_tools/cluster.yaml before advancing."
           severity: warning
       - type: manual-confirm
         prompt: "SSH target confirmed and passwordless SSH working?"
@@ -33,10 +33,10 @@ phases:
         lifecycle: show-once
     advance_checks:
       - type: file-content-check
-        path: "mcp_tools/cluster.yaml"
+        path: ".claudechic/mcp_tools/cluster.yaml"
         pattern: "backend:\\s+(lsf|slurm)"
         on_failure:
-          message: "backend must be set to 'lsf' or 'slurm' in mcp_tools/cluster.yaml before advancing."
+          message: "backend must be set to 'lsf' or 'slurm' in .claudechic/mcp_tools/cluster.yaml before advancing."
           severity: warning
       - type: manual-confirm
         prompt: "Scheduler detected and working?"
@@ -64,7 +64,7 @@ phases:
   - id: apply
     file: apply
     hints:
-      - message: "Phase 6/6: Apply. Write the validated configuration to mcp_tools/cluster.yaml."
+      - message: "Phase 6/6: Apply. Write the validated configuration to .claudechic/mcp_tools/cluster.yaml."
         lifecycle: show-once
     advance_checks:
       - type: manual-confirm

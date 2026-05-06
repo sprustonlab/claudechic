@@ -1,7 +1,18 @@
 # Phase 7: Apply Configuration
 
 ## Goal
-Write the validated configuration to `mcp_tools/cluster.yaml`.
+Write the validated configuration to `.claudechic/mcp_tools/cluster.yaml` (project-tier).
+
+The cluster MCP tools resolve their config in priority order:
+1. Project tier: `<cwd>/.claudechic/mcp_tools/cluster.yaml`
+2. User tier:    `~/.claudechic/mcp_tools/cluster.yaml`
+
+If neither file exists, the tools report "not configured" and point the
+user back to this workflow. The bundled file inside the install dir is
+NOT loaded at runtime (it is a schema reference only) and `uv tool
+upgrade claudechic` overwrites it -- never edit it. Always write to
+the project tier unless the user explicitly asks for the user tier
+(cross-project default).
 
 ## Steps
 
@@ -11,7 +22,7 @@ Show the user a diff of what will change:
 - Format as a clear before/after comparison
 
 ### 2. Apply (only after user approves preview)
-Write the following fields to `mcp_tools/cluster.yaml`:
+Write the following fields to `.claudechic/mcp_tools/cluster.yaml`:
 - `backend` — detected scheduler (`lsf` or `slurm`)
 - `ssh_target` — confirmed login node
 - `lsf_profile` — scheduler profile path (LSF only, leave empty for SLURM)
@@ -25,7 +36,7 @@ Write the following fields to `mcp_tools/cluster.yaml`:
 - **Reject if validation hasn't passed.** Do not write config if phase 6 was skipped or failed.
 
 ### 3. Verify
-After writing, read back `mcp_tools/cluster.yaml` and confirm the values are correct.
+After writing, read back `.claudechic/mcp_tools/cluster.yaml` and confirm the values are correct.
 
 ### 4. Test
 Submit a quick test job via `cluster_submit` to confirm everything works end-to-end:
