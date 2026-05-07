@@ -452,6 +452,120 @@ def _make_message_agent(caller_name: str | None = None):
     return message_agent
 
 
+def _make_broadcast_message(caller_name: str | None = None):
+    """Create broadcast_message tool with optional caller name bound.
+
+    Sends the same message to multiple agents at once. Built on top of the
+    same fire-and-forget delivery as ``message_agent`` -- per-target failures
+    (e.g. agent not found) do not abort the broadcast; the result aggregates
+    a per-target status line so the caller can see exactly who got it.
+    """
+
+    @tool(
+        "broadcast_message",
+        (
+            "Send the same message to multiple agents at once. Like "
+            "message_agent but takes a list of names. Per-target failures "
+            "(missing agent, etc.) are reported in the result without "
+            "aborting the broadcast. The caller is silently skipped if "
+            "included in the list (broadcasting to yourself is a noop)."
+        ),
+        {
+            "type": "object",
+            "properties": {
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "description": (
+                        "Names of the target agents. Duplicates are deduped; "
+                        "the caller's own name (if present) is skipped."
+                    ),
+                },
+                "message": {"type": "string"},
+                "requires_answer": {
+                    "type": "boolean",
+                    "description": (
+                        "If true (default), each target is expected to "
+                        "reply. Set to false for fire-and-forget broadcasts "
+                        "(status updates, results)."
+                    ),
+                },
+            },
+            "required": ["names", "message"],
+        },
+    )
+    async def broadcast_message(args: dict[str, Any]) -> dict[str, Any]:
+        """Broadcast a message to multiple agents. Non-blocking per target."""
+        if _app is None or _app.agent_mgr is None:
+            return _error_response("App not initialized")
+        _track_mcp_tool("broadcast_message")
+
+        raw_names = args["names"]
+        message = args["message"]
+        requires_answer = args.get("requires_answer", True)
+
+        # Tolerate accidental string-instead-of-list passing. JSON Schema
+        # marks names as an array, but defensive coercion keeps a stray
+        # ``"alice"`` from blowing up the broadcast.
+        if isinstance(raw_names, str):
+            raw_names = [raw_names]
+        if not isinstance(raw_names, list) or not raw_names:
+            return _error_response("'names' must be a non-empty list of agent names")
+
+        # Dedupe while preserving order (so the result rows match the
+        # caller's intent), then drop the caller's own name. We do NOT
+        # short-circuit on an empty post-filter list with isError -- this
+        # is a noop, not a failure.
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for raw in raw_names:
+            if not isinstance(raw, str):
+                continue
+            n = raw.strip()
+            if not n or n in seen:
+                continue
+            seen.add(n)
+            ordered.append(n)
+
+        results: list[tuple[str, str]] = []  # (name, status)
+        delivered = 0
+        for n in ordered:
+            if caller_name is not None and n == caller_name:
+                results.append((n, "skipped (self)"))
+                continue
+            agent, error = _find_agent_by_name(n)
+            if agent is None:
+                results.append((n, error or "not found"))
+                continue
+            _send_prompt_fire_and_forget(
+                agent, message, caller_name=caller_name, expect_reply=requires_answer
+            )
+            if not requires_answer:
+                # Same fire-and-forget reply-clearing semantics as
+                # message_agent: if the caller had an outstanding question
+                # to this target, satisfying any one delivery clears it.
+                _clear_pending_reply_if_matched(caller_name, n)
+            results.append((n, "sent"))
+            delivered += 1
+
+        preview = message[:80] + "..." if len(message) > 80 else message
+        header = f"Broadcast ({delivered}/{len(ordered)} delivered): {preview}"
+        body_lines = [f"  - {n}: {status}" for n, status in results]
+        text = "\n".join([header, *body_lines])
+
+        # If nothing was delivered (e.g. every name missing), surface as
+        # an error so the caller treats it as a failure rather than a
+        # silent noop. A self-only broadcast counts as "no error" because
+        # it's a noop the caller authored intentionally.
+        all_missing = delivered == 0 and any(
+            status not in ("skipped (self)",) for _, status in results
+        )
+        return _text_response(text, is_error=all_missing)
+
+    return broadcast_message
+
+
 def _make_whoami(caller_name: str | None = None):
     """Create whoami tool that returns this agent's name."""
 
@@ -1731,6 +1845,7 @@ def create_chic_server(
         _make_spawn_agent(caller_name),
         _make_spawn_worktree(caller_name),
         _make_message_agent(caller_name),
+        _make_broadcast_message(caller_name),
         _make_whoami(caller_name),
         list_agents,
         _make_close_agent(caller_name),
