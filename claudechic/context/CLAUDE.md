@@ -42,11 +42,13 @@ The status footer shows per-agent state:
 ## Inter-Agent Communication (MCP Tools)
 
 - **`message_agent`** -- Send a message to another agent. By default expects a reply (target is nudged if idle without responding). Set `requires_answer=false` for fire-and-forget messages (status updates, results, answering questions).
+- **`broadcast_message`** -- Send the same message to a list of agents at once. Same `requires_answer` semantics as `message_agent`. Per-target failures (missing agent, etc.) are reported in the result without aborting the broadcast; the caller's own name is silently skipped.
 - **`interrupt_agent`** -- Interrupt an agent's current task immediately. Optionally redirect with a new prompt. Use when you need to stop or redirect a busy agent in real-time.
 
 **When to use which:**
-- Need a response? Use `message_agent` (default: `requires_answer=true`).
-- Sending info, no reply needed? Use `message_agent` with `requires_answer=false`.
+- One target, need a response? Use `message_agent` (default: `requires_answer=true`).
+- One target, sending info, no reply needed? Use `message_agent` with `requires_answer=false`.
+- Multiple targets, same message? Use `broadcast_message` (with `requires_answer=true` if you expect each to reply, `false` for FYI-style updates).
 - Need to stop/redirect NOW? Use `interrupt_agent` (cuts through immediately).
 
 ## Agent Self-Awareness (MCP Tools)
