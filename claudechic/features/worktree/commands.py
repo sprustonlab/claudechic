@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -314,8 +315,15 @@ async def on_response_complete_finish(app: ChatApp, agent: Agent) -> None:
         _run_cleanup(app, agent)
 
 
-def _switch_or_create_worktree(app: ChatApp, feature_name: str) -> None:
-    """Switch to existing worktree agent or create new one."""
+@work(group="worktree_create", exclusive=False, exit_on_error=False)
+async def _switch_or_create_worktree(app: ChatApp, feature_name: str) -> None:
+    """Switch to existing worktree agent or create new one.
+
+    Async because creating a worktree may need to prompt the user when
+    symlink propagation fails (Windows without Developer Mode etc.; see
+    issue #26). The prompt path runs only on ``OSError``; the POSIX
+    happy path completes without ever yielding for input.
+    """
     # Check if we already have an agent for this worktree
     for agent in app.agents.values():
         if agent.worktree == feature_name:
@@ -331,15 +339,58 @@ def _switch_or_create_worktree(app: ChatApp, feature_name: str) -> None:
         app._create_new_agent(
             feature_name, wt.path, worktree=feature_name, auto_resume=True
         )
+        return
+
+    # Create new worktree. ``start_worktree`` is synchronous (subprocess
+    # calls + filesystem ops) and runs in a worker thread via
+    # ``asyncio.to_thread``. If symlink propagation hits a non-recoverable
+    # OSError it invokes the sync callback below, which round-trips to
+    # the main loop to mount the prompt and awaits the user's choice.
+    loop = asyncio.get_running_loop()
+
+    async def _ask_user(name: str, error: OSError) -> str:
+        return await _show_symlink_fallback_prompt(app, name, error)
+
+    def _sync_fallback(name: str, error: OSError) -> str:
+        future = asyncio.run_coroutine_threadsafe(_ask_user(name, error), loop)
+        return future.result()
+
+    success, message, new_cwd = await asyncio.to_thread(
+        start_worktree, feature_name, _sync_fallback
+    )
+    if success and new_cwd:
+        app._create_new_agent(
+            feature_name, new_cwd, worktree=feature_name, auto_resume=False
+        )
     else:
-        # Create new worktree
-        success, message, new_cwd = start_worktree(feature_name)
-        if success and new_cwd:
-            app._create_new_agent(
-                feature_name, new_cwd, worktree=feature_name, auto_resume=False
-            )
-        else:
-            app.notify(message, severity="error")
+        app.notify(message, severity="error")
+
+
+async def _show_symlink_fallback_prompt(
+    app: ChatApp, source_name: str, error: OSError
+) -> str:
+    """Mount ``SymlinkFallbackPrompt`` and return the user's choice.
+
+    Returns ``"copy"`` or ``"abort"``. Cancellation defaults to
+    ``"abort"`` (the prompt itself enforces this) so that closing the
+    prompt without an answer cannot silently degrade to a copy without
+    consent. See issue #26.
+    """
+    from claudechic.widgets import ChatInput, SymlinkFallbackPrompt
+
+    prompt = SymlinkFallbackPrompt(source_name, error)
+    async with app._show_prompt(prompt):
+        prompt.focus()
+        result = await prompt.wait()
+
+    with contextlib.suppress(Exception):
+        app.query_one("#input", ChatInput).focus()
+
+    # ``SymlinkFallbackPrompt.wait`` returns ``"copy"`` or ``"abort"``;
+    # treat anything else (defensive) as abort.
+    if result not in ("copy", "abort"):
+        return "abort"
+    return result
 
 
 def _close_agents_for_branches(app: ChatApp, branches: list[str]) -> None:

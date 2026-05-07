@@ -448,3 +448,62 @@ def test_build_gate_settings_project_tier_overrides_user_tier(tmp_path):
     # Project tier wins: compact=False overrides user's True; sites narrowed to {spawn}.
     assert settings.constraints_segment.compact is False
     assert settings.constraints_segment.sites == frozenset({"spawn"})
+
+
+# ---------------------------------------------------------------------------
+# get_symlink_fallback (issue #26): worktree.symlink_fallback validation.
+# ---------------------------------------------------------------------------
+
+
+class TestSymlinkFallbackConfig:
+    """Validate the worktree.symlink_fallback config helper (issue #26).
+
+    Two tests cover the contract:
+
+    1. ``test_valid_values_pass_through`` (parametrized) -- each of the
+       three valid policies returns as-is, and missing keys / sections
+       default to ``"ask"`` (the safe baseline).
+    2. ``test_invalid_value_warns_and_falls_back_to_ask`` -- typo guard.
+       Invalid values must NOT silently degrade; they log a WARNING and
+       fall back to ``"ask"``, which itself defensively aborts when no
+       callback is wired up (see ``test_no_consent_channel_aborts_safely``
+       in test_worktree_symlink.py).
+    """
+
+    @pytest.mark.parametrize(
+        "cfg,expected",
+        [
+            ({}, "ask"),  # fully empty -> default
+            ({"unrelated": True}, "ask"),  # no worktree section
+            ({"worktree": {"path_template": None}}, "ask"),  # no fallback key
+            ({"worktree": {"symlink_fallback": "ask"}}, "ask"),
+            ({"worktree": {"symlink_fallback": "copy"}}, "copy"),
+            ({"worktree": {"symlink_fallback": "abort"}}, "abort"),
+        ],
+        ids=[
+            "empty",
+            "no-worktree-section",
+            "no-fallback-key",
+            "ask",
+            "copy",
+            "abort",
+        ],
+    )
+    def test_valid_values_pass_through(self, cfg, expected):
+        from claudechic.config import get_symlink_fallback
+
+        assert get_symlink_fallback(cfg) == expected
+
+    def test_invalid_value_warns_and_falls_back_to_ask(self, caplog):
+        """Typo guard: unknown value -> 'ask' + WARNING."""
+        import logging
+
+        from claudechic.config import get_symlink_fallback
+
+        cfg = {"worktree": {"symlink_fallback": "bogus"}}
+        with caplog.at_level(logging.WARNING, logger="claudechic.config"):
+            result = get_symlink_fallback(cfg)
+        assert result == "ask"
+        assert any("invalid value" in r.message for r in caplog.records), (
+            "Expected a WARNING about the invalid value"
+        )

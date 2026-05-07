@@ -16,6 +16,7 @@ from claudechic.widgets import (
     QuestionPrompt,
     SelectionPrompt,
     StatusFooter,
+    SymlinkFallbackPrompt,
     ThinkingIndicator,
     TodoPanel,
 )
@@ -1054,6 +1055,51 @@ async def test_selection_prompt_no_subtitle():
         prompt = app.query_one(SelectionPrompt)
         subtitles = list(prompt.query(".prompt-subtitle"))
         assert len(subtitles) == 0
+
+
+# --- SymlinkFallbackPrompt tests (issue #26) ---
+#
+# One parametrized test covers the full input contract:
+#   "1" / arrow+enter -> "copy"
+#   "2"               -> "abort"
+#   "escape"          -> "abort"  (security-relevant default: dismissal
+#                                  must NEVER imply consent to copy)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "keys,expected",
+    [
+        (["1"], "copy"),
+        (["2"], "abort"),
+        (["escape"], "abort"),
+        (["down", "enter"], "abort"),
+    ],
+    ids=["number-copy", "number-abort", "escape-aborts", "arrow-then-enter"],
+)
+async def test_symlink_fallback_prompt_resolves(keys, expected):
+    """Pin the two-option resolution contract for SymlinkFallbackPrompt."""
+    err = OSError("[Errno 1] mocked symlink failure")
+
+    class TestApp(App):
+        def compose(self):
+            yield SymlinkFallbackPrompt(".claudechic", err)
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(SymlinkFallbackPrompt)
+        # Capture the title BEFORE the prompt resolves and removes itself
+        # from the DOM. Pins that the failing dir name surfaces in the
+        # title so the user sees what they're consenting to.
+        title = prompt.query_one(".prompt-title", Static).render()
+        title_text = getattr(title, "plain", str(title))
+        assert ".claudechic" in title_text
+
+        for key in keys:
+            await pilot.press(key)
+        result = await prompt.wait()
+
+    assert result == expected
 
 
 @pytest.mark.asyncio

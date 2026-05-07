@@ -118,6 +118,35 @@ worktree:
   path_template: $HOME/worktrees/${repo_name}-${branch_name}
 ```
 
+### `worktree.symlink_fallback`
+
+- **Type:** `string` (`"ask"` | `"copy"` | `"abort"`)
+- **Default:** `"ask"`
+- **Exposed in `/settings`:** no
+
+Controls what happens when a new worktree's `.claude/` and `.claudechic/`
+state cannot be propagated via symlink (typically Windows without
+Developer Mode enabled, FAT32/exFAT filesystems, or network shares
+without symlink evaluation). On POSIX with working symlinks this
+setting is never consulted -- the live symlink path always wins.
+
+| Value | Behavior on `OSError` |
+|-------|-----------------------|
+| `"ask"` (default) | Show a prompt: copy or abort. |
+| `"copy"` | Snapshot the source dir into the worktree. Future edits to the source do **not** propagate. |
+| `"abort"` | Roll back the worktree creation and report failure. |
+
+The `"ask"` default is deliberately conservative: with no consent
+channel wired up (e.g., headless tooling), it falls back to `"abort"`
+rather than silently degrading to a copy. Explicit consent is required
+for the snapshot semantics, since copy and symlink behave differently
+once the source dir changes.
+
+```yaml
+worktree:
+  symlink_fallback: copy
+```
+
 ### `analytics.enabled`
 
 - **Type:** `boolean`
