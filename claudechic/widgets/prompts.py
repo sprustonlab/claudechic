@@ -501,6 +501,72 @@ class WorktreePrompt(BasePrompt):
         return self._result_value
 
 
+class SymlinkFallbackPrompt(BasePrompt):
+    """Prompt shown when symlinking ``.claude``/``.claudechic`` into a new worktree fails.
+
+    Two options: ``"copy"`` (snapshot the source dir; future edits diverge)
+    or ``"abort"`` (roll back the worktree creation). Skip is intentionally
+    omitted -- a Windows user who hits this prompt is hitting it *because*
+    they want their state propagated. See sprustonlab/claudechic#26.
+    """
+
+    def __init__(self, source_name: str, error: OSError) -> None:
+        """Create the prompt.
+
+        Args:
+            source_name: Directory whose symlink failed (".claude" or ".claudechic").
+            error: The ``OSError`` raised by ``Path.symlink_to``; its
+                string form appears in the subtitle so the user can see
+                what they're consenting to.
+        """
+        super().__init__()
+        self.source_name = source_name
+        self.error = error
+
+    def compose(self) -> ComposeResult:
+        # 1 top + title + subtitle + 2 options + 1 bottom = 6 rows minimum.
+        self.styles.min_height = 6
+        yield Static(
+            f"Symlink failed for {self.source_name}",
+            classes="prompt-title",
+            markup=False,
+        )
+        yield Static(
+            f"OSError: {self.error}",
+            classes="prompt-subtitle",
+            markup=False,
+        )
+        yield Static(
+            "1. Copy current contents (won't sync future edits)",
+            classes="prompt-option selected",
+            id="opt-0",
+            markup=False,
+        )
+        yield Static(
+            "2. Abort worktree creation",
+            classes="prompt-option",
+            id="opt-1",
+            markup=False,
+        )
+
+    def _total_options(self) -> int:
+        return 2
+
+    def _select_option(self, idx: int) -> None:
+        choices = ("copy", "abort")
+        self._resolve(choices[idx])
+
+    def cancel(self) -> None:
+        # Escape -> abort. Cancelling the prompt without an answer cannot
+        # silently degrade to copy; the safe default is "no consent" -> abort.
+        self._resolve("abort")
+
+    async def wait(self) -> str:
+        """Returns ``"copy"`` or ``"abort"``."""
+        await super().wait()
+        return self._result_value
+
+
 class UncommittedChangesPrompt(BasePrompt):
     """Prompt for handling uncommitted changes during worktree finish."""
 

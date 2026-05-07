@@ -44,6 +44,12 @@ def _load() -> tuple[dict, bool]:
         config.setdefault("experimental", {})
         config.setdefault("worktree", {})
         config["worktree"].setdefault("path_template", None)
+        # Behavior when symlink propagation of .claude/.claudechic into a new
+        # worktree fails with OSError (typically Windows without Developer Mode,
+        # FAT32, etc.). Valid: "ask" | "copy" | "abort". Default "ask" means
+        # surface a prompt; "copy" / "abort" suppress the prompt with the
+        # corresponding action. See sprustonlab/claudechic#26.
+        config["worktree"].setdefault("symlink_fallback", "ask")
         config.setdefault("default_permission_mode", "auto")
         config.setdefault(
             "show_message_metadata", True
@@ -68,7 +74,7 @@ def _load() -> tuple[dict, bool]:
         config = {
             "analytics": {"enabled": True, "id": str(uuid.uuid4())},
             "experimental": {},
-            "worktree": {"path_template": None},
+            "worktree": {"path_template": None, "symlink_fallback": "ask"},
             "recent-tools-expanded": 2,
             "default_permission_mode": "auto",
             "show_message_metadata": True,  # Show timestamp/tokens by default
@@ -359,6 +365,31 @@ class ProjectConfig:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
             raise
+
+
+_SYMLINK_FALLBACK_VALUES = ("ask", "copy", "abort")
+
+
+def get_symlink_fallback(config: dict | None = None) -> str:
+    """Return the validated worktree.symlink_fallback setting.
+
+    Reads from the user-tier CONFIG by default; tests can pass an explicit
+    dict. Invalid values log a WARNING and are treated as ``"ask"`` so a
+    typo can never silently degrade to "abort" or "copy" without consent.
+
+    Returns one of ``"ask" | "copy" | "abort"``.
+    """
+    cfg = CONFIG if config is None else config
+    raw = cfg.get("worktree", {}).get("symlink_fallback", "ask")
+    if raw in _SYMLINK_FALLBACK_VALUES:
+        return raw
+    log.warning(
+        "worktree.symlink_fallback: invalid value %r; expected one of %s. "
+        "Falling back to 'ask'.",
+        raw,
+        _SYMLINK_FALLBACK_VALUES,
+    )
+    return "ask"
 
 
 def _segment_to_yaml(seg: dict[str, Any]) -> dict[str, Any]:
