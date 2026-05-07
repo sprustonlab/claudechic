@@ -83,6 +83,7 @@ from claudechic.widgets.prompts import (
     ModelPrompt,
     QuestionPrompt,
     SelectionPrompt,
+    SymlinkFallbackPrompt,
     UncommittedChangesPrompt,
     WorktreePrompt,
 )
@@ -163,4 +164,5 @@ __all__ = [
     "ModelPrompt",
     "WorktreePrompt",
     "UncommittedChangesPrompt",
+    "SymlinkFallbackPrompt",
 ]

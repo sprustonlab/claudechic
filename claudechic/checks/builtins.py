@@ -39,13 +39,22 @@ def _build_check(decl: CheckDecl) -> Check:
 def _resolve_against(path: str | Path, base_dir: str | Path | None) -> Path:
     """Resolve ``path`` against ``base_dir`` if it is relative.
 
-    Absolute paths are returned unchanged. This lets check manifests use
-    relative paths (e.g. ``.project_team/*/SPECIFICATION.md``) while
-    callers pin them to the workflow root. If ``base_dir`` is ``None``
-    the value is returned as a bare ``Path`` (relative paths then
-    resolve against the process cwd at access time).
+    Order:
+    1. ``~`` and ``~user`` are expanded first via ``Path.expanduser`` so
+       a manifest entry like ``~/.claudechic/mcp_tools/cluster.yaml``
+       resolves to the user's home dir, not ``<cwd>/~/.claudechic/...``
+       (a Path with a literal ``~`` segment is NOT considered absolute,
+       so the original implementation joined it onto ``base_dir`` --
+       silently broken).
+    2. After expansion, absolute paths are returned unchanged. This
+       lets check manifests use relative paths (e.g.
+       ``.project_team/*/SPECIFICATION.md``) while callers pin them
+       to the workflow root.
+    3. Relative paths are joined onto ``base_dir`` if it is set;
+       otherwise returned as-is (so they resolve against the process
+       cwd at access time).
     """
-    p = Path(path)
+    p = Path(path).expanduser()
     if p.is_absolute() or base_dir is None:
         return p
     return Path(base_dir) / p
@@ -103,58 +112,123 @@ class CommandOutputCheck:
             return CheckResult(passed=False, evidence=f"Command failed: {e}")
 
 
-class FileExistsCheck:
-    """Passes when file exists.
+def _coerce_paths(
+    path: str | Path | None,
+    paths: list[str | Path] | None,
+    base_dir: str | Path | None,
+) -> list[Path]:
+    """Build the list of resolved paths a check should walk.
 
-    ``base_dir`` pins relative ``path`` resolution to the workflow root
-    so checks don't silently depend on process cwd.
+    Accepts either ``path`` (single, the historical form) or ``paths``
+    (a list, for tier-aware checks like cluster_setup that need to
+    accept e.g. ``<cwd>/.claudechic/mcp_tools/cluster.yaml`` OR
+    ``~/.claudechic/mcp_tools/cluster.yaml``). The two are mutually
+    exclusive at the manifest level, but if a caller supplies both
+    we concatenate ``[path] + paths`` so neither is silently dropped.
+    Each entry passes through :func:`_resolve_against` for ``~``
+    expansion and base_dir joining.
+
+    The resulting list preserves declaration order. Both
+    :class:`FileExistsCheck` and :class:`FileContentCheck` use it
+    with first-match-wins semantics: the first path that satisfies
+    the check makes the check pass.
+    """
+    raw: list[str | Path] = []
+    if path is not None:
+        raw.append(path)
+    if paths is not None:
+        raw.extend(paths)
+    if not raw:
+        raise ValueError(
+            "file-exists-check / file-content-check requires either "
+            "'path' or 'paths' to be set"
+        )
+    return [_resolve_against(p, base_dir) for p in raw]
+
+
+class FileExistsCheck:
+    """Passes when at least one of the configured paths exists.
+
+    Accepts either ``path`` (single) or ``paths`` (list, first-match
+    wins). ``base_dir`` pins relative path resolution to the workflow
+    root so checks don't silently depend on process cwd. ``~`` is
+    expanded against the running user's home dir.
     """
 
     def __init__(
         self,
-        path: str | Path,
+        path: str | Path | None = None,
         base_dir: str | Path | None = None,
+        paths: list[str | Path] | None = None,
     ) -> None:
-        self.path = _resolve_against(path, base_dir)
+        self.paths = _coerce_paths(path, paths, base_dir)
 
     async def check(self) -> CheckResult:
-        if self.path.exists():
-            return CheckResult(passed=True, evidence=f"File found: {self.path}")
-        return CheckResult(passed=False, evidence=f"File not found: {self.path}")
+        for p in self.paths:
+            if p.exists():
+                return CheckResult(passed=True, evidence=f"File found: {p}")
+        if len(self.paths) == 1:
+            return CheckResult(
+                passed=False, evidence=f"File not found: {self.paths[0]}"
+            )
+        listing = ", ".join(str(p) for p in self.paths)
+        return CheckResult(
+            passed=False, evidence=f"None of these files exist: {listing}"
+        )
 
 
 class FileContentCheck:
-    """Passes when file content matches regex.
+    """Passes when at least one configured file contains a regex match.
 
-    ``base_dir`` pins relative ``path`` resolution to the workflow root.
+    Accepts either ``path`` (single) or ``paths`` (list, first-match
+    wins). For each path that exists, scan line-by-line for the
+    pattern. The first file that has a matching line makes the check
+    pass; the matching line becomes the evidence string. Files that
+    do not exist are skipped silently -- the check is "any of these
+    is configured", not "all of these are configured".
+
+    ``base_dir`` pins relative path resolution to the workflow root.
+    ``~`` is expanded against the running user's home dir.
     """
 
     def __init__(
         self,
-        path: str | Path,
-        pattern: str,
+        path: str | Path | None = None,
+        pattern: str = "",
         base_dir: str | Path | None = None,
+        paths: list[str | Path] | None = None,
     ) -> None:
-        self.path = _resolve_against(path, base_dir)
+        if not pattern:
+            raise ValueError("file-content-check requires 'pattern'")
+        self.paths = _coerce_paths(path, paths, base_dir)
         self.compiled_pattern = re.compile(pattern)
 
     async def check(self) -> CheckResult:
-        if not self.path.exists():
-            return CheckResult(passed=False, evidence=f"File not found: {self.path}")
-        try:
-            content = self.path.read_text(encoding="utf-8", errors="replace")
-        except OSError as e:
-            return CheckResult(passed=False, evidence=f"Cannot read {self.path}: {e}")
+        misses: list[str] = []
+        for p in self.paths:
+            if not p.exists():
+                misses.append(f"not found: {p}")
+                continue
+            try:
+                content = p.read_text(encoding="utf-8", errors="replace")
+            except OSError as e:
+                misses.append(f"cannot read {p}: {e}")
+                continue
 
-        for i, line in enumerate(content.splitlines(), 1):
-            if self.compiled_pattern.search(line):
-                return CheckResult(
-                    passed=True, evidence=f"Line {i}: {line.strip()}"[:200]
-                )
+            for i, line in enumerate(content.splitlines(), 1):
+                if self.compiled_pattern.search(line):
+                    return CheckResult(
+                        passed=True,
+                        evidence=f"{p} line {i}: {line.strip()}"[:200],
+                    )
+            misses.append(f"pattern not in {p}")
 
         return CheckResult(
             passed=False,
-            evidence=f"Pattern '{self.compiled_pattern.pattern}' not found in {self.path}",
+            evidence=(
+                f"Pattern '{self.compiled_pattern.pattern}' not matched "
+                f"({'; '.join(misses)})"
+            ),
         )
 
 
@@ -226,12 +300,19 @@ register_check_type(
 )
 register_check_type(
     "file-exists-check",
-    lambda p: FileExistsCheck(path=p["path"], base_dir=p.get("base_dir")),
+    lambda p: FileExistsCheck(
+        path=p.get("path"),
+        paths=p.get("paths"),
+        base_dir=p.get("base_dir"),
+    ),
 )
 register_check_type(
     "file-content-check",
     lambda p: FileContentCheck(
-        path=p["path"], pattern=p["pattern"], base_dir=p.get("base_dir")
+        path=p.get("path"),
+        paths=p.get("paths"),
+        pattern=p["pattern"],
+        base_dir=p.get("base_dir"),
     ),
 )
 register_check_type(

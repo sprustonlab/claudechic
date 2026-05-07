@@ -4,6 +4,10 @@ Covers SPEC.md §10 (parallel `.claudechic/` symlink alongside the existing
 `.claude/` symlink) and the §10.2 acceptance items, plus the Skeptic2-flagged
 edge cases around the migration from ``if not target.exists()`` to the
 race-safe ``try/except FileExistsError`` pattern.
+
+The ``TestWorktreeSymlinkFallback`` class at the bottom covers the
+cross-platform OSError fallback path (issue #26) -- it runs on Windows
+too, since the OSError is mocked rather than provoked.
 """
 
 from __future__ import annotations
@@ -18,7 +22,11 @@ from claudechic.features.worktree.git import start_worktree
 
 _unix_only = pytest.mark.skipif(
     sys.platform == "win32",
-    reason="Symlinks require POSIX support; cross-platform tracking at #26",
+    reason=(
+        "Tests the symlink success path which requires Developer Mode + NTFS "
+        "on Windows; cross-platform OSError fallback is covered in "
+        "TestWorktreeSymlinkFallback below"
+    ),
 )
 
 
@@ -175,3 +183,194 @@ class TestWorktreeSymlinkPropagation:
         assert "already exists" in msg
         assert (new_wt / ".claudechic").is_symlink()
         assert (new_wt / ".claude").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# Issue #26: cross-platform OSError fallback (copy-with-consent or abort).
+#
+# These tests run on every platform, including Windows, by mocking
+# ``Path.symlink_to`` to raise ``OSError``. They cover the user-approved
+# copy fallback, the abort path (with worktree rollback), and the
+# partial-failure case where one source dir symlinks fine and another
+# raises mid-iteration.
+# ---------------------------------------------------------------------------
+
+
+def _make_symlink_failer(should_fail):
+    """Build a function suitable for ``monkeypatch.setattr(Path, 'symlink_to', ...)``.
+
+    ``Path.symlink_to`` is a method, so the replacement must be a *function*
+    (not an arbitrary callable instance) to participate in descriptor-based
+    bound-method dispatch. ``target.symlink_to(source)`` then dispatches
+    as ``failer(target, source)``.
+
+    The returned callable carries a ``.calls`` attribute listing the targets
+    it was invoked for, so tests can assert on the prompt-once contract.
+    """
+    real = Path.symlink_to
+    calls: list[Path] = []
+
+    def failer(self, *args, **kwargs):
+        calls.append(self)
+        if should_fail(self):
+            raise OSError(f"[Errno 1] mocked symlink failure for {self.name}")
+        return real(self, *args, **kwargs)
+
+    failer.calls = calls  # type: ignore[attr-defined]
+    return failer
+
+
+@pytest.fixture
+def fail_all_symlinks(monkeypatch):
+    """Patch Path.symlink_to to raise OSError for every call into a worktree."""
+    failer = _make_symlink_failer(
+        lambda target: target.name in (".claude", ".claudechic")
+    )
+    monkeypatch.setattr(Path, "symlink_to", failer)
+    return failer
+
+
+@pytest.fixture
+def fail_only_claudechic(monkeypatch):
+    """Patch Path.symlink_to to raise OSError only for .claudechic targets."""
+    failer = _make_symlink_failer(lambda target: target.name == ".claudechic")
+    monkeypatch.setattr(Path, "symlink_to", failer)
+    return failer
+
+
+@pytest.fixture
+def reset_symlink_fallback_to_ask(monkeypatch):
+    """Ensure CONFIG['worktree']['symlink_fallback'] is 'ask' for the test.
+
+    The user's real ~/.claudechic/config.yaml could have set this to
+    'copy' or 'abort', which would silently change the meaning of tests
+    that exercise the default policy.
+    """
+    from claudechic import config as config_mod
+
+    monkeypatch.setitem(
+        config_mod.CONFIG.setdefault("worktree", {}),
+        "symlink_fallback",
+        "ask",
+    )
+
+
+class TestWorktreeSymlinkFallback:
+    """Issue #26: OSError fallback to user-approved copy or abort.
+
+    Three end-to-end tests, one per behavioral outcome:
+
+    1. ``test_user_chooses_copy`` -- user (or pre-set config) approves a
+       copy fallback. Folds in: prompt invoked exactly once, partial
+       failure (.claude symlinks fine, .claudechic copies), copy is a
+       real directory not a symlink, and snapshot semantics (later edits
+       to the source do NOT propagate -- pins the difference between
+       symlink and copy outcomes).
+
+    2. ``test_user_chooses_abort`` -- user (or pre-set config) declines
+       and aborts worktree creation. Folds in: rollback removes the
+       worktree directory, ``start_worktree`` returns failure.
+
+    3. ``test_no_consent_channel_aborts_safely`` -- OSError with no
+       callback wired up and the default ``"ask"`` policy: defensive
+       abort. Pins the security-relevant invariant that we NEVER
+       silently degrade to copy without explicit consent.
+
+    These tests do NOT depend on platform-native symlink support; they
+    drive the OSError branch via mocking, which makes them valid
+    regression tests on every CI runner including Windows.
+    """
+
+    def test_user_chooses_copy(
+        self,
+        patched_worktree_env,
+        fail_only_claudechic,
+        reset_symlink_fallback_to_ask,
+    ):
+        """E2E: OSError on .claudechic + callback returns 'copy'.
+
+        Pins the full copy-fallback contract:
+        - .claude symlinks fine (partial-failure / per-source semantics).
+        - Callback is invoked exactly once (sticky decision, even though
+          .claude is attempted first and succeeds).
+        - .claudechic in the new worktree is a real directory, not a
+          symlink, and contains the source's contents.
+        - Edits to the source AFTER creation do NOT appear in the copy
+          (snapshot semantics; pins the user-visible difference vs.
+          symlinks so silent fallback can't sneak back in).
+        """
+        main_wt = patched_worktree_env["main_wt"]
+        new_wt = patched_worktree_env["new_wt"]
+        (main_wt / ".claude").mkdir()
+        (main_wt / ".claude" / "settings.json").write_text("{}\n")
+        (main_wt / ".claudechic").mkdir()
+        (main_wt / ".claudechic" / "before.yaml").write_text("v: 1\n")
+
+        prompted: list[str] = []
+
+        def cb(name: str, _err: OSError) -> str:
+            prompted.append(name)
+            return "copy"
+
+        success, _, wt_path = start_worktree("feat-x", cb)
+
+        assert success
+        assert wt_path == new_wt
+        # Prompt-once contract: only the failing source asked the user.
+        assert prompted == [".claudechic"]
+        # .claude succeeded as a real symlink.
+        assert (new_wt / ".claude").is_symlink()
+        # .claudechic was copied -- real dir, not a symlink, contents match.
+        assert (new_wt / ".claudechic").is_dir()
+        assert not (new_wt / ".claudechic").is_symlink()
+        assert (new_wt / ".claudechic" / "before.yaml").read_text() == "v: 1\n"
+
+        # Snapshot semantics: edit source AFTER creation; copy must not see it.
+        (main_wt / ".claudechic" / "after.yaml").write_text("v: 2\n")
+        assert not (new_wt / ".claudechic" / "after.yaml").exists()
+
+    def test_user_chooses_abort(
+        self,
+        patched_worktree_env,
+        fail_all_symlinks,
+        reset_symlink_fallback_to_ask,
+    ):
+        """E2E: OSError + callback returns 'abort' rolls back the worktree.
+
+        ``start_worktree`` returns failure and the worktree directory is
+        cleaned up via ``_rollback_worktree`` (best-effort
+        ``git worktree remove --force`` + ``rmtree``).
+        """
+        main_wt = patched_worktree_env["main_wt"]
+        new_wt = patched_worktree_env["new_wt"]
+        (main_wt / ".claudechic").mkdir()
+
+        success, msg, wt_path = start_worktree("feat-x", lambda _n, _e: "abort")
+
+        assert not success
+        assert wt_path is None
+        assert "abort" in msg.lower()
+        assert not new_wt.exists()
+
+    def test_no_consent_channel_aborts_safely(
+        self,
+        patched_worktree_env,
+        fail_all_symlinks,
+        reset_symlink_fallback_to_ask,
+    ):
+        """E2E: OSError + no callback + default 'ask' policy = safe abort.
+
+        Pins the security-relevant invariant: when no consent channel is
+        wired up, we never silently copy. The user must explicitly
+        approve the snapshot fallback for it to happen.
+        """
+        main_wt = patched_worktree_env["main_wt"]
+        new_wt = patched_worktree_env["new_wt"]
+        (main_wt / ".claudechic").mkdir()
+
+        # No callback. Default config policy is "ask" (set by fixture).
+        success, msg, _ = start_worktree("feat-x")
+
+        assert not success
+        assert "abort" in msg.lower()
+        assert not new_wt.exists()

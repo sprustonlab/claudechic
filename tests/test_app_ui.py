@@ -358,13 +358,48 @@ async def test_response_complete_enables_input(mock_sdk):
 
 
 @pytest.mark.asyncio
-async def test_sidebar_hidden_when_single_agent(mock_sdk):
-    """Right sidebar hidden with single agent and no todos."""
+async def test_sidebar_hidden_on_narrow_terminal(mock_sdk):
+    """Right sidebar hides on a narrow terminal (below SIDEBAR_MIN_WIDTH).
+
+    The hamburger then carries access to the sidebar via the overlay
+    path. Replaces the historical ``test_sidebar_hidden_when_single_agent``
+    which asserted that an empty session also hid the sidebar -- we
+    intentionally removed that ``has_content`` gate so ChicsessionLabel
+    stays reachable on an otherwise-empty session."""
     app = ChatApp()
+    # 100 cols is below SIDEBAR_MIN_WIDTH (110) -> sidebar collapses to
+    # the hamburger.
     async with app.run_test(size=(100, 40)):
         sidebar = app.query_one("#right-sidebar")
-        # With single agent and no todos, sidebar should be hidden
         assert sidebar.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_sidebar_visible_on_wide_terminal_empty_session(mock_sdk):
+    """Right sidebar is visible on a wide terminal even with a single
+    agent, no todos, no files, no workflow, no worktrees, no reviews.
+
+    Regression for an empty-session usability hole: the sidebar used to
+    hide unless one of those content drivers was true, which made
+    ChicsessionLabel unreachable on a fresh session. The user needs to
+    see chicsession state (and the create-chicsession action it exposes)
+    even before there is any other content."""
+    app = ChatApp()
+    # 160 cols is well above SIDEBAR_MIN_WIDTH (110).
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#right-sidebar")
+        assert not sidebar.has_class("hidden"), (
+            "right sidebar must be visible on a wide terminal regardless of "
+            "content -- ChicsessionLabel needs to be reachable on empty sessions"
+        )
+        assert sidebar.display is True
+        # ChicsessionLabel rides inside the sidebar; if the column is
+        # visible, the label is queryable. Belt-and-suspenders.
+        from claudechic.widgets import ChicsessionLabel
+
+        label = app.query_one("#chicsession-label", ChicsessionLabel)
+        assert label.display is True
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,28 @@
 """Git worktree management for isolated feature work."""
 
+import contextlib
+import logging
+import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 
-from claudechic.config import CONFIG
+from claudechic.config import CONFIG, get_symlink_fallback
+
+log = logging.getLogger(__name__)
+
+# Names of state directories propagated from the main worktree into a new
+# worktree. Order matters for the prompt-once-apply-to-all behavior in
+# ``_propagate_state_sync``: ``.claude`` is attempted first.
+_PROPAGATED_STATE_DIRS = (".claude", ".claudechic")
+
+# Decision callback contract. Invoked when ``Path.symlink_to`` raises an
+# OSError other than FileExistsError (typically Windows without Developer
+# Mode, FAT32, etc.). Receives the source dir name (e.g. ".claudechic") and
+# the OSError, and must return ``"copy"`` or ``"abort"``. See #26.
+SymlinkFallbackCallback = Callable[[str, OSError], str]
 
 
 class FinishPhase(Enum):
@@ -258,8 +275,22 @@ def _expand_worktree_path(template: str, repo_name: str, feature_name: str) -> P
     return path.resolve()
 
 
-def start_worktree(feature_name: str) -> tuple[bool, str, Path | None]:
+def start_worktree(
+    feature_name: str,
+    on_symlink_fallback: SymlinkFallbackCallback | None = None,
+) -> tuple[bool, str, Path | None]:
     """Create a worktree for the given feature.
+
+    Args:
+        feature_name: Branch / feature name for the new worktree.
+        on_symlink_fallback: Optional callback invoked when symlink
+            propagation fails with a non-FileExistsError ``OSError``.
+            Must return ``"copy"`` (snapshot the source dir into the
+            worktree, semantics diverge thereafter) or ``"abort"`` (roll
+            back the worktree creation). When omitted, the configured
+            ``worktree.symlink_fallback`` value is consulted; if that
+            resolves to ``"ask"`` and no callback is provided the call
+            defensively aborts to avoid silent degradation. See #26.
 
     Returns (success, message, worktree_path).
     """
@@ -290,27 +321,21 @@ def start_worktree(feature_name: str) -> tuple[bool, str, Path | None]:
             text=True,
         )
 
-        # Symlink .claude/ and .claudechic/ from main worktree so hooks,
+        # Propagate .claude/ and .claudechic/ from main worktree so hooks,
         # skills, local settings, hint state, and project config carry over
-        # (they're typically gitignored). Race-safe via try/except FileExistsError
-        # per SPEC.md §10.2 — both blocks use the same pattern.
+        # (they're typically gitignored). Symlink is the preferred mechanism
+        # (live propagation); copy is the user-approved fallback when symlinks
+        # are unavailable. See SPEC.md §10.2 and issue #26.
         main_wt_info = get_main_worktree()
-        if main_wt_info:
-            source_claude_dir = main_wt_info[0] / ".claude"
-            if source_claude_dir.is_dir():
-                target = worktree_dir / ".claude"
-                try:
-                    target.symlink_to(source_claude_dir.resolve())
-                except FileExistsError:
-                    pass
-
-            source_claudechic_dir = main_wt_info[0] / ".claudechic"
-            if source_claudechic_dir.is_dir():
-                target = worktree_dir / ".claudechic"
-                try:
-                    target.symlink_to(source_claudechic_dir.resolve())
-                except FileExistsError:
-                    pass
+        if main_wt_info is not None:
+            ok, msg = _propagate_state_sync(
+                source_root=main_wt_info[0],
+                target_root=worktree_dir,
+                on_symlink_fallback=on_symlink_fallback,
+            )
+            if not ok:
+                _rollback_worktree(worktree_dir)
+                return False, msg, None
 
         return True, f"Created worktree at {worktree_dir}", worktree_dir
 
@@ -318,6 +343,107 @@ def start_worktree(feature_name: str) -> tuple[bool, str, Path | None]:
         return False, f"Git error: {e.stderr}", None
     except Exception as e:
         return False, f"Error: {e}", None
+
+
+def _propagate_state_sync(
+    *,
+    source_root: Path,
+    target_root: Path,
+    on_symlink_fallback: SymlinkFallbackCallback | None,
+) -> tuple[bool, str]:
+    """Symlink (or copy on user-approved fallback) state dirs into a worktree.
+
+    For each name in ``_PROPAGATED_STATE_DIRS`` that exists under
+    ``source_root``, attempt ``Path.symlink_to``. Behavior on errors:
+
+    - ``FileExistsError`` -- target already exists; idempotent no-op.
+    - other ``OSError`` -- consult ``worktree.symlink_fallback`` config.
+      If the resolved policy is ``"ask"``, invoke ``on_symlink_fallback``
+      (returns ``"copy"`` or ``"abort"``). If ``on_symlink_fallback`` is
+      ``None`` and the policy is ``"ask"``, treat as ``"abort"`` (never
+      silently copy). The first non-FileExistsError fixes the policy for
+      remaining sources within this call: the user is prompted at most
+      once, and "copy" / "abort" choices apply uniformly to every
+      remaining source dir.
+
+    Returns ``(ok, message)``. ``ok=False`` signals abort -- the caller
+    is expected to roll back the partially-created worktree.
+    """
+    sources = [
+        (name, source_root / name)
+        for name in _PROPAGATED_STATE_DIRS
+        if (source_root / name).is_dir()
+    ]
+    if not sources:
+        return True, ""
+
+    # Cache the user's decision once they've been prompted, so we don't
+    # ask twice for back-to-back failures within the same worktree creation.
+    sticky_decision: str | None = None
+
+    for name, source in sources:
+        target = target_root / name
+        resolved_source = source.resolve()
+        try:
+            target.symlink_to(resolved_source)
+            continue
+        except FileExistsError:
+            continue
+        except OSError as err:
+            decision = sticky_decision
+            if decision is None:
+                decision = get_symlink_fallback()
+                if decision == "ask":
+                    if on_symlink_fallback is None:
+                        log.warning(
+                            "Symlink propagation failed for %s and no "
+                            "fallback callback provided; aborting "
+                            "worktree creation: %s",
+                            name,
+                            err,
+                        )
+                        decision = "abort"
+                    else:
+                        decision = on_symlink_fallback(name, err)
+                sticky_decision = decision
+
+            if decision == "copy":
+                shutil.copytree(source, target, symlinks=False)
+            elif decision == "abort":
+                return False, (
+                    f"Worktree creation aborted: cannot create symlink "
+                    f"for {name} ({err})"
+                )
+            else:
+                # Defensive: unknown decision string -> abort, don't trust it.
+                log.warning("Unknown symlink fallback decision %r; aborting", decision)
+                return False, (
+                    f"Worktree creation aborted: unknown fallback decision {decision!r}"
+                )
+
+    return True, ""
+
+
+def _rollback_worktree(worktree_dir: Path) -> None:
+    """Best-effort cleanup of a partially-created worktree.
+
+    Called from ``start_worktree`` when state propagation aborts. We try
+    ``git worktree remove --force`` first so git's metadata is cleaned;
+    if anything is left behind we ``rmtree`` the directory. All failures
+    are swallowed (logged) -- this is recovery code, not a guarantee.
+    """
+    try:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", str(worktree_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        log.exception("git worktree remove failed during rollback")
+    if worktree_dir.exists():
+        with contextlib.suppress(OSError):
+            shutil.rmtree(worktree_dir)
 
 
 def get_finish_info(cwd: Path | None = None) -> tuple[bool, str, FinishInfo | None]:

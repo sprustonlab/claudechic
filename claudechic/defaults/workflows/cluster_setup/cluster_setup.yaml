@@ -9,10 +9,17 @@ phases:
         lifecycle: show-once
     advance_checks:
       - type: file-content-check
-        path: ".claudechic/mcp_tools/cluster.yaml"
+        # Tier-aware: pass if EITHER the project-tier file OR the
+        # user-tier file has ssh_target set. Mirrors the runtime
+        # cluster MCP loader (project > user). Workflows activated
+        # from a repo where the user does not want a checked-in
+        # project-tier config can rely on the user-tier file alone.
+        paths:
+          - ".claudechic/mcp_tools/cluster.yaml"
+          - "~/.claudechic/mcp_tools/cluster.yaml"
         pattern: "ssh_target:\\s+\\S+"
         on_failure:
-          message: "ssh_target must be set in .claudechic/mcp_tools/cluster.yaml before advancing."
+          message: "ssh_target must be set in either .claudechic/mcp_tools/cluster.yaml (project) or ~/.claudechic/mcp_tools/cluster.yaml (user) before advancing."
           severity: warning
       - type: manual-confirm
         prompt: "SSH target confirmed and passwordless SSH working?"
@@ -33,10 +40,13 @@ phases:
         lifecycle: show-once
     advance_checks:
       - type: file-content-check
-        path: ".claudechic/mcp_tools/cluster.yaml"
+        # Tier-aware (see Phase 1 for rationale).
+        paths:
+          - ".claudechic/mcp_tools/cluster.yaml"
+          - "~/.claudechic/mcp_tools/cluster.yaml"
         pattern: "backend:\\s+(lsf|slurm)"
         on_failure:
-          message: "backend must be set to 'lsf' or 'slurm' in .claudechic/mcp_tools/cluster.yaml before advancing."
+          message: "backend must be set to 'lsf' or 'slurm' in either .claudechic/mcp_tools/cluster.yaml (project) or ~/.claudechic/mcp_tools/cluster.yaml (user) before advancing."
           severity: warning
       - type: manual-confirm
         prompt: "Scheduler detected and working?"

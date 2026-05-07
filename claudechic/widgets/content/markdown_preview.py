@@ -6,7 +6,12 @@ from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Markdown, Static
+from textual.widgets import Static
+
+from claudechic.widgets.content.safe_markdown import SafeMarkdown as Markdown
+
+# ``Markdown`` above is ``SafeMarkdown`` (no synchronous link-open
+# freeze). See widgets/content/safe_markdown.py for rationale.
 
 
 class PreviewToggle(Static):

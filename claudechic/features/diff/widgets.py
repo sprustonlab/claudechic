@@ -151,47 +151,74 @@ class DiffFileItem(Static):
         status: str,
         hunk_count: int,
         hidden: bool = False,
+        display_path: str | None = None,
         **kwargs,
     ) -> None:
+        """Construct a per-file row in the diff sidebar.
+
+        ``path`` is the canonical relative path used for *identity* --
+        widget id, click/scroll target, edit-icon open target, and
+        hide-store key. It does NOT change.
+
+        ``display_path`` is what the user sees rendered in the row.
+        When ``None`` (the default), the row falls back to ``path``
+        verbatim -- preserves historical behavior for alphabetical
+        sort and root-level files.
+
+        The split lets the directory-grouping render path strip the
+        already-shown directory prefix from the visible label without
+        affecting the click/scroll/edit/hide identity layer. See
+        ``DiffSidebar._compose_directory``.
+        """
         super().__init__(**kwargs)
         self.path = path
         self.status = status
         self.hunk_count = hunk_count
         self.hidden = hidden
+        self._display_path = display_path if display_path is not None else path
         if hidden:
             self.add_class("hidden-entry")
 
-    def compose(self) -> ComposeResult:
-        # Show hunk count if > 1
+    def _label_markup(self) -> str:
+        """Build the Rich-markup string for the row's text label.
+
+        Shared between :meth:`compose` (first mount) and
+        :meth:`set_hidden` (in-place re-render after a hide-state
+        flip) so the truncation rule and render variants live in a
+        single place. Uses ``self._display_path`` so rows under a
+        directory header can show the directory-relative basename
+        while the click-target ``self.path`` keeps the full relative
+        path.
+        """
         count_str = f" ({self.hunk_count})" if self.hunk_count > 1 else ""
-        # Truncate path from front if too long (leave room for indicator + count + edit icon)
+        # Truncate from the front if too long (leave room for indicator + count + edit icon).
         max_path_len = 22
-        display_path = self.path
+        display_path = self._display_path
         if len(display_path) > max_path_len:
             display_path = "…" + display_path[-(max_path_len - 1) :]
 
         if self.hidden:
             # Hidden render variant (s7): dot status, muted+strike path,
             # muted (no-strike) hunk count. EditIcon unchanged.
-            label_markup = (
+            return (
                 f"[$text-muted].[/] "
                 f"[$text-muted strike]{display_path}[/]"
                 f"[$text-muted]{count_str}[/]"
             )
-        else:
-            # Normal status indicator -- primary color, red for deleted.
-            indicator = {
-                "modified": "M",
-                "added": "A",
-                "deleted": "D",
-                "renamed": "R",
-                "untracked": "U",
-            }.get(self.status, "?")
-            color = "$primary" if self.status != "deleted" else "$error"
-            label_markup = f"[{color}]{indicator}[/] {display_path}[dim]{count_str}[/]"
+        # Normal status indicator -- primary color, red for deleted.
+        indicator = {
+            "modified": "M",
+            "added": "A",
+            "deleted": "D",
+            "renamed": "R",
+            "untracked": "U",
+        }.get(self.status, "?")
+        color = "$primary" if self.status != "deleted" else "$error"
+        return f"[{color}]{indicator}[/] {display_path}[dim]{count_str}[/]"
 
+    def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Label(label_markup, classes="file-label")
+            yield Label(self._label_markup(), classes="file-label")
             yield EditIcon(self.path)
 
     def set_hidden(self, hidden: bool, tooltip: str | None = None) -> None:
@@ -222,31 +249,11 @@ class DiffFileItem(Static):
             hbox.remove()
         # Re-mount via mount() since compose() is only called at first
         # mount; mounting the children manually applies the new render
-        # variant immediately.
-        count_str = f" ({self.hunk_count})" if self.hunk_count > 1 else ""
-        max_path_len = 22
-        display_path = self.path
-        if len(display_path) > max_path_len:
-            display_path = "…" + display_path[-(max_path_len - 1) :]
-        if hidden:
-            label_markup = (
-                f"[$text-muted].[/] "
-                f"[$text-muted strike]{display_path}[/]"
-                f"[$text-muted]{count_str}[/]"
-            )
-        else:
-            indicator = {
-                "modified": "M",
-                "added": "A",
-                "deleted": "D",
-                "renamed": "R",
-                "untracked": "U",
-            }.get(self.status, "?")
-            color = "$primary" if self.status != "deleted" else "$error"
-            label_markup = f"[{color}]{indicator}[/] {display_path}[dim]{count_str}[/]"
+        # variant immediately. ``self.hidden`` was already updated above
+        # so ``_label_markup`` returns the correct variant.
         hbox = Horizontal()
         self.mount(hbox)
-        hbox.mount(Label(label_markup, classes="file-label"))
+        hbox.mount(Label(self._label_markup(), classes="file-label"))
         hbox.mount(EditIcon(self.path))
         self.tooltip = tooltip
 
@@ -521,7 +528,15 @@ class DiffSidebar(Vertical):
                 yield from self._compose_file_item(node, indent=False)
 
     def _compose_directory(self, node: DirectoryNode):
-        """Yield a DiffDirectoryItem header followed by its file rows."""
+        """Yield a DiffDirectoryItem header followed by its file rows.
+
+        Children are rendered with ``display_prefix=node.prefix`` so the
+        rows show the directory-relative basename (e.g. ``foo.py``)
+        instead of repeating the prefix already shown in the header
+        above (``src/foo.py`` -> ``foo.py`` under a ``src/`` header).
+        Click/scroll/edit identity stays full-path; only the visible
+        label is shortened.
+        """
         is_hidden = self._hide_state.is_prefix_hidden(node.prefix)
         is_folded = self._hide_state.is_folded(node.prefix)
         yield DiffDirectoryItem(
@@ -532,19 +547,43 @@ class DiffSidebar(Vertical):
         )
         for child in node.children:
             if isinstance(child, FileNode):
-                file_item_gen = self._compose_file_item(child, indent=True)
+                file_item_gen = self._compose_file_item(
+                    child, indent=True, display_prefix=node.prefix
+                )
                 for item in file_item_gen:
                     if is_folded:
                         item.display = False
                     yield item
 
-    def _compose_file_item(self, file_node: FileNode, *, indent: bool):
-        """Yield a DiffFileItem for a FileNode."""
+    def _compose_file_item(
+        self,
+        file_node: FileNode,
+        *,
+        indent: bool,
+        display_prefix: str = "",
+    ):
+        """Yield a DiffFileItem for a FileNode.
+
+        ``display_prefix``, when non-empty, is the parent directory
+        prefix that will be stripped from the rendered label so the
+        row reads as the directory-relative basename. Defensively
+        only strips when the path actually starts with the prefix --
+        guards against tree shapes where the rule does not hold.
+        Identity (``DiffFileItem.path``) is always the full relative
+        path; only the displayed text changes.
+        """
         change = file_node.file_change
         tooltip = (
             _hidden_tooltip(change.path, self._hide_state) if file_node.hidden else None
         )
         classes = "dir-file-item" if indent else ""
+        display_path: str | None = None
+        if display_prefix and change.path.startswith(display_prefix):
+            stripped = change.path[len(display_prefix) :]
+            # Belt-and-suspenders: never render an empty label, fall
+            # back to the full path if stripping would leave nothing.
+            if stripped:
+                display_path = stripped
         item = DiffFileItem(
             change.path,
             change.status,
@@ -552,6 +591,7 @@ class DiffSidebar(Vertical):
             hidden=file_node.hidden,
             id=_path_to_id(change.path),
             classes=classes,
+            display_path=display_path,
         )
         if tooltip is not None:
             item.tooltip = tooltip

@@ -317,27 +317,28 @@ class TestRestoreSessionSidebarDisplay:
 class TestFilesSectionAfterRestore:
     """FilesSection must become visible after restore when uncommitted changes exist.
 
-    Root cause: _position_right_sidebar() evaluates has_content which does NOT include
-    files_section.item_count. So a single-agent session with no workflow and no worktrees
-    keeps the sidebar hidden even after _async_refresh_files populates FilesSection.
+    Originally written to drive a fix for a ``has_content``-based gate
+    that hid the sidebar on single-agent sessions even when files were
+    present. That gate has since been removed entirely (sidebar is now
+    visible whenever the terminal is wide enough), so the
+    "stays hidden" preconditions in these tests no longer hold. The
+    end-state assertions (FilesSection visible, sidebar visible after
+    files are added) still encode the correct contract and are kept.
 
-    Two coupled failures:
-    1. has_content ignores file changes -- _position_right_sidebar never shows sidebar
-       for single-agent sessions based on file changes alone.
-    2. _async_refresh_files never re-calls _position_right_sidebar after mounting files,
-       so even if has_content were fixed, the sidebar wouldn't re-evaluate.
+    Two coupled failures the original suite covered:
+    1. has_content ignores file changes -- fixed by removing the
+       has_content gate.
+    2. _async_refresh_files never re-calls _position_right_sidebar after
+       mounting files. Still relevant: FilesSection visibility flips
+       only after the layout pass, so _async_refresh_files must trigger
+       it.
     """
 
-    async def test_sidebar_stays_hidden_when_files_added_single_agent(
-        self, mock_sdk, tmp_path
-    ):
-        """With 1 agent, no workflow, and no worktrees, adding files to FilesSection
-        does not make the sidebar visible -- _position_right_sidebar ignores files.
-
-        This FAILS because has_content does not include files_section.item_count.
-        Fix: add `or self.files_section.item_count > 0` to has_content in
-        _position_right_sidebar.
-        """
+    async def test_sidebar_visible_with_files_single_agent(self, mock_sdk, tmp_path):
+        """Sidebar is visible after files are added to FilesSection on a
+        single-agent session. Originally proved the has_content gate was
+        wrong; the gate is now gone and sidebar is unconditionally
+        visible on a wide terminal, so the assertion is even stronger."""
         from pathlib import Path
         from unittest.mock import patch
 
@@ -355,13 +356,17 @@ class TestFilesSectionAfterRestore:
                     app.agent_section._worktrees.clear()
                     app._workflow_engine = None
 
-                    # Verify precondition: sidebar IS hidden (has_content = False)
+                    # Sidebar is now visible regardless of content (wide
+                    # terminal, no narrow-collapse). The previous version
+                    # of this test asserted ``hidden`` here as a
+                    # precondition; that precondition is intentionally
+                    # gone -- chicsession state must always be reachable.
                     app._position_right_sidebar()
                     await pilot.pause()
                     sidebar = app.query_one("#right-sidebar")
-                    assert sidebar.has_class("hidden"), (
-                        "Precondition: sidebar must be hidden with 1 agent, "
-                        "no workflow, no worktrees, no todos"
+                    assert not sidebar.has_class("hidden"), (
+                        "Sidebar must be visible on a wide terminal even "
+                        "before any files are added (chicsession reachability)"
                     )
 
                     # Simulate what _async_refresh_files does when it finds changed files
@@ -380,27 +385,26 @@ class TestFilesSectionAfterRestore:
                     app._position_right_sidebar()
                     await pilot.pause()
 
-                    # FAILS: sidebar is still hidden because has_content does not
-                    # include files_section.item_count. FilesSection is visible inside
-                    # a hidden sidebar -- the user sees nothing.
+                    # Sidebar must remain visible after files are added.
+                    # (Originally drove a fix for has_content ignoring
+                    # files; today's contract is "always visible when
+                    # wide", so this is the steady-state assertion.)
                     assert not sidebar.has_class("hidden"), (
-                        "Sidebar must be visible when FilesSection has file items. "
-                        "Bug: has_content in _position_right_sidebar ignores "
-                        "files_section.item_count. "
-                        "Fix: add `or self.files_section.item_count > 0` to has_content."
+                        "Sidebar must be visible when FilesSection has file items"
                     )
 
-    async def test_async_refresh_files_does_not_recheck_sidebar_visibility(
+    async def test_async_refresh_files_makes_files_section_visible(
         self, mock_sdk, tmp_path
     ):
-        """Even with has_content fixed, _async_refresh_files never calls
-        _position_right_sidebar() after mounting files -- sidebar stays hidden.
+        """``_async_refresh_files`` must mount files AND surface the
+        FilesSection (not just the outer sidebar -- the section
+        self-manages its own ``hidden`` class).
 
-        This FAILS because _async_refresh_files calls mount_all_files() but
-        does not call self._position_right_sidebar() afterward.
-        Fix: call self._position_right_sidebar() at end of _async_refresh_files
-        when stats are non-empty.
-        """
+        Historical context: this test previously asserted that the
+        outer sidebar was hidden as a precondition. With the
+        always-visible-when-wide contract that gate is gone; the test
+        now focuses on the inner FilesSection visibility flip, which
+        is still the meaningful contract for ``_async_refresh_files``."""
         from unittest.mock import AsyncMock, patch
 
         from claudechic.features.diff.git import FileStat
@@ -426,12 +430,19 @@ class TestFilesSectionAfterRestore:
                         app.agent_section._worktrees.clear()
                         app._workflow_engine = None
 
-                        # Verify precondition: sidebar is hidden
+                        # Sidebar starts visible on a wide terminal
+                        # (always-visible contract). Pre-_async_refresh
+                        # the FilesSection inner class is hidden because
+                        # no files have been mounted yet.
                         app._position_right_sidebar()
                         await pilot.pause()
                         sidebar = app.query_one("#right-sidebar")
-                        assert sidebar.has_class("hidden"), (
-                            "Precondition: sidebar must start hidden"
+                        files_section_pre = app.query_one(
+                            "#files-section", FilesSection
+                        )
+                        assert not sidebar.has_class("hidden")
+                        assert files_section_pre.has_class("hidden"), (
+                            "Precondition: FilesSection starts hidden before files mount"
                         )
 
                         # Run _async_refresh_files directly -- this is what
@@ -442,22 +453,18 @@ class TestFilesSectionAfterRestore:
                         await app._async_refresh_files(active)
                         await pilot.pause()
 
-                        # FilesSection now has items
+                        # FilesSection now has items and must be visible.
                         files_section = app.query_one("#files-section", FilesSection)
                         assert files_section.item_count == 2, (
                             f"Expected 2 file items, got {files_section.item_count}. "
                             "Check that get_file_stats is patched correctly."
                         )
-
-                        # FAILS: sidebar is still hidden.
-                        # _async_refresh_files mounts files but never calls
-                        # _position_right_sidebar() to re-evaluate sidebar visibility.
-                        assert not sidebar.has_class("hidden"), (
-                            "Sidebar must be visible after _async_refresh_files adds files. "
-                            "Bug: _async_refresh_files does not call _position_right_sidebar(). "
-                            "Fix: call self._position_right_sidebar() at the end of "
-                            "_async_refresh_files when stats are non-empty."
+                        assert not files_section.has_class("hidden"), (
+                            "FilesSection must un-hide after _async_refresh_files mounts files"
                         )
+                        # Outer sidebar remains visible too (it never
+                        # hid in the first place under the new contract).
+                        assert not sidebar.has_class("hidden")
 
     async def test_real_git_repo_files_section_becomes_visible(
         self, mock_sdk, tmp_path, monkeypatch
@@ -524,14 +531,22 @@ class TestFilesSectionAfterRestore:
                         f"Agent cwd mismatch: expected {tmp_path}, got {active.cwd}"
                     )
 
-                    # Confirm sidebar starts hidden (single agent, no workflow)
+                    # Sidebar starts visible (always-visible-when-wide
+                    # contract); the meaningful precondition for this
+                    # test is that FilesSection has not yet mounted any
+                    # files, so its inner section is hidden.
                     sidebar = app.query_one("#right-sidebar")
                     app.agent_section._worktrees.clear()
                     app._workflow_engine = None
                     app._position_right_sidebar()
                     await pilot.pause()
-                    assert sidebar.has_class("hidden"), (
-                        "Precondition: sidebar must be hidden before files load"
+                    files_section_pre = app.query_one("#files-section", FilesSection)
+                    assert not sidebar.has_class("hidden"), (
+                        "Sidebar should be visible on a wide terminal regardless "
+                        "of content (chicsession reachability contract)"
+                    )
+                    assert files_section_pre.has_class("hidden"), (
+                        "Precondition: FilesSection must start hidden before files load"
                     )
 
                     # 4. Run file refresh -- this is what create_safe_task would schedule

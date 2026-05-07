@@ -11,6 +11,7 @@ from claudechic.widgets.content.message import (
     SystemInfo,
     ThinkingIndicator,
 )
+from claudechic.widgets.content.safe_markdown import SafeMarkdown
 from claudechic.widgets.content.todo import TodoItem, TodoPanel, TodoWidget
 from claudechic.widgets.content.tools import (
     AgentListWidget,
@@ -39,6 +40,7 @@ __all__ = [
     "PendingShellWidget",
     "EditPlanRequested",
     "DiffWidget",
+    "SafeMarkdown",
     "TodoWidget",
     "TodoPanel",
     "TodoItem",

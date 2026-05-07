@@ -3147,16 +3147,16 @@ class ChatApp(App):
             pass
 
     def _layout_right_sidebar_inner(self) -> None:
-        # Show sidebar when wide enough and we have multiple agents, worktrees, or todos
-        agent_count = len(self.agent_mgr) if self.agent_mgr else 0
-        has_content = bool(
-            agent_count > 1
-            or self.agent_section._worktrees
-            or self.todo_panel.todos
-            or (self._review_panel and self._review_panel.review_count)
-            or self._workflow_engine
-            or self.files_section.item_count > 0
-        )
+        # Right sidebar is always reachable when the terminal has room: inline
+        # when wide enough, otherwise via the hamburger -> overlay path. The
+        # historical ``has_content`` gate (which hid the sidebar when there
+        # was only a single agent, no todos, no files, etc.) was removed
+        # because it also hid the ChicsessionLabel -- and a user on an empty
+        # session needs to see / interact with chicsession state to create
+        # one. Inner sections (FilesSection, PlanSection, ReviewPanel,
+        # ProcessPanel) still self-manage their own ``hidden`` class when
+        # empty, so the visible column never looks padded with empty
+        # headers.
         width = self.size.width
         main = self.query_one("#main", Horizontal)
 
@@ -3166,13 +3166,9 @@ class ChatApp(App):
         )
 
         # Compute desired state
-        show_sidebar_inline = width >= self.SIDEBAR_MIN_WIDTH and has_content
-        show_overlay = (
-            has_content and not show_sidebar_inline and self._sidebar_overlay_open
-        )
-        show_hamburger = (
-            has_content and not show_sidebar_inline and not self._sidebar_overlay_open
-        )
+        show_sidebar_inline = width >= self.SIDEBAR_MIN_WIDTH
+        show_overlay = not show_sidebar_inline and self._sidebar_overlay_open
+        show_hamburger = not show_sidebar_inline and not self._sidebar_overlay_open
         sidebar_shift = show_sidebar_inline and width < self.CENTERED_SIDEBAR_WIDTH
         hide_sidebar = not (show_sidebar_inline or show_overlay)
 
@@ -3185,8 +3181,9 @@ class ChatApp(App):
         )
         main.set_class(sidebar_shift, "sidebar-shift")
 
-        # Reset overlay state when not applicable
-        if not has_content or show_sidebar_inline:
+        # Reset overlay state when sidebar is shown inline (overlay is only
+        # meaningful on narrow terminals).
+        if show_sidebar_inline:
             self._sidebar_overlay_open = False
 
         # Layout sidebar contents when visible
@@ -3493,6 +3490,56 @@ class ChatApp(App):
         handler = self._pending_shell_cancels.get(id(event.widget))
         if handler:
             handler(event)
+
+    def on_markdown_link_clicked(self, event) -> None:
+        """Confirm before opening a clicked URL in the system browser.
+
+        All Markdown content in claudechic is rendered via SafeMarkdown
+        (open_links=False), so this event reaches us unhandled. We
+        prompt with URLConfirmModal; if the user confirms we run
+        webbrowser.open on a worker thread so the system-browser spawn
+        does not freeze the TUI event loop. See
+        widgets/content/safe_markdown.py for the underlying issue.
+
+        Why a confirm step at all: a single misclick on a URL in chat
+        output used to trigger a synchronous webbrowser.open that
+        blocked the TUI for several seconds (multiple seconds on WSL,
+        Linux without $DISPLAY, or remote SSH). The confirm modal
+        makes misclicks free (one keypress to dismiss) without
+        removing the convenience of intentional clicks.
+        """
+        from claudechic.widgets.modals.url_confirm import URLConfirmModal
+
+        event.stop()
+        url = getattr(event, "href", "") or ""
+        if not url:
+            return
+
+        def _on_dismiss(confirmed: bool | None) -> None:
+            if confirmed:
+                # Schedule the launch on the running loop so the modal
+                # fully tears down first (clean redraw) and the browser
+                # spawn never blocks the event loop.
+                asyncio.create_task(self._open_url_async(url))
+
+        self.push_screen(URLConfirmModal(url), _on_dismiss)
+
+    async def _open_url_async(self, url: str) -> None:
+        """Run webbrowser.open on a worker thread so spawning the OS
+        browser does not freeze the TUI.
+
+        ``webbrowser.open`` may take many seconds on Linux without
+        $DISPLAY, on WSL, or on remote SSH sessions; doing it inline
+        on the event loop is what produced the original "click a link
+        and the TUI hangs" bug.
+        """
+        import webbrowser
+
+        try:
+            await asyncio.to_thread(webbrowser.open, url)
+        except Exception as e:
+            log.warning("webbrowser.open failed for %s: %s", url, e)
+            self.notify(f"Could not open URL: {e}", severity="error")
 
     def on_mouse_up(self, event: MouseUp) -> None:
         # Close sidebar overlay if clicking outside of it
