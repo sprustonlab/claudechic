@@ -44,6 +44,8 @@ def test_merge_appends_default_extras():
     assert "claude-opus-4-6[1m]" in values
     assert "claude-opus-4-7" in values
     assert "claude-opus-4-7[1m]" in values
+    assert "claude-opus-4-8" in values
+    assert "claude-opus-4-8[1m]" in values
     assert "claude-sonnet-4-6[1m]" in values
 
 

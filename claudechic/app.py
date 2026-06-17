@@ -137,6 +137,12 @@ TOOL_USE_ERROR_PATTERN = re.compile(r"</?tool_use_error>")
 # adding `models: {extra: [...]}` to ~/.claude/.claudechic.yaml.
 DEFAULT_EXTRA_MODEL_ENTRIES: list[dict] = [
     # ── Opus ────────────────────────────────────────────────────────
+    {"value": "claude-opus-4-8", "displayName": "Opus 4.8", "description": "Opus 4.8"},
+    {
+        "value": "claude-opus-4-8[1m]",
+        "displayName": "Opus 4.8 (1M)",
+        "description": "Opus 4.8 (1M context)",
+    },
     {"value": "claude-opus-4-7", "displayName": "Opus 4.7", "description": "Opus 4.7"},
     {
         "value": "claude-opus-4-7[1m]",
