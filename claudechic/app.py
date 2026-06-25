@@ -445,6 +445,7 @@ class ChatApp(App):
         self._hamburger_btn: HamburgerButton | None = None
         # Available models from SDK (populated in _update_slash_commands)
         self._available_models: list[dict] = []
+        self._fast_mode: bool = False
         # Track pending slash commands passed to Claude (for typo detection)
         # agent_id -> command name (e.g., "/cleanup")
         self._pending_slash_commands: dict[str, str] = {}
@@ -1266,6 +1267,7 @@ class ChatApp(App):
             permission_mode=permission_mode,
             env=env,
             setting_sources=["user", "project", "local"],
+            settings=str(self._FAST_MODE_SETTINGS) if self._fast_mode else None,
             cwd=cwd,
             resume=resume,
             model=model,
@@ -1277,6 +1279,49 @@ class ChatApp(App):
             enable_file_checkpointing=True,
             extra_args={"replay-user-messages": None},
         )
+
+    _FAST_MODE_SETTINGS = Path(__file__).parent / "fast_mode_settings.json"
+
+    async def _handle_fast_command(self, arg: str) -> None:
+        """Toggle fast mode on/off. Reconnects the active agent."""
+        arg = arg.strip().lower()
+        if arg == "on":
+            if self._fast_mode:
+                self.notify("Fast mode is already on.")
+                return
+            self._fast_mode = True
+            self.notify("Fast mode: on (2.5x speed, extra cost)")
+            await self._reconnect_for_fast_mode()
+        elif arg == "off":
+            if not self._fast_mode:
+                self.notify("Fast mode is already off.")
+                return
+            self._fast_mode = False
+            self.notify("Fast mode: off")
+            await self._reconnect_for_fast_mode()
+        elif arg == "":
+            state = "on" if self._fast_mode else "off"
+            self.notify(f"Fast mode: {state}")
+        else:
+            self.notify("Usage: /fast on | /fast off", severity="error")
+
+    async def _reconnect_for_fast_mode(self) -> None:
+        """Reconnect the active agent so the CLI re-reads settings."""
+        agent = self._agent
+        if not agent or not agent.client:
+            return
+        try:
+            session_id = agent.session_id
+            await agent.disconnect()
+            options = self._make_options(
+                cwd=agent.cwd,
+                resume=session_id,
+                agent_name=agent.name,
+                model=agent.model,
+            )
+            await agent.connect(options, resume=session_id)
+        except Exception as e:
+            self.show_error("Fast mode reconnect failed", e)
 
     async def on_mount(self) -> None:
         # Track app start (and install if new user)

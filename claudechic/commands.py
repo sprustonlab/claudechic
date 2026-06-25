@@ -106,6 +106,7 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
     ("/compactish", "Compact session to reduce context", []),
     ("/usage", "Show API rate limit usage", []),
     ("/model", "Change model", []),
+    ("/fast", "Toggle fast mode (extra cost)", ["/fast on", "/fast off"]),
     ("/vim", "Toggle vi mode for input", []),
     ("/processes", "Show background processes", []),
     ("/reviews", "Show roborev reviews", []),
@@ -278,6 +279,12 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
     if cmd == "/usage":
         _track_command(app, "usage")
         app._handle_usage_command()
+        return True
+
+    if cmd == "/fast" or cmd.startswith("/fast "):
+        _track_command(app, "fast")
+        arg = cmd.split(maxsplit=1)[1] if " " in cmd else ""
+        app.run_worker(app._handle_fast_command(arg), exclusive=False, exit_on_error=False)
         return True
 
     if cmd == "/model" or cmd.startswith("/model "):
