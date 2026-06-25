@@ -249,7 +249,7 @@ class Agent:
         self._pending_reply_to: str | None = None  # Agent name we owe a reply to
         self._reply_nudge_count: int = 0  # How many nudges sent for current obligation
         self._nudge_generation: int = 0  # Monotonic counter to deduplicate nudge timers
-        self.model: str | None = "opus"  # Model override (None = SDK default)
+        self.model: str | None = "claude-opus-4-8[1m]"  # Model override (None = SDK default)
         # SDK thinking-budget level. Plumbed into ClaudeAgentOptions(effort=...)
         # via _make_options. "max" is Opus-only; non-Opus models snap to
         # "medium" on model change. Read live by the options factory.
