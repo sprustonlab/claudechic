@@ -1273,6 +1273,7 @@ class ChatApp(App):
             resume=resume,
             model=model,
             effort=effort_level,
+            cli_path=self._resolve_cli_path(),
             mcp_servers={"chic": create_chic_server(caller_name=agent_name)},
             include_partial_messages=True,
             stderr=self._handle_sdk_stderr,
@@ -1282,6 +1283,35 @@ class ChatApp(App):
         )
 
     _FAST_MODE_SETTINGS = Path(__file__).parent / "fast_mode_settings.json"
+
+    # Candidate locations for a newer `claude` CLI than the one bundled inside
+    # the claude-agent-sdk package. The SDK's bundled binary (currently 2.1.92)
+    # only allows fast mode (`{"fastMode": true}` -> usage.speed == "fast") for
+    # opus-4-6; newer CLIs (>= ~2.1.191) extend eligibility to opus-4-8. The
+    # CLAUDECHIC_CLI_PATH env var takes precedence; otherwise we probe known
+    # on-disk locations. If none exist we return None so the SDK falls back to
+    # its bundled binary (no behavior change).
+    _CLI_PATH_CANDIDATES = (
+        Path.home() / ".local" / "bin" / "claude.exe",
+        Path.home() / ".local" / "bin" / "claude",
+    )
+
+    @classmethod
+    def _resolve_cli_path(cls) -> str | None:
+        """Return a path to a newer `claude` CLI if one is available, else None.
+
+        Lets fast mode work on opus-4-8 by avoiding the older CLI bundled in the
+        claude-agent-sdk package. Returns None (SDK uses its bundle) when no
+        override binary is found, so the change is a no-op on machines without
+        an updated CLI installed.
+        """
+        override = os.environ.get("CLAUDECHIC_CLI_PATH")
+        if override and Path(override).exists():
+            return override
+        for candidate in cls._CLI_PATH_CANDIDATES:
+            if candidate.exists():
+                return str(candidate)
+        return None
 
     async def _handle_fast_command(self, arg: str) -> None:
         """Toggle fast mode on/off. Reconnects the active agent."""
