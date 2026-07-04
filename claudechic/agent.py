@@ -151,6 +151,10 @@ class ResponseContext:
     text_buffer: str = ""
     needs_new_message: bool = True
     had_tools: bool = False
+    # True for CLI-initiated turns consumed by the idle listener (e.g.
+    # Monitor wake-ups / background task notifications). Enables rendering
+    # of injected user text and assistant-envelope text fallback.
+    unsolicited: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +232,19 @@ class Agent:
             False  # Drain leftover SDK messages after interrupt
         )
 
+        # Idle-time stream listener: consumes CLI-initiated turns (Monitor
+        # wake-ups, background task notifications) that arrive between
+        # client-initiated responses. Enabled by connect(), disabled by
+        # disconnect(). Without it those messages pile up unseen in the
+        # SDK's in-memory buffer and desync the next response.
+        self._idle_listener_task: asyncio.Task[None] | None = None
+        self._idle_listener_enabled: bool = False
+
+        # Re-entrancy guard for interrupt() (double-Escape protection).
+        # A second concurrent interrupt() escalated to a SIGINT that killed
+        # the CLI process; see interrupt() for details.
+        self._interrupting: bool = False
+
         # Chat history
         self.messages: list[ChatItem] = []
 
@@ -249,7 +266,9 @@ class Agent:
         self._pending_reply_to: str | None = None  # Agent name we owe a reply to
         self._reply_nudge_count: int = 0  # How many nudges sent for current obligation
         self._nudge_generation: int = 0  # Monotonic counter to deduplicate nudge timers
-        self.model: str | None = "claude-opus-4-8[1m]"  # Model override (None = SDK default)
+        self.model: str | None = (
+            "claude-opus-4-8[1m]"  # Model override (None = SDK default)
+        )
         # SDK thinking-budget level. Plumbed into ClaudeAgentOptions(effort=...)
         # via _make_options. "max" is Opus-only; non-Opus models snap to
         # "medium" on model change. Read live by the options factory.
@@ -283,6 +302,11 @@ class Agent:
     def response_had_tools(self) -> bool:
         """Whether the current/last response included any tool uses."""
         return self._response.had_tools
+
+    @property
+    def is_interrupting(self) -> bool:
+        """Whether an interrupt() call is currently in flight."""
+        return self._interrupting
 
     @property
     def _current_assistant(self) -> AssistantContent | None:
@@ -347,8 +371,15 @@ class Agent:
         self.file_index = FileIndex(root=self.cwd)
         await self.file_index.refresh()
 
+        # Listen for CLI-initiated turns (Monitor wake-ups, background task
+        # notifications) that arrive while no response is in flight.
+        self._idle_listener_enabled = True
+        self._start_idle_listener()
+
     async def disconnect(self) -> None:
         """Disconnect and cleanup."""
+        self._idle_listener_enabled = False
+        await self._stop_idle_listener()
         self._pending_messages.clear()
         if self._response.task and not self._response.task.done():
             self._response.task.cancel()
@@ -551,6 +582,12 @@ class Agent:
 
         self._set_status(AgentStatus.BUSY)
 
+        # Begin cancelling the idle listener so only _process_response reads
+        # the SDK stream (the cancellation is awaited in _process_response
+        # before it starts receiving).
+        if self._idle_listener_task and not self._idle_listener_task.done():
+            self._idle_listener_task.cancel()
+
         # Reset per-response state
         self._response = ResponseContext()
         self._set_response_state(ResponseState.STREAMING)
@@ -567,6 +604,21 @@ class Agent:
         Order: SDK interrupt first (breaks the stream), then wait up to 3s
         for the task to complete naturally.  Only cancel + SIGINT as last resort.
         """
+        # Re-entrancy guard: a second interrupt (e.g. double-Escape) while
+        # one is already in flight used to run concurrently, time out on the
+        # already-broken stream, and escalate to a SIGINT that killed the
+        # CLI process (and with it the session).  Ignore it instead.
+        if self._interrupting:
+            log.info("Agent '%s': interrupt already in flight, ignoring", self.name)
+            return
+        self._interrupting = True
+        try:
+            await self._interrupt_inner()
+        finally:
+            self._interrupting = False
+
+    async def _interrupt_inner(self) -> None:
+        """Body of interrupt(); guarded against re-entry by interrupt()."""
         log.info(
             "Agent '%s': interrupt() started (state=%s)",
             self.name,
@@ -578,9 +630,11 @@ class Agent:
         # messages will be drained after the interrupt completes (see below).
         # Interrupt SDK first — breaks the stream so the task can unblock.
         # 5s timeout prevents hanging if the CLI doesn't acknowledge.
+        sdk_acked = False
         if self.client:
             try:
                 await asyncio.wait_for(self.client.interrupt(), timeout=5.0)
+                sdk_acked = True
             except asyncio.TimeoutError:
                 log.warning(
                     "Agent '%s': SDK interrupt timed out (5s), sending SIGINT",
@@ -591,18 +645,30 @@ class Agent:
                 pass
         # Wait for the response task to finish naturally.  The SDK interrupt
         # above should break the stream, causing the task to complete on its
-        # own.  Only escalate to cancel + SIGINT if it's truly stuck.
+        # own.  Only cancel (and, if the CLI never acknowledged, SIGINT) if
+        # it's truly stuck.
         if self._response.task and not self._response.task.done():
             try:
                 await asyncio.wait_for(asyncio.shield(self._response.task), timeout=3.0)
             except asyncio.TimeoutError:
-                # Task didn't finish after 3s — force cancel + SIGINT
-                log.warning(
-                    "Agent '%s': task didn't finish after interrupt (3s), sending SIGINT",
-                    self.name,
-                )
                 self._response.task.cancel()
-                self._sigint_fallback()
+                if sdk_acked:
+                    # The CLI acknowledged the interrupt — the local task is
+                    # just slow to unwind.  Cancelling it is enough; a SIGINT
+                    # here would kill the (responsive) CLI process and lose
+                    # the session.
+                    log.warning(
+                        "Agent '%s': task didn't finish after acked interrupt "
+                        "(3s), cancelled locally",
+                        self.name,
+                    )
+                else:
+                    log.warning(
+                        "Agent '%s': task didn't finish after unacked interrupt "
+                        "(3s), sending SIGINT",
+                        self.name,
+                    )
+                    self._sigint_fallback()
             except asyncio.CancelledError:
                 pass  # Task was cancelled elsewhere, that's fine
 
@@ -638,6 +704,11 @@ class Agent:
             create_safe_task(
                 _yield_then_drain(), name=f"drain-after-interrupt-{self.name}"
             )
+
+        # Resume listening for CLI-initiated turns (also consumes the
+        # leftover messages the CLI emits while winding down the aborted
+        # response). No-op if a drain above starts a new response first.
+        self._start_idle_listener()
 
         log.info("Agent '%s': interrupt() completed", self.name)
 
@@ -716,6 +787,12 @@ class Agent:
         if not self._pending_messages:
             return
 
+        # A response is already in flight (e.g. another drain path won the
+        # race, or a CLI-initiated turn started).  Keep messages queued;
+        # they are drained again when that response completes.
+        if self._response_state != ResponseState.IDLE:
+            return
+
         # If the CLI process has exited, trigger reconnection instead of
         # trying to write to a dead process.  Messages stay queued and will
         # be drained after reconnection completes.
@@ -751,6 +828,133 @@ class Agent:
             )
             if self.observer:
                 self.observer.on_connection_lost(self)
+
+    # -----------------------------------------------------------------------
+    # Idle-time stream listener (CLI-initiated turns)
+    # -----------------------------------------------------------------------
+
+    def _start_idle_listener(self) -> None:
+        """Start the idle-time SDK stream listener if not already running.
+
+        The Claude CLI can initiate turns on its own while no client request
+        is in flight — e.g. when a Monitor tool fires or a background task
+        completes, the CLI injects a task-notification user message and
+        streams a full assistant turn.  Without a reader those messages pile
+        up unseen in the SDK's in-memory buffer, desync the next
+        receive_response() call (its ResultMessage terminates the iterator
+        early), and stall the SDK's read loop entirely once 100 messages
+        accumulate.  The listener consumes and renders them as they arrive.
+        """
+        if not self._idle_listener_enabled or not self.client:
+            return
+        if self._idle_listener_task and not self._idle_listener_task.done():
+            return
+        self._idle_listener_task = asyncio.create_task(
+            self._idle_listener(), name=f"agent-{self.id}-idle-listener"
+        )
+
+    async def _stop_idle_listener(self) -> None:
+        """Cancel the idle listener and wait for it to finish.
+
+        Must complete before _process_response starts reading so the two
+        never compete for messages on the SDK stream.
+
+        Note: anyio memory streams can drop a single message if the receiver
+        is cancelled at the exact instant of delivery. The window is a few
+        microseconds around a user-initiated send; worst case one CLI
+        notification is not displayed (it remains in the session transcript).
+        """
+        task = self._idle_listener_task
+        if task is None:
+            return
+        self._idle_listener_task = None
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    async def _idle_listener(self) -> None:
+        """Consume SDK messages while no client-initiated response runs."""
+        try:
+            while True:
+                client = self.client
+                if client is None:
+                    return
+                turn_started = False
+                got_message = False
+                had_tool_use: dict[str | None, bool] = {}
+                async for message in client.receive_response():
+                    got_message = True
+                    if (
+                        not turn_started
+                        and self._response_state == ResponseState.IDLE
+                        and isinstance(
+                            message, (UserMessage, AssistantMessage, StreamEvent)
+                        )
+                    ):
+                        # Content while idle means the CLI started a turn on
+                        # its own (Monitor / background task notification).
+                        # SystemMessages (init, thinking_tokens, ...) and
+                        # leftover ResultMessages don't open a turn.
+                        turn_started = True
+                        self._begin_unsolicited_turn()
+                    await self._handle_sdk_message(message, had_tool_use)
+                if turn_started:
+                    self._end_unsolicited_turn()
+                if not got_message:
+                    # Iterator ended without yielding anything: the stream
+                    # is closed (CLI process exited or client shut down).
+                    log.warning("Agent '%s': idle listener stream closed", self.name)
+                    if not self._is_transport_alive() and self.observer:
+                        self.observer.on_connection_lost(self)
+                    return
+        except asyncio.CancelledError:
+            raise
+        except CLIConnectionError:
+            log.info("Agent '%s': idle listener disconnected", self.name)
+        except Exception:
+            log.exception("Agent '%s': idle listener failed", self.name)
+
+    def _begin_unsolicited_turn(self) -> None:
+        """Mark the start of a CLI-initiated turn (Monitor/task notification)."""
+        log.info("Agent '%s': CLI-initiated turn started", self.name)
+        self._response = ResponseContext(unsolicited=True)
+        self._set_status(AgentStatus.BUSY)
+        self._set_response_state(ResponseState.STREAMING)
+
+    def _end_unsolicited_turn(self) -> None:
+        """Finish a CLI-initiated turn: reset state, drain queued messages."""
+        self._flush_current_text()
+        log.info("Agent '%s': CLI-initiated turn completed", self.name)
+        self._set_response_state(ResponseState.IDLE)
+        self._set_status(AgentStatus.IDLE)
+        # Drain messages queued while the CLI-initiated turn was streaming
+        # (same pattern as the _process_response finally block).
+        if self._pending_messages:
+
+            async def _yield_then_drain() -> None:
+                await asyncio.sleep(0)  # let ResponseComplete propagate
+                self._drain_next_message()
+
+            create_safe_task(_yield_then_drain(), name="drain-pending-message")
+
+    def _render_injected_user_text(self, text: str) -> None:
+        """Record and display a CLI-injected user message.
+
+        Used for the task-notification text the CLI injects when a Monitor
+        tool fires or a background task completes.
+        """
+        self.messages.append(
+            ChatItem(
+                role="user",
+                content=UserContent(text=text),
+                metadata=MessageMetadata(
+                    timestamp=datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+        )
+        if self.observer:
+            self.observer.on_prompt_sent(self, text, [])
 
     # -----------------------------------------------------------------------
     # Response processing
@@ -792,6 +996,11 @@ Key Rules:
     async def _process_response(self, prompt: str) -> None:
         """Process SDK response stream."""
         try:
+            # Ensure the idle listener is fully stopped before reading so
+            # the two never compete for messages on the SDK stream
+            # (_start_response already initiated the cancellation).
+            await self._stop_idle_listener()
+
             # Prepend plan mode instructions if in plan mode
             if self.permission_mode == "plan":
                 prompt = self._get_plan_mode_instructions() + prompt
@@ -895,6 +1104,9 @@ Key Rules:
                         self._drain_next_message()
 
                     create_safe_task(_yield_then_drain(), name="drain-pending-message")
+                # Resume listening for CLI-initiated turns while idle.
+                # (When interrupted, interrupt() restarts the listener.)
+                self._start_idle_listener()
 
     # Process liveness check interval (seconds)
     _LIVENESS_CHECK_INTERVAL = 30
@@ -997,6 +1209,12 @@ Key Rules:
                     had_tool_use[parent_id] = True
                 elif isinstance(block, ToolResultBlock):
                     self._handle_tool_result(block)
+                elif isinstance(block, SDKTextBlock) and self._response.unsolicited:
+                    # CLI-initiated turns may not stream partial events; if
+                    # no streamed text accumulated, fall back to the
+                    # envelope text so the turn isn't rendered empty.
+                    if block.text and not self._current_text_buffer:
+                        self._handle_text_chunk(block.text, True, parent_id)
 
         elif isinstance(message, UserMessage):
             # Capture UUID for checkpoints (needed for /rewind file restoration)
@@ -1013,12 +1231,17 @@ Key Rules:
             # deliver that envelope on receive_response.)
             content = getattr(message, "content", "")
             if isinstance(content, str):
+                if content and self._response.unsolicited:
+                    # CLI-injected user text (Monitor / task notification)
+                    self._render_injected_user_text(content)
                 self._scan_user_text_for_commands(content)
             elif isinstance(content, list):
                 for block in content:
                     if isinstance(block, ToolResultBlock):
                         self._handle_tool_result(block)
                     elif isinstance(block, SDKTextBlock):
+                        if block.text and self._response.unsolicited:
+                            self._render_injected_user_text(block.text)
                         self._scan_user_text_for_commands(block.text)
 
         elif isinstance(message, StreamEvent):

@@ -291,7 +291,12 @@ class TestTimeoutFallback:
     async def test_interrupt_task_timeout_triggers_cancel(
         self, real_agent_with_mock_sdk
     ):
-        """Test 2.7: Response task not finishing within 3s gets cancelled + SIGINT."""
+        """Test 2.7: Stuck task after ACKED interrupt gets cancelled, NO SIGINT.
+
+        The CLI acknowledged the interrupt, so it is responsive; a SIGINT
+        here would kill the CLI process and lose the session (double-Escape
+        bug). Only the local response task is cancelled.
+        """
         agent, _mock_client = real_agent_with_mock_sdk
 
         # SDK interrupt returns immediately, but response task never finishes
@@ -311,10 +316,85 @@ class TestTimeoutFallback:
             await asyncio.sleep(0)
             assert stuck_task.done()
             assert stuck_task.cancelled()
-            # SIGINT fallback should have been called
+            # SDK interrupt was acknowledged -> SIGINT must NOT be sent
+            sigint_spy.assert_not_called()
+
+        assert agent.status == AgentStatus.IDLE
+        assert agent._response_state == ResponseState.IDLE
+
+    @pytest.mark.slow
+    async def test_interrupt_unacked_task_timeout_triggers_sigint(
+        self, real_agent_with_mock_sdk
+    ):
+        """Stuck task after FAILED (unacked) SDK interrupt still gets SIGINT."""
+        agent, mock_client = real_agent_with_mock_sdk
+
+        async def _fail():
+            raise RuntimeError("control channel broken")
+
+        mock_client.interrupt = _fail
+
+        agent._set_response_state(ResponseState.STREAMING)
+        agent._set_status(AgentStatus.BUSY)
+
+        async def _never_finish():
+            await asyncio.sleep(3600)
+
+        stuck_task = asyncio.create_task(_never_finish(), name="stuck-response")
+        agent._response = ResponseContext(task=stuck_task)
+
+        with patch.object(agent, "_sigint_fallback") as sigint_spy:
+            await agent.interrupt()
+            await asyncio.sleep(0)
+            assert stuck_task.cancelled()
+            # No ack from the CLI -> SIGINT is the last resort
             sigint_spy.assert_called_once()
 
         assert agent.status == AgentStatus.IDLE
+        assert agent._response_state == ResponseState.IDLE
+
+
+# ---------------------------------------------------------------------------
+# Re-entrancy guard (double-Escape protection)
+# ---------------------------------------------------------------------------
+
+
+class TestInterruptReentrancy:
+    """A second interrupt() while one is in flight must be a no-op."""
+
+    async def test_concurrent_interrupt_is_ignored(self, real_agent_with_mock_sdk):
+        """Second interrupt() returns immediately; SDK interrupt called once."""
+        agent, mock_client = real_agent_with_mock_sdk
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        calls = 0
+
+        async def _slow_interrupt():
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+
+        mock_client.interrupt = _slow_interrupt
+
+        # Streaming state with no response task (skips the 3s task wait so
+        # the test stays fast; re-entrancy is about the SDK call anyway).
+        agent._set_response_state(ResponseState.STREAMING)
+        agent._set_status(AgentStatus.BUSY)
+        agent._response = ResponseContext()
+
+        first = asyncio.create_task(agent.interrupt())
+        await started.wait()
+        assert agent.is_interrupting
+
+        # Second interrupt while the first is blocked in the SDK call
+        await agent.interrupt()  # must return without touching the SDK
+        assert calls == 1
+
+        release.set()
+        await first
+        assert not agent.is_interrupting
         assert agent._response_state == ResponseState.IDLE
 
 
@@ -520,11 +600,18 @@ class TestDrainRace:
             # Let all background tasks run (drain + fire-and-forget)
             await asyncio.sleep(0.1)
 
-        # Both the queued message and redirect should have been delivered
-        # The queued message is drained by _yield_then_drain from interrupt()
-        # The redirect is sent by fire-and-forget
-        assert len(delivered_prompts) >= 1
-        # At minimum, the drain task should have picked up the queued message
+            # The redirect was delivered
+            assert "redirect prompt" in delivered_prompts
+
+            # The queued message must not be LOST.  With the drain guard
+            # (no concurrent responses on one SDK stream), delivery may be
+            # deferred while the redirect's response is in flight; it is
+            # drained when that response completes -- simulated here.
+            if "queued message from earlier" not in delivered_prompts:
+                agent._set_response_state(ResponseState.IDLE)
+                agent._set_status(AgentStatus.IDLE)
+                agent._drain_next_message()
+
         assert "queued message from earlier" in delivered_prompts
 
         await _cancel_task(task)

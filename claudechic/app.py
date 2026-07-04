@@ -4090,6 +4090,12 @@ class ChatApp(App):
         # Interrupt running agent via Agent.interrupt() (handles SDK interrupt,
         # SIGINT fallback, on_complete, and state cleanup).
         if self._agent and self._agent.status == "busy":
+            # Debounce: a second Escape while an interrupt is in flight used
+            # to spawn a concurrent interrupt() that escalated to a SIGINT
+            # and killed the CLI process (closing the session).
+            if self._agent.is_interrupting:
+                self.notify("Interrupt already in progress")
+                return
             self.run_worker(
                 self._agent.interrupt(),
                 exclusive=False,
