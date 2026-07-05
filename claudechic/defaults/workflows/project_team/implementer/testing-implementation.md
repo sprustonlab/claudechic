@@ -1,4 +1,4 @@
-# Testing Phase
+# Testing Implementation Phase
 
 1. Read the project's testing standard (CLAUDE.md, HOW_TO_WRITE_TESTS.md, or similar) before writing or fixing any test
 2. Fix test failures identified by TestEngineer

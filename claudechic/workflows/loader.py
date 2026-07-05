@@ -896,6 +896,35 @@ class ManifestLoader:
                 defined_at=wf_prov.get(wf_id, frozenset({winning_tier})),
             )
 
+        # Step 6.5: Lint -- warn when a workflow's main_role lacks a phase
+        # doc. The renderer resolves phase instructions strictly as
+        # ``<role>/<bare_phase>.md`` (no name normalization; the manifest
+        # ``file:`` key is not consulted) and silently returns "" when the
+        # file is missing. For the MAIN role that means the whole phase
+        # runs on identity.md alone with no visible failure, so surface
+        # the gap in the log.
+        for wf in workflows_out.values():
+            if not wf.main_role or wf.has_errors:
+                continue
+            role_dir = wf.path / wf.main_role
+            if not role_dir.is_dir():
+                continue
+            for ph in deduped_phases:
+                if ph.namespace != wf.workflow_id:
+                    continue
+                bare = ph.id.split(":", 1)[1] if ":" in ph.id else ph.id
+                if not (role_dir / f"{bare}.md").is_file():
+                    logger.warning(
+                        "workflow %r: main role %r has no phase doc "
+                        "%s/%s.md -- the main agent will run phase %r "
+                        "with identity-only instructions",
+                        wf.workflow_id,
+                        wf.main_role,
+                        wf.main_role,
+                        bare,
+                        bare,
+                    )
+
         # Step 7: Merge per-section item provenance into one map.
         item_provenance: dict[str, frozenset[Any]] = {}
         for prov_map in (
