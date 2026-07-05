@@ -22,6 +22,7 @@ must follow the Generalprobe standard:
 - Will the tests pass on a fresh machine with no pre-existing state?
 - Are there race conditions in async test orchestration?
 - Do the tests actually exercise the full stack, or do they shortcut?
+- Do any tests only exercise default values? A test that never sets a non-default value leaves the wiring untested.
 - Do tests comply with the Generalprobe standard above?
 
 Report issues to Coordinator as soon as the first one surfaces, before all tests have landed.

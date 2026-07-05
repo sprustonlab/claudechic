@@ -798,3 +798,44 @@ def test_mixed_bare_and_tier_targeted_disable_workflows(tmp_path: Path) -> None:
     # package-tier instance survives).
     assert "onboarding" in filtered.workflows
     assert filtered.workflows["onboarding"].tier == "package"
+
+
+# ---------------------------------------------------------------------------
+# Lint — main-role phase-doc coverage
+# ---------------------------------------------------------------------------
+
+
+def test_main_role_missing_phase_doc_logs_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A workflow whose main_role lacks a ``<role>/<phase>.md`` doc logs one
+    warning naming the missing file (the renderer would silently deliver
+    identity-only instructions for that phase)."""
+    import logging
+
+    pkg = _mkdir(tmp_path / "package")
+    wf_dir = _write_workflow(pkg, "foo")  # writes setup.md + build.md
+    (wf_dir / "coordinator" / "build.md").unlink()
+
+    with caplog.at_level(logging.WARNING, logger="claudechic.workflows.loader"):
+        result = _load(pkg)
+
+    assert "foo" in result.workflows
+    warnings = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("coordinator/build.md" in m for m in warnings)
+    assert not any("setup" in m for m in warnings)
+
+
+def test_main_role_complete_phase_docs_logs_nothing(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """No lint warning when every phase has a main-role doc."""
+    import logging
+
+    pkg = _mkdir(tmp_path / "package")
+    _write_workflow(pkg, "foo")
+
+    with caplog.at_level(logging.WARNING, logger="claudechic.workflows.loader"):
+        _load(pkg)
+
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
