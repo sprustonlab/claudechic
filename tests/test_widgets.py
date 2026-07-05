@@ -1257,6 +1257,31 @@ async def test_files_section_scrolls_with_many_files():
 
 
 @pytest.mark.asyncio
+async def test_file_item_truncation_adapts_to_width():
+    """FileItem shows more of the path when the sidebar is wider."""
+    from pathlib import Path
+
+    from claudechic.widgets.layout.sidebar import FileItem
+
+    long_path = "src/some/deeply/nested/module_name.py"
+
+    # Wide: the full path fits without truncation.
+    app = WidgetTestApp(lambda: FileItem(Path(long_path)))
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.pause()
+        plain = app.query_one(FileItem).render().plain
+        assert long_path in plain, f"wide panel should show full path, got {plain!r}"
+
+    # Narrow: the path is front-truncated with the ellipsis marker.
+    app2 = WidgetTestApp(lambda: FileItem(Path(long_path)))
+    async with app2.run_test(size=(24, 20)) as pilot:
+        await pilot.pause()
+        plain = app2.query_one(FileItem).render().plain
+        assert long_path not in plain, "narrow panel should truncate the path"
+        assert "…" in plain, f"expected front-truncation marker, got {plain!r}"
+
+
+@pytest.mark.asyncio
 async def test_files_section_visible_with_workflow_active(mock_sdk):
     """_layout_sidebar_contents must compact agents when workflow is active.
 
