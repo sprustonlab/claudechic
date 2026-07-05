@@ -392,9 +392,11 @@ class ChatApp(App):
     # Toast debounce: suppress repeat toasts for the same key within this window
     TOAST_COOLDOWN_SECONDS: float = 10.0
 
-    # Width thresholds for layout (sidebar=28, min chat=80)
+    # Width thresholds for layout (min chat=80)
     SIDEBAR_MIN_WIDTH = 110  # Below this, hide sidebar
-    CENTERED_SIDEBAR_WIDTH = 140  # Above this, center chat while showing sidebar
+    SIDEBAR_WIDTH = 28  # Base/min sidebar width (matches styles.tcss #right-sidebar)
+    SIDEBAR_MAX_WIDTH = 48  # Cap when growing into unused horizontal space
+    CHAT_MAX_WIDTH = 100  # Matches styles.tcss #chat-column max-width
 
     def __init__(
         self,
@@ -3348,7 +3350,6 @@ class ChatApp(App):
         show_sidebar_inline = width >= self.SIDEBAR_MIN_WIDTH
         show_overlay = not show_sidebar_inline and self._sidebar_overlay_open
         show_hamburger = not show_sidebar_inline and not self._sidebar_overlay_open
-        sidebar_shift = show_sidebar_inline and width < self.CENTERED_SIDEBAR_WIDTH
         hide_sidebar = not (show_sidebar_inline or show_overlay)
 
         # Apply classes - set_class is a no-op if state already matches
@@ -3358,7 +3359,19 @@ class ChatApp(App):
         self.hamburger_btn.set_class(
             show_hamburger and needs_attention, "needs-attention"
         )
-        main.set_class(sidebar_shift, "sidebar-shift")
+        # When the sidebar is inline, left-align the chat column and dock the
+        # sidebar to the right edge (see #main.sidebar-inline in styles.tcss).
+        main.set_class(show_sidebar_inline, "sidebar-inline")
+
+        # Grow the sidebar into horizontal space the chat column can't use
+        # (it caps at CHAT_MAX_WIDTH). Clamp between the base and max widths;
+        # docked right, so any surplus falls between chat and sidebar.
+        if show_sidebar_inline:
+            surplus = width - self.CHAT_MAX_WIDTH
+            sidebar_w = max(self.SIDEBAR_WIDTH, min(self.SIDEBAR_MAX_WIDTH, surplus))
+            self.right_sidebar.styles.width = sidebar_w
+        elif show_overlay:
+            self.right_sidebar.styles.width = self.SIDEBAR_WIDTH
 
         # Reset overlay state when sidebar is shown inline (overlay is only
         # meaningful on narrow terminals).

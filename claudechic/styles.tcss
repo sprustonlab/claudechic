@@ -272,8 +272,10 @@ ShellOutputWidget #shell-output {
     align: center top;
 }
 
-/* Shift left when sidebar visible but not enough room to center */
-#main.sidebar-shift {
+/* Sidebar inline: chat column sits left, sidebar docks to the right edge
+   (width set dynamically in _layout_right_sidebar_inner). Any surplus width
+   falls between the capped chat column and the sidebar. */
+#main.sidebar-inline {
     align: left top;
 }
 
@@ -583,17 +585,13 @@ WorktreePrompt, ModelPrompt {
     color: $text-muted;
 }
 
-/* Right sidebar - agents + todos stacked */
+/* Right sidebar - agents + todos stacked. Docked to the right edge; the
+   width (28..48) is set dynamically in _layout_right_sidebar_inner so the
+   panel grows into terminal width the chat column leaves unused. */
 #right-sidebar {
     width: 28;
     height: 100%;
-    /* Negative margin shifts chat+sidebar group left so chat is centered */
-    margin-right: -28;
-}
-
-/* When shifted left, sidebar takes normal space */
-#main.sidebar-shift #right-sidebar {
-    margin-right: 0;
+    dock: right;
 }
 
 #right-sidebar.hidden {

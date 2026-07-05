@@ -67,33 +67,56 @@ class GuardItem(Static):
             self.row = row
             super().__init__()
 
-    # Front-truncation budget for rule ids (rows are height 1; without
-    # truncation a long id word-wraps onto a clipped second line and the
-    # visible row shows only the marker).
+    # Fallback front-truncation budget for rule ids, used before the widget
+    # has been laid out (content_size unknown). Once a width is known, the
+    # budget adapts to it so a wider sidebar shows more of the id. Rows are
+    # height 1; without truncation a long id word-wraps onto a clipped second
+    # line and the visible row shows only the marker.
     max_id_length = 18
+    # Never truncate below this many chars (keeps ".." + a few chars readable).
+    min_id_length = 6
 
     def __init__(self, row: GuardRow) -> None:
         super().__init__()
         self.row = row
         self.tooltip = row.message
 
-    def _truncate_front(self, name: str) -> str:
+    def _truncate_front(self, name: str, budget: int) -> str:
         """Truncate from the front (the trailing rule name disambiguates)."""
-        if len(name) > self.max_id_length:
-            return ".." + name[-(self.max_id_length - 2) :]
+        if len(name) > budget:
+            return ".." + name[-(budget - 2) :]
         return name
+
+    def _id_budget(self) -> int:
+        """Chars available for the rule id, derived from the rendered width.
+
+        Width is shared between the state marker (marker + separator space),
+        the id, and the trailing ``" (enforcement)"`` suffix. Falls back to
+        ``max_id_length`` before the widget has a known content width.
+        """
+        marker = _STATE_MARKERS.get(self.row.state, ("[?] ", "dim"))[0]
+        overhead = len(marker) + 1 + len(f" ({self.row.enforcement})")
+        avail = self.content_size.width
+        if avail <= 0:
+            return self.max_id_length
+        return max(self.min_id_length, avail - overhead)
 
     def render(self) -> Text:
         marker, style = _STATE_MARKERS.get(self.row.state, ("[?] ", "dim"))
         id_style = "dim" if self.row.state == "dormant" else ""
         text = Text.assemble(
             (marker + " ", style),
-            (self._truncate_front(self.row.display_id), id_style),
+            (self._truncate_front(self.row.display_id, self._id_budget()), id_style),
             (f" ({self.row.enforcement})", "dim"),
         )
         text.no_wrap = True
         text.overflow = "ellipsis"
         return text
+
+    def on_resize(self, event) -> None:  # noqa: ARG002
+        # Re-render so the id truncation budget tracks the sidebar width
+        # (the panel grows into unused horizontal space).
+        self.refresh()
 
     def on_click(self, event) -> None:  # noqa: ARG002
         self.post_message(self.Toggled(self.row))
