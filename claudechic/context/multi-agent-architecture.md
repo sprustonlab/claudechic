@@ -104,6 +104,7 @@ Async callback: `(agent, request) -> "allow" | "deny" | "allow_all"`.
 - One target, sending info, no reply needed? Use `message_agent` with `requires_answer=false`.
 - Multiple targets, same message? Use `broadcast_message` (with `requires_answer=true` if you expect each to reply, `false` for FYI-style updates).
 - Need to stop/redirect NOW? Use `interrupt_agent` (cuts through immediately).
+- Received an FYI / status / result and have nothing substantive to add? Do NOT reply -- acknowledgement-only messages ("thanks", "good job", "got it") are needless traffic. Stay silent unless you have an answer, result, or decision.
 
 ## Commands
 
