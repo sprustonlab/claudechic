@@ -7,6 +7,11 @@ from claudechic.widgets.layout.footer import (
     PermissionModeLabel,
     StatusFooter,
 )
+from claudechic.widgets.layout.guards import (
+    GuardItem,
+    GuardRow,
+    GuardsPanel,
+)
 from claudechic.widgets.layout.indicators import (
     ContextBar,
     CPUBar,
@@ -50,6 +55,9 @@ __all__ = [
     "PlanSection",
     "FileItem",
     "FilesSection",
+    "GuardItem",
+    "GuardRow",
+    "GuardsPanel",
     "SidebarSection",
     "SidebarItem",
     "HamburgerButton",

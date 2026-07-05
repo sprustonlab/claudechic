@@ -26,6 +26,8 @@ from claudechic.guardrails.rules import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from claudechic.workflows.loader import ManifestLoader
 
 # Type aliases for callback signatures
@@ -35,6 +37,9 @@ GetRoleCallback = Callable[[], str | None]
 OverrideTokenConsumer = Callable[
     [str, str, dict, str], bool
 ]  # (rule_id, tool_name, tool_input, enforcement) -> consumed
+GetOverridesCallback = Callable[
+    [], "Mapping[str, str]"
+]  # () -> {qualified rule_id: "on" | "off"}
 
 
 def create_guardrail_hooks(
@@ -44,6 +49,7 @@ def create_guardrail_hooks(
     get_phase: GetPhaseCallback | None = None,
     get_active_wf: GetActiveWfCallback | None = None,
     consume_override: OverrideTokenConsumer | None = None,
+    get_overrides: GetOverridesCallback | None = None,
 ) -> dict[str, list[HookMatcher]]:
     """Create PreToolUse hooks that evaluate rules (all enforcement levels).
 
@@ -62,6 +68,14 @@ def create_guardrail_hooks(
         consume_override: Callback that checks and consumes a one-time override
                          token for a deny rule. Returns True if token was consumed.
                          If None, no overrides are possible.
+        get_overrides: Callback returning the per-agent runtime override map
+                       (qualified rule_id -> "on" | "off"), read live on every
+                       evaluation. "off" skips the rule entirely; "on" bypasses
+                       the namespace/role/phase scope checks but STILL applies
+                       trigger and exclude/detect pattern matching. Applies to
+                       RULES only -- injections are not overridable. If None,
+                       no runtime overrides apply (sub-agent hooks built with
+                       a static role get no overrides; documented exemption).
     """
 
     async def evaluate(hook_input: dict, match: str | None, ctx: object) -> dict:
@@ -85,6 +99,11 @@ def create_guardrail_hooks(
         active_wf = get_active_wf() if get_active_wf else None
         # Resolve agent_role: may be a callable for dynamic resolution
         resolved_role = agent_role() if callable(agent_role) else agent_role
+        # Per-agent runtime overrides, read live so sidebar toggles take
+        # effect without an SDK reconnect. Note: disabled_ids (config) beats
+        # overrides -- disabled rules never reach this hook (filtered out of
+        # the LoadResult upstream).
+        overrides = dict(get_overrides()) if get_overrides else {}
 
         # Step 1: Apply injections (from `injections:` section)
         for injection in result.injections:
@@ -101,15 +120,24 @@ def create_guardrail_hooks(
 
         # Step 2: Evaluate enforcement rules
         for rule in result.rules:
-            # Step 0: Skip rules from inactive workflows
-            if rule.namespace != "global" and rule.namespace != active_wf:
+            # Runtime override: "off" skips the rule entirely (no hit logged);
+            # "on" bypasses the namespace/role/phase scope checks below but
+            # still requires trigger + exclude/detect pattern matches (a
+            # forced-on Bash rule must not fire on Read).
+            ov = overrides.get(rule.id)
+            if ov == "off":
                 continue
+            if ov != "on":
+                # Step 0: Skip rules from inactive workflows
+                if rule.namespace != "global" and rule.namespace != active_wf:
+                    continue
             if not matches_trigger(rule, tool_name):
                 continue
-            if should_skip_for_role(rule, resolved_role):
-                continue
-            if should_skip_for_phase(rule, current_phase):
-                continue
+            if ov != "on":
+                if should_skip_for_role(rule, resolved_role):
+                    continue
+                if should_skip_for_phase(rule, current_phase):
+                    continue
             # Check exclude pattern
             if rule.exclude_pattern:
                 field_value = _get_field(tool_input, rule.detect_field)

@@ -98,6 +98,9 @@ from claudechic.widgets import (
     ErrorMessage,
     FileItem,
     FilesSection,
+    GuardItem,
+    GuardRow,
+    GuardsPanel,
     HamburgerButton,
     HistorySearch,
     ImageAttachments,
@@ -421,6 +424,7 @@ class ChatApp(App):
         self._files_section: FilesSection | None = None
         self._todo_panel: TodoPanel | None = None
         self._review_panel: ReviewPanel | None = None
+        self._guards_panel: GuardsPanel | None = None
         self._process_panel: ProcessPanel | None = None
         self._context_bar: ContextBar | None = None
         self._right_sidebar: Vertical | None = None
@@ -617,6 +621,12 @@ class ChatApp(App):
         if self._todo_panel is None:
             self._todo_panel = self.query_one("#todo-panel", TodoPanel)
         return self._todo_panel
+
+    @property
+    def guards_panel(self) -> GuardsPanel:
+        if self._guards_panel is None:
+            self._guards_panel = self.query_one("#guards-panel", GuardsPanel)
+        return self._guards_panel
 
     @property
     def review_panel(self) -> ReviewPanel:
@@ -934,7 +944,78 @@ class ChatApp(App):
                 self._workflow_engine.workflow_id if self._workflow_engine else None
             ),
             consume_override=self._token_store.consume,
+            # Per-agent runtime overrides (GuardsPanel toggles), read live so
+            # toggles apply without an SDK reconnect. Sub-agent hooks built
+            # with a static agent_role get no overrides (documented exemption).
+            get_overrides=(
+                (lambda: agent.guard_overrides) if agent is not None else None
+            ),
         )
+
+    def _refresh_guards_panel(self) -> None:
+        """Rebuild the sidebar Guards panel for the active agent.
+
+        Reads the same filtered ``LoadResult`` as the hook layer (via
+        ``_LoaderAdapter``) and classifies each RULE with the active
+        agent's per-agent override map. Injections are excluded (not
+        overridable). Safe to call from any refresh trigger, including
+        pre-mount paths.
+        """
+        try:
+            if self._load_result is None:
+                return
+            agent = self.agent_mgr.active if self.agent_mgr else None
+            if agent is None:
+                return
+
+            from claudechic.guardrails.digest import compute_digest
+
+            adapter = _LoaderAdapter(lambda: self._load_result, self._manifest_loader)
+            engine = self._workflow_engine
+            entries = compute_digest(
+                adapter,  # type: ignore[arg-type]
+                engine.workflow_id if engine else None,
+                agent.agent_type,
+                engine.get_current_phase() if engine else None,
+                None,
+                overrides=agent.guard_overrides,
+            )
+            rows = [
+                GuardRow(
+                    rule_id=e.id,
+                    display_id=e.id.removeprefix("global:"),
+                    enforcement=e.enforcement,
+                    state=e.state,
+                    message=e.message,
+                )
+                for e in entries
+                if e.kind == "rule"
+            ]
+            self.guards_panel.update_guards(rows)
+            self._position_right_sidebar()
+        except Exception:
+            # Pre-mount safety: any refresh trigger can fire before the
+            # sidebar widgets exist; the next trigger re-renders.
+            log.debug("Guards panel refresh failed", exc_info=True)
+
+    def on_guard_item_toggled(self, event: GuardItem.Toggled) -> None:
+        """Toggle a per-agent guard override from a sidebar click.
+
+        Click semantics: an existing override is cleared; otherwise the
+        opposite of the natural state is set (active -> "off",
+        dormant -> "on").
+        """
+        agent = self.agent_mgr.active if self.agent_mgr else None
+        if agent is None:
+            return
+        row = event.row
+        if row.state in ("forced_on", "forced_off"):
+            agent.guard_overrides.pop(row.rule_id, None)
+        elif row.state == "active":
+            agent.guard_overrides[row.rule_id] = "off"
+        else:  # dormant
+            agent.guard_overrides[row.rule_id] = "on"
+        self._refresh_guards_panel()
 
     def _should_show_toast(self, toast_key: str | None) -> bool:
         """Check whether a toast should be shown, enforcing per-key cooldown.
@@ -2177,6 +2258,9 @@ class ChatApp(App):
                     "Discovered workflows: %s",
                     ", ".join(self._workflow_registry),
                 )
+
+            # Rule set may have changed (config reload / disabled_ids edits).
+            self._refresh_guards_panel()
         except Exception:
             log.debug("Workflow discovery failed", exc_info=True)
 
@@ -2685,6 +2769,9 @@ class ChatApp(App):
             )
         else:
             _update_sidebar_label(self, self._chicsession_name)
+        # Covers workflow activation + phase advance (role promotion happens
+        # before this method is called).
+        self._refresh_guards_panel()
 
     def _deactivate_workflow(self) -> None:
         """Deactivate current workflow. Destroys engine, clears state."""
@@ -2728,6 +2815,8 @@ class ChatApp(App):
         # unlink on deactivation.
 
         self.notify(f"Workflow '{wf_id}' deactivated")
+        # Role has reverted to DEFAULT_ROLE above; re-classify guards.
+        self._refresh_guards_panel()
         create_safe_task(
             self._run_hints(is_startup=False, budget=1), name="hints-workflow-stop"
         )
@@ -3304,6 +3393,7 @@ class ChatApp(App):
         agent_count = self.agent_section.item_count
         todo_count = len(self.todo_panel.todos)
         review_count = self._review_panel.review_count if self._review_panel else 0
+        guard_count = self._guards_panel.guard_count if self._guards_panel else 0
         process_count = self.process_panel.process_count
         has_plan = self.plan_section.has_plan
         files_count = self.files_section.item_count
@@ -3322,6 +3412,11 @@ class ChatApp(App):
         # ReviewPanel: same structure as TodoPanel
         REVIEW_OVERHEAD = 5
         REVIEW_ITEM = 1
+        # GuardsPanel: same structure as TodoPanel; row count capped
+        # (scroll handles overflow beyond GUARDS_MAX_ROWS)
+        GUARDS_OVERHEAD = 5
+        GUARD_ITEM = 1
+        GUARDS_MAX_ROWS = 8
         # ProcessPanel: same structure as TodoPanel
         PROCESS_OVERHEAD = 5
         PROCESS_ITEM = 1
@@ -3378,6 +3473,15 @@ class ChatApp(App):
             remaining -= REVIEW_OVERHEAD + review_count * REVIEW_ITEM
         else:
             self.review_panel.set_visible(False)
+
+        # Guards: show if room (rows beyond GUARDS_MAX_ROWS scroll)
+        guard_rows = min(guard_count, GUARDS_MAX_ROWS)
+        if guard_count and remaining >= GUARDS_OVERHEAD + guard_rows * GUARD_ITEM:
+            self.guards_panel.set_visible(True)
+            self.guards_panel._get_scroll().styles.max_height = guard_rows
+            remaining -= GUARDS_OVERHEAD + guard_rows * GUARD_ITEM
+        else:
+            self.guards_panel.set_visible(False)
 
         # Processes: show if room
         if (
@@ -4908,8 +5012,9 @@ class ChatApp(App):
         agent_count = len(self.agent_mgr.agents) if self.agent_mgr else 1
         self.status_footer.update_agent_label(new_agent.name, visible=(agent_count > 1))
 
-        # Update todo panel and context
+        # Update todo panel, guards panel (per-agent overrides), and context
         self.todo_panel.update_todos(new_agent.todos)
+        self._refresh_guards_panel()
         self.refresh_context()
 
         # Update plan button

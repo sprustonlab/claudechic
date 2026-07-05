@@ -284,7 +284,9 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
     if cmd == "/fast" or cmd.startswith("/fast "):
         _track_command(app, "fast")
         arg = cmd.split(maxsplit=1)[1] if " " in cmd else ""
-        app.run_worker(app._handle_fast_command(arg), exclusive=False, exit_on_error=False)
+        app.run_worker(
+            app._handle_fast_command(arg), exclusive=False, exit_on_error=False
+        )
         return True
 
     if cmd == "/model" or cmd.startswith("/model "):

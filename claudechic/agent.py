@@ -262,6 +262,12 @@ class Agent:
         self.permission_mode: str = "auto"  # auto, default, acceptEdits, plan
         self._pre_plan_permission_mode: str = "auto"  # mode before entering plan
         self.session_allowed_tools: set[str] = set()  # Tools allowed for this session
+        # Per-agent guardrail overrides: qualified rule_id -> "on" | "off".
+        # Session-only (not persisted). Read LIVE by the guardrail hook
+        # closure on every PreToolUse event and rendered by the sidebar
+        # GuardsPanel. "off" force-disables an active rule; "on" force-enables
+        # a dormant one (bypassing workflow/role/phase scoping).
+        self.guard_overrides: dict[str, str] = {}
         self._pending_followup: str | None = None  # Auto-send after current response
         self._pending_reply_to: str | None = None  # Agent name we owe a reply to
         self._reply_nudge_count: int = 0  # How many nudges sent for current obligation

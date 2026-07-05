@@ -1072,6 +1072,11 @@ class SettingsScreen(Screen[None]):
             mgr = getattr(app, "agent_mgr", None)
             if mgr is not None and hasattr(mgr, "refresh_guardrails"):
                 mgr.refresh_guardrails()
+            # Recompute the cached, filtered LoadResult so the hook layer
+            # (which reads app._load_result live) actually sees the toggle;
+            # refresh_guardrails() alone is a no-op seam.
+            if hasattr(app, "_discover_workflows"):
+                app._discover_workflows()
         elif spec.key == "hints":
             if hasattr(app, "_refresh_hints"):
                 app._refresh_hints()
@@ -1082,6 +1087,11 @@ class SettingsScreen(Screen[None]):
             mgr = getattr(app, "agent_mgr", None)
             if mgr is not None and hasattr(mgr, "refresh_guardrails"):
                 mgr.refresh_guardrails()
+            # Recompute the cached, filtered LoadResult so the hook layer
+            # (which reads app._load_result live) actually sees the change;
+            # refresh_guardrails() alone is a no-op seam.
+            if hasattr(app, "_discover_workflows"):
+                app._discover_workflows()
             if hasattr(app, "_refresh_hints"):
                 app._refresh_hints()
         elif spec.key.startswith(("constraints_segment.", "environment_segment.")):

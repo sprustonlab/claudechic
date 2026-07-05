@@ -1501,6 +1501,13 @@ def _make_get_applicable_rules(caller_name: str | None = None):
                 active_workflow=active_workflow,
                 include_skipped=include_skipped,
                 disabled_rules=disabled_rules_app,
+                # Per-agent runtime overrides (GuardsPanel toggles) so this
+                # projection matches what the hook layer actually fires on.
+                overrides=(
+                    getattr(agent, "guard_overrides", None)
+                    if agent is not None
+                    else None
+                ),
             )
         except Exception as e:
             log.exception("get_applicable_rules: assembly failed")
@@ -1692,6 +1699,13 @@ def _make_get_agent_info(caller_name: str | None = None):
                 engine=engine,
                 active_workflow=active_workflow,
                 disabled_rules=disabled_rules_info,
+                # Per-agent runtime overrides (GuardsPanel toggles) so this
+                # projection matches what the hook layer actually fires on.
+                overrides=(
+                    getattr(agent, "guard_overrides", None)
+                    if agent is not None
+                    else None
+                ),
                 compact=compact_view,
             )
         except Exception:

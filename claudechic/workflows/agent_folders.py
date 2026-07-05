@@ -36,6 +36,8 @@ from claudechic.workflows._substitute import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from claudechic.workflows.loader import ManifestLoader
 
 logger = logging.getLogger(__name__)
@@ -708,6 +710,7 @@ def assemble_constraints_block(
     engine: Any | None = None,
     active_workflow: str | None = None,
     disabled_rules: frozenset[str] | None = None,
+    overrides: Mapping[str, str] | None = None,
     include_skipped: bool = False,
     compact: bool = False,
     slice: Literal["stable", "phase", None] = None,
@@ -774,6 +777,7 @@ def assemble_constraints_block(
                     role if role else DEFAULT_ROLE,
                     phase,
                     set(disabled_rules) if disabled_rules else None,
+                    overrides=overrides,
                 )
             )
         except Exception as e:
