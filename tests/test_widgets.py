@@ -1263,21 +1263,26 @@ async def test_file_item_truncation_adapts_to_width():
 
     from claudechic.widgets.layout.sidebar import FileItem
 
-    long_path = "src/some/deeply/nested/module_name.py"
+    # str(Path(...)) uses OS-native separators (backslashes on Windows), and
+    # FileItem renders str(self.file_path) -- so compare against that form.
+    path = Path("src/some/deeply/nested/module_name.py")
+    rendered_path = str(path)
 
     # Wide: the full path fits without truncation.
-    app = WidgetTestApp(lambda: FileItem(Path(long_path)))
+    app = WidgetTestApp(lambda: FileItem(path))
     async with app.run_test(size=(80, 20)) as pilot:
         await pilot.pause()
         plain = app.query_one(FileItem).render().plain
-        assert long_path in plain, f"wide panel should show full path, got {plain!r}"
+        assert rendered_path in plain, (
+            f"wide panel should show full path, got {plain!r}"
+        )
 
     # Narrow: the path is front-truncated with the ellipsis marker.
-    app2 = WidgetTestApp(lambda: FileItem(Path(long_path)))
+    app2 = WidgetTestApp(lambda: FileItem(path))
     async with app2.run_test(size=(24, 20)) as pilot:
         await pilot.pause()
         plain = app2.query_one(FileItem).render().plain
-        assert long_path not in plain, "narrow panel should truncate the path"
+        assert rendered_path not in plain, "narrow panel should truncate the path"
         assert "…" in plain, f"expected front-truncation marker, got {plain!r}"
 
 
