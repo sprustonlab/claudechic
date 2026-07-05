@@ -114,10 +114,21 @@ class EffortLabel(ClickableLabel):
     """Clickable effort label - cycles through valid SDK ``effort`` levels.
 
     The on-screen label text uses the literal string ``"effort"`` to match
-    SDK vocabulary (per SPEC Decision 2). The level cycles
-    ``low -> medium -> high -> max -> low`` on click; ``max`` is Opus-only,
-    so non-Opus models snap the displayed level to ``"medium"`` on model
-    change (per SPEC locked Decision 5 from slot 1 review).
+    SDK vocabulary (per SPEC Decision 2). The level cycles through the
+    model's supported set on click; when the model changes, a level the
+    new model doesn't support snaps to ``"medium"`` (per SPEC locked
+    Decision 5 from slot 1 review).
+
+    Which levels a model supports comes from two sources, in order:
+
+    1. The capability registry populated from ``get_server_info()``
+       model entries (``supportedEffortLevels``) via
+       ``update_model_capabilities`` -- this tracks whatever the
+       installed Claude Code CLI actually advertises, so new models
+       and new levels need no claudechic change.
+    2. Static per-family fallbacks (``MODEL_EFFORT_LEVELS``) for model
+       strings the registry doesn't know -- legacy version pins and
+       older CLIs that don't report capability metadata.
 
     On click the widget mutates ``app._agent.effort`` directly (the
     options factory reads ``agent.effort`` live) and persists the new
@@ -128,22 +139,33 @@ class EffortLabel(ClickableLabel):
     # Global ordering used to snap a current level into a smaller subset
     # when the model changes. Members of ``_levels`` always preserve this
     # relative ordering.
-    DEFAULT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "max")
+    DEFAULT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
-    # Per-model effort levels.  ``max`` triggers extended thinking which
-    # is only supported on Opus.
+    # Static per-family fallbacks, used only when the capability registry
+    # has no entry for the model string (legacy version pins, or a CLI old
+    # enough not to report supportedEffortLevels). Kept conservative: a
+    # level missing here is merely un-offered, while an unsupported level
+    # sent to the SDK errors.
     MODEL_EFFORT_LEVELS: dict[str, tuple[str, ...]] = {
         "haiku": ("low", "medium", "high"),
         "sonnet": ("low", "medium", "high"),
         "opus": ("low", "medium", "high", "max"),
+        "fable": ("low", "medium", "high", "xhigh", "max"),
     }
 
     EFFORT_DISPLAY: dict[str, str] = {
         "low": "effort: low",
         "medium": "effort: medium",
         "high": "effort: high",
+        "xhigh": "effort: xhigh",
         "max": "effort: max",
     }
+
+    # Capability registry: lowercase model keys -> advertised effort levels.
+    # Populated by ``update_model_capabilities`` from the SDK's model list;
+    # class-level so ``levels_for_model`` stays a classmethod usable from
+    # any footer instance.
+    _capability_levels: dict[str, tuple[str, ...]] = {}
 
     class Cycled(Message):
         """Emitted after the user clicks to cycle effort level.
@@ -241,23 +263,58 @@ class EffortLabel(ClickableLabel):
         self.set_effort(best)
 
     # Fallback for unknown model strings: the safer subset without
-    # ``"max"`` (which is Opus-only and rejected by other families).
+    # the top levels, which not every family supports.
     UNKNOWN_MODEL_LEVELS: tuple[str, ...] = ("low", "medium", "high")
+
+    @classmethod
+    def update_model_capabilities(cls, models: list[dict]) -> None:
+        """Rebuild the capability registry from SDK model entries.
+
+        ``models`` is the list from ``get_server_info()["models"]``
+        (possibly merged with legacy pins). Entries that carry a
+        non-empty ``supportedEffortLevels`` list are registered under
+        every name the rest of the app might later hand to
+        ``levels_for_model``: the routable ``value``, the
+        ``displayName``, and the short name the footer extracts from
+        ``description`` (the text before the first ``·``). Entries
+        without capability metadata (e.g. legacy pins) are skipped and
+        keep resolving through the static family fallbacks.
+        """
+        registry: dict[str, tuple[str, ...]] = {}
+        for m in models:
+            levels = m.get("supportedEffortLevels")
+            if (
+                not isinstance(levels, list)
+                or not levels
+                or not all(isinstance(lvl, str) for lvl in levels)
+            ):
+                continue
+            desc = m.get("description")
+            short_name = (
+                desc.split("·")[0] if isinstance(desc, str) and "·" in desc else None
+            )
+            for key in (m.get("value"), m.get("displayName"), short_name):
+                if isinstance(key, str) and key.strip():
+                    registry.setdefault(key.strip().lower(), tuple(levels))
+        cls._capability_levels = registry
 
     @classmethod
     def levels_for_model(cls, model: str | None) -> tuple[str, ...]:
         """Return the valid effort levels for a model string.
 
-        Matches against known model families by checking if ``model``
-        contains a known alias (``opus`` / ``sonnet`` / ``haiku``).
-        Unknown model strings (or empty) fall back to
-        ``UNKNOWN_MODEL_LEVELS`` -- the safer subset without ``"max"``,
-        since ``"max"`` is Opus-only and would be rejected by any
-        non-Opus family the alias-match missed.
+        Consults the capability registry first (exact, case-insensitive
+        match on what the CLI advertised). Otherwise matches against
+        known model families by checking if ``model`` contains a known
+        alias (``opus`` / ``sonnet`` / ``haiku`` / ``fable``). Unknown
+        model strings (or empty) fall back to ``UNKNOWN_MODEL_LEVELS``
+        -- the safer subset, since offering an unsupported level would
+        send a rejected value to the SDK.
         """
         if not model:
             return cls.UNKNOWN_MODEL_LEVELS
-        model_lower = model.lower()
+        model_lower = model.strip().lower()
+        if model_lower in cls._capability_levels:
+            return cls._capability_levels[model_lower]
         for family, levels in cls.MODEL_EFFORT_LEVELS.items():
             if family in model_lower:
                 return levels

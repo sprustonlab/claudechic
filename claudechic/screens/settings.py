@@ -37,11 +37,12 @@ log = logging.getLogger(__name__)
 
 _PERMISSION_MODES = ("default", "acceptEdits", "plan", "auto", "bypassPermissions")
 _NOTIFY_LEVELS = ("debug", "info", "warning", "error", "none")
-# SDK thinking-budget levels (SPEC C3). "max" is Opus-only; we still
-# expose it in /settings so an Opus user can set the persistent default.
-# The footer EffortLabel snaps to "medium" on non-Opus models even when
-# config says "max".
-_EFFORT_LEVELS = ("low", "medium", "high", "max")
+# SDK thinking-budget levels (SPEC C3). Not every model supports the top
+# levels; we still expose all of them in /settings so a user can set the
+# persistent default for a capable model. The footer EffortLabel snaps to
+# "medium" when the active model doesn't support the configured level
+# (per the CLI-advertised capabilities).
+_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 
 @dataclass(frozen=True)

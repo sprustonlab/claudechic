@@ -255,6 +255,47 @@ environment_segment:
     sites: [spawn, activation, post-compact]
 ```
 
+### `effort`
+
+- **Type:** `str` -- one of `low` / `medium` / `high` / `xhigh` / `max`
+- **Default:** `high`
+- **Exposed in `/settings`:** yes (label: "Effort")
+
+Persistent default for the SDK thinking-budget level. Mirrored into each
+agent's `effort` on startup and cycled at runtime by clicking the footer's
+`EffortLabel`. The levels offered per model come from the capabilities the
+Claude Code CLI advertises (`get_server_info()` `supportedEffortLevels`);
+if the active model does not support the configured level, the footer
+snaps it to `medium`.
+
+```yaml
+effort: high
+```
+
+### `models.extra`
+
+- **Type:** `list[dict]` -- entries shaped like the SDK's model list
+- **Default:** unset (falls back to the built-in legacy pins)
+- **Exposed in `/settings`:** no
+
+Extra model entries appended to the `/model` picker. The picker is
+populated dynamically from `get_server_info()` -- newly released models
+appear automatically once the installed Claude Code CLI knows about them,
+so this override is only needed to pin **older** full-ID versions that the
+CLI no longer advertises (the built-in default list covers common ones,
+e.g. Opus 4.5/4.6/4.7). Entries are deduplicated by `value`; SDK entries
+win on collision. An entry may also declare `supportedEffortLevels` to
+feed the footer's effort picker.
+
+```yaml
+models:
+  extra:
+    - value: claude-opus-4-6
+      displayName: Opus 4.6
+      description: Opus 4.6
+      supportedEffortLevels: [low, medium, high, max]
+```
+
 ### `experimental.*`
 
 - **Type:** mixed

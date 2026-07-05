@@ -135,13 +135,13 @@ def test_all_user_named_features_shipped_agent_type() -> None:
 
 
 def test_all_user_named_features_shipped_effort() -> None:
-    """C: ``Agent.effort`` exists with one of the four enum values."""
+    """C: ``Agent.effort`` exists with one of the valid enum values."""
     from claudechic.agent import Agent
 
     agent = Agent(name="scope-guard-probe", cwd=REPO_ROOT)
     assert hasattr(agent, "effort"), "Agent must expose .effort"
-    assert agent.effort in {"low", "medium", "high", "max"}, (
-        f"Agent.effort must be one of low|medium|high|max; got {agent.effort!r}"
+    assert agent.effort in {"low", "medium", "high", "xhigh", "max"}, (
+        f"Agent.effort must be one of low|medium|high|xhigh|max; got {agent.effort!r}"
     )
 
 

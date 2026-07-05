@@ -103,10 +103,10 @@ class _FooterTestApp(App):
 async def test_c2_clicking_effort_label_cycles_visible_text(tmp_path: Path) -> None:
     """Gestalt user-side: clicking the label cycles through locked strings.
 
-    The cycle order is the locked contract from SPEC C2 / Decision 5:
-    ``low -> medium -> high -> max -> low``. The on-screen text is the
-    locked-string ``"effort: <level>"`` (lower-case, no punctuation),
-    matching SDK vocabulary.
+    The cycle order is the locked global ordering from SPEC C2 /
+    Decision 5: ``low -> medium -> high -> xhigh -> max -> low``. The
+    on-screen text is the locked-string ``"effort: <level>"``
+    (lower-case, no punctuation), matching SDK vocabulary.
 
     Persisting the cycled level to ``~/.claudechic/config.yaml`` would
     leak across test runs; we patch ``config.save`` to a no-op and only
@@ -120,7 +120,7 @@ async def test_c2_clicking_effort_label_cycles_visible_text(tmp_path: Path) -> N
             label = footer.query_one("#effort-label", EffortLabel)
             await pilot.pause()
 
-            # Reset to a known starting level + force the full 4-level
+            # Reset to a known starting level + force the full level
             # set so the test does not depend on what hydrate-from-config
             # produced on mount or which model the footer's reactive
             # picked. The full cycle is the locked contract per SPEC C2.
@@ -132,6 +132,7 @@ async def test_c2_clicking_effort_label_cycles_visible_text(tmp_path: Path) -> N
             expected_cycle = [
                 "effort: medium",
                 "effort: high",
+                "effort: xhigh",
                 "effort: max",
                 "effort: low",
             ]
@@ -151,22 +152,30 @@ async def test_c2_clicking_effort_label_cycles_visible_text(tmp_path: Path) -> N
 
 
 def test_c2_effort_label_display_strings_are_locked() -> None:
-    """SPEC's locked contract strings: exactly four ``"effort: <level>"``."""
+    """SPEC's locked contract strings: ``"effort: <level>"`` per level."""
     assert EffortLabel.EFFORT_DISPLAY["low"] == "effort: low"
     assert EffortLabel.EFFORT_DISPLAY["medium"] == "effort: medium"
     assert EffortLabel.EFFORT_DISPLAY["high"] == "effort: high"
+    assert EffortLabel.EFFORT_DISPLAY["xhigh"] == "effort: xhigh"
     assert EffortLabel.EFFORT_DISPLAY["max"] == "effort: max"
 
 
 def test_c2_effort_label_default_levels_order() -> None:
     """Cycle order is the locked global ordering."""
-    assert EffortLabel.DEFAULT_LEVELS == ("low", "medium", "high", "max")
+    assert EffortLabel.DEFAULT_LEVELS == ("low", "medium", "high", "xhigh", "max")
 
 
 def test_c2_effort_label_levels_for_opus_includes_max() -> None:
-    """Opus is the only family that supports ``"max"``."""
+    """The Opus family fallback supports ``"max"``."""
     assert "max" in EffortLabel.levels_for_model("claude-opus-4")
     assert "max" in EffortLabel.levels_for_model("opus")
+
+
+def test_c2_effort_label_levels_for_fable_includes_top_levels() -> None:
+    """The Fable family fallback supports ``"xhigh"`` and ``"max"``."""
+    levels = EffortLabel.levels_for_model("claude-fable-5[1m]")
+    assert "xhigh" in levels
+    assert "max" in levels
 
 
 @pytest.mark.parametrize(
@@ -276,7 +285,7 @@ def test_c3_settings_screen_registers_effort_key() -> None:
     """C3: the settings registry exposes ``effort`` as a user-tier enum.
 
     SPEC §C3 mandates that the ``effort`` key be visible in the settings
-    screen with the four valid levels as its enum choices.
+    screen with the valid levels as its enum choices.
     """
     from claudechic.screens.settings import USER_KEYS
 
@@ -284,7 +293,7 @@ def test_c3_settings_screen_registers_effort_key() -> None:
     assert spec is not None, "USER_KEYS must include the 'effort' key"
     assert spec.tier == "user"
     assert spec.editor == "enum"
-    assert tuple(spec.choices) == ("low", "medium", "high", "max")
+    assert tuple(spec.choices) == ("low", "medium", "high", "xhigh", "max")
 
 
 def test_c3_default_effort_in_config_loader_is_high() -> None:
@@ -295,3 +304,103 @@ def test_c3_default_effort_in_config_loader_is_high() -> None:
     # assert that ``effort`` is one of the valid levels and that the
     # loader contract documents "high" as the default.
     assert cfg.CONFIG.get("effort", "high") in ("low", "medium", "high", "max")
+
+
+# ---------------------------------------------------------------------------
+# C2: capability registry from get_server_info() model entries
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def _clean_capability_registry():
+    """Isolate registry mutations from other tests (class-level state)."""
+    saved = EffortLabel._capability_levels
+    EffortLabel._capability_levels = {}
+    yield
+    EffortLabel._capability_levels = saved
+
+
+SDK_MODELS_SAMPLE = [
+    {
+        "value": "default",
+        "displayName": "Default (recommended)",
+        "description": "Opus 4.8 with 1M context \N{MIDDLE DOT} Best for everyday tasks",
+        "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+        "value": "claude-fable-5[1m]",
+        "displayName": "Fable",
+        "description": "Fable 5 \N{MIDDLE DOT} Most capable",
+        "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+        "value": "sonnet",
+        "displayName": "Sonnet",
+        "description": "Sonnet 4.6 \N{MIDDLE DOT} Efficient for routine tasks",
+        "supportedEffortLevels": ["low", "medium", "high", "max"],
+    },
+    # No supportedEffortLevels -- must NOT enter the registry.
+    {
+        "value": "haiku",
+        "displayName": "Haiku",
+        "description": "Haiku 4.5 \N{MIDDLE DOT} Fastest",
+    },
+    # Legacy pin shape -- no metadata either.
+    {"value": "claude-opus-4-6", "displayName": "Opus 4.6", "description": "Opus 4.6"},
+]
+
+
+class TestC2CapabilityRegistry:
+    """``levels_for_model`` prefers CLI-advertised capability metadata."""
+
+    def test_c2_registry_resolves_value_displayname_and_short_name(
+        self, _clean_capability_registry
+    ) -> None:
+        EffortLabel.update_model_capabilities(SDK_MODELS_SAMPLE)
+        expected = ("low", "medium", "high", "xhigh", "max")
+        # Routable value, displayName, and the short name the footer
+        # derives from the description all resolve.
+        assert EffortLabel.levels_for_model("claude-fable-5[1m]") == expected
+        assert EffortLabel.levels_for_model("Fable") == expected
+        assert EffortLabel.levels_for_model("Fable 5") == expected
+
+    def test_c2_registry_beats_family_fallback(
+        self, _clean_capability_registry
+    ) -> None:
+        """The CLI advertising ``max`` on Sonnet overrides the static
+        fallback (which conservatively omits it)."""
+        EffortLabel.update_model_capabilities(SDK_MODELS_SAMPLE)
+        assert "max" in EffortLabel.levels_for_model("Sonnet")
+        assert "max" in EffortLabel.levels_for_model("sonnet")
+
+    def test_c2_entries_without_metadata_use_family_fallback(
+        self, _clean_capability_registry
+    ) -> None:
+        EffortLabel.update_model_capabilities(SDK_MODELS_SAMPLE)
+        # Haiku carried no supportedEffortLevels -> static fallback.
+        assert EffortLabel.levels_for_model("haiku") == ("low", "medium", "high")
+        # Legacy pin without metadata -> opus family fallback.
+        assert EffortLabel.levels_for_model("claude-opus-4-6") == (
+            "low",
+            "medium",
+            "high",
+            "max",
+        )
+
+    def test_c2_empty_registry_preserves_fallback_behavior(
+        self, _clean_capability_registry
+    ) -> None:
+        """Old CLIs without capability metadata behave as before."""
+        EffortLabel.update_model_capabilities([])
+        assert EffortLabel.levels_for_model("sonnet") == ("low", "medium", "high")
+        assert EffortLabel.levels_for_model(None) == EffortLabel.UNKNOWN_MODEL_LEVELS
+
+    def test_c2_malformed_metadata_is_skipped(self, _clean_capability_registry) -> None:
+        EffortLabel.update_model_capabilities(
+            [
+                {"value": "weird-a", "supportedEffortLevels": "high"},
+                {"value": "weird-b", "supportedEffortLevels": []},
+                {"value": "weird-c", "supportedEffortLevels": [1, 2]},
+            ]
+        )
+        assert EffortLabel._capability_levels == {}

@@ -119,6 +119,7 @@ from claudechic.widgets import (
 from claudechic.widgets.layout.footer import (
     AgentLabel,
     DiagnosticsLabel,
+    EffortLabel,
     ModelLabel,
     PermissionModeLabel,
     SettingsLabel,
@@ -133,12 +134,20 @@ _PKG_DIR = Path(__file__).parent
 # Pattern to strip SDK's <tool_use_error> tags from error messages
 TOOL_USE_ERROR_PATTERN = re.compile(r"</?tool_use_error>")
 
-# Full-ID model entries merged into the SDK's curated model menu so the user
-# can target specific versions (e.g. Opus 4.6) that the CLI no longer
-# advertises in `get_server_info()["models"]`. The CLI still routes full IDs
-# via `--model`, so these values can be passed straight through. Override by
-# adding `models: {extra: [...]}` to ~/.claude/.claudechic.yaml.
-DEFAULT_EXTRA_MODEL_ENTRIES: list[dict] = [
+# Legacy version pins: full-ID model entries merged into the SDK's curated
+# model menu so the user can still target versions (e.g. Opus 4.6) that the
+# CLI no longer advertises in `get_server_info()["models"]`. The CLI still
+# routes full IDs via `--model`, so these values pass straight through.
+#
+# POLICY: never add a newly released model here. New models appear in the
+# picker automatically via `get_server_info()` as soon as the installed
+# Claude Code CLI knows about them -- this list exists only for the legacy
+# tail. Add an entry only when the CLI *drops* a model from its curated menu
+# and users still want to pin it. Users can extend the list without a
+# claudechic release by adding `models: {extra: [...]}` to
+# ~/.claudechic/config.yaml; extra entries may also declare
+# `supportedEffortLevels` to feed the effort picker.
+LEGACY_MODEL_PINS: list[dict] = [
     # ── Opus ────────────────────────────────────────────────────────
     {"value": "claude-opus-4-8", "displayName": "Opus 4.8", "description": "Opus 4.8"},
     {"value": "claude-opus-4-7", "displayName": "Opus 4.7", "description": "Opus 4.7"},
@@ -186,10 +195,10 @@ def _merge_model_extras(
 
     Deduplicates by ``value``; SDK entries win on collision. Entries without
     a ``value`` key are skipped. A ``None`` ``extras`` arg uses the built-in
-    ``DEFAULT_EXTRA_MODEL_ENTRIES`` list.
+    ``LEGACY_MODEL_PINS`` list.
     """
     if extras is None:
-        extras = DEFAULT_EXTRA_MODEL_ENTRIES
+        extras = LEGACY_MODEL_PINS
     seen = {m.get("value") for m in sdk_models if m.get("value")}
     merged = list(sdk_models)
     for m in extras:
@@ -1311,8 +1320,9 @@ class ChatApp(App):
         without a live Agent reference.
 
         Per SPEC §C1: ``agent.effort`` is read live and forwarded to the
-        SDK as ``ClaudeAgentOptions(effort=...)``. ``"max"`` is Opus-only;
-        non-Opus models snap on the widget side via slot 5.
+        SDK as ``ClaudeAgentOptions(effort=...)``. Levels a model doesn't
+        support (per the CLI-advertised capabilities, e.g. ``"max"`` on
+        Haiku) snap on the widget side via slot 5.
         """
         # Override ANTHROPIC_API_KEY to prefer subscription auth,
         # unless ANTHROPIC_BASE_URL is set (SSO proxy needs the key).
@@ -1803,11 +1813,15 @@ class ChatApp(App):
             if "models" in info:
                 models = info["models"]
                 if isinstance(models, list) and models:
-                    # Merge in extra full-ID entries (Opus 4.5/4.6/etc.) so the
+                    # Merge in legacy version pins (Opus 4.5/4.6/etc.) so the
                     # user can target versions the CLI no longer advertises.
-                    # User override: models.extra in ~/.claude/.claudechic.yaml.
+                    # User override: models.extra in ~/.claudechic/config.yaml.
                     extras = CONFIG.get("models", {}).get("extra")
                     self._available_models = _merge_model_extras(models, extras)
+                    # Feed advertised effort capabilities to the footer's
+                    # effort picker BEFORE the footer.model write below
+                    # triggers the snap logic in watch_model.
+                    EffortLabel.update_model_capabilities(self._available_models)
                     # Update footer with current agent's model
                     agent = self._agent
                     self._update_footer_model(agent.model if agent else None)

@@ -24,7 +24,7 @@ The `Agent` class owns everything for a single Claude agent:
 - **UI widgets:** `chat_view`, `current_response`, `pending_tool_widgets`, `active_task_widgets`
 - **Per-agent state:** `todos`, `auto_approve_edits`, `file_index`, `pending_images`
 - **Runtime role:** `agent_type: str` (default `"default"`) -- queryable role identity. Promoted to the workflow's `main_role` on activation, reverted on deactivation, survives `/compact`.
-- **Effort:** `effort: Literal["low", "medium", "high", "max"]` -- per-agent thinking budget passed to the SDK on every `_make_options()` call. `"max"` is Opus-only; switching to a non-Opus model snaps effort to `"medium"` automatically. Displayed and cycled via the `EffortLabel` widget in the status footer.
+- **Effort:** `effort: Literal["low", "medium", "high", "xhigh", "max"]` -- per-agent thinking budget passed to the SDK on every `_make_options()` call. Valid levels per model come from the CLI-advertised capabilities (`get_server_info()` `supportedEffortLevels`), with static family fallbacks; switching to a model that doesn't support the current level snaps effort to `"medium"` automatically. Displayed and cycled via the `EffortLabel` widget in the status footer.
 
 Key methods: `connect()`, `send()`, `wait_for_completion()`, `interrupt()`.
 
