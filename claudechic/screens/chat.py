@@ -16,6 +16,7 @@ from claudechic.widgets import (
     ChatView,
     ChicsessionLabel,
     FilesSection,
+    GuardsPanel,
     HamburgerButton,
     HistorySearch,
     ImageAttachments,
@@ -72,6 +73,7 @@ class ChatScreen(Screen):
                 yield AgentSection(id="agent-section")
                 yield PlanSection(id="plan-section", classes="hidden")
                 yield FilesSection(id="files-section", classes="hidden")
+                yield GuardsPanel(id="guards-panel", classes="hidden")
                 yield TodoPanel(id="todo-panel")
                 yield ReviewPanel(id="review-panel", classes="hidden")
                 yield ProcessPanel(id="process-panel", classes="hidden")
