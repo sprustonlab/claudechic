@@ -437,6 +437,10 @@ def _make_message_agent(caller_name: str | None = None):
         if agent is None:
             return _error_response(error or "Agent not found")
 
+        # Read the backlog BEFORE our (background) send lands: this is the
+        # number of queued messages that will be delivered ahead of ours.
+        queued_ahead = len(agent._pending_messages)
+
         _send_prompt_fire_and_forget(
             agent, message, caller_name=caller_name, expect_reply=requires_answer
         )
@@ -447,7 +451,21 @@ def _make_message_agent(caller_name: str | None = None):
             _clear_pending_reply_if_matched(caller_name, name)
 
         preview = message[:80] + "..." if len(message) > 80 else message
-        return _text_response(f"→ {name}: {preview}")
+        result = f"→ {name}: {preview}"
+        if queued_ahead:
+            # Backpressure as information (never blocking, never rejecting):
+            # tell the sender how deep the target's backlog is so it can
+            # self-throttle instead of piling on.
+            result += (
+                f"\nNote: {name} is busy and already has {queued_ahead} "
+                "queued message(s) ahead of yours. Queued messages are "
+                "delivered together in one turn, so the reply may address "
+                "several messages at once. Do not follow up with "
+                'acknowledgement-only messages ("thanks", "good job", '
+                '"got it") or repeats -- message again only when you have '
+                "new substance."
+            )
+        return _text_response(result)
 
     return message_agent
 
