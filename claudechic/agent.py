@@ -171,6 +171,35 @@ class ResponseContext:
 DEFAULT_ROLE: Literal["default"] = "default"
 
 
+def coalesce_messages(
+    batch: list[tuple[str, str | None]],
+) -> tuple[str, str | None]:
+    """Combine queued ``(prompt, display_as)`` tuples into ONE delivery.
+
+    A single message passes through unchanged. Multiple messages are
+    concatenated oldest-first under numbered headers, with a preamble
+    instructing the agent to read the whole backlog and respond once to
+    the CURRENT state -- this is what prevents an agent from replying to
+    stale messages one turn at a time.
+    """
+    if len(batch) == 1:
+        return batch[0]
+    n = len(batch)
+    prompt_parts = [
+        f"[{n} messages were queued while you were busy; they are "
+        "delivered together, oldest first. Read ALL of them before "
+        "responding, then respond ONCE to the current state of affairs. "
+        "Do not reply to each message separately, and do not send "
+        "acknowledgement-only replies.]"
+    ]
+    display_parts = []
+    for i, (prompt, display_as) in enumerate(batch, 1):
+        header = f"--- Queued message {i} of {n} ---"
+        prompt_parts.append(f"{header}\n{prompt}")
+        display_parts.append(f"{header}\n{display_as or prompt}")
+    return "\n\n".join(prompt_parts), "\n\n".join(display_parts)
+
+
 class Agent:
     """Autonomous Claude agent with its own SDK connection and state.
 
@@ -813,18 +842,24 @@ class Agent:
                 self.observer.on_connection_lost(self)
             return
 
-        prompt, display_as = self._pending_messages.pop(0)
+        # Coalesced delivery: drain the WHOLE queue as one turn (oldest
+        # first) so the agent sees the full backlog at once and replies to
+        # the current state, instead of answering stale messages one turn
+        # at a time while newer ones sit queued behind them.
+        batch = self._pending_messages[:]
+        self._pending_messages.clear()
+        prompt, display_as = coalesce_messages(batch)
         log.info(
-            "Agent '%s' draining queued message (%d remaining)",
+            "Agent '%s' draining %d queued message(s) in one turn",
             self.name,
-            len(self._pending_messages),
+            len(batch),
         )
         try:
             self._start_response(prompt, display_as=display_as)
         except CLIConnectionError as e:
             # TOCTOU race: transport was alive at the check above but died
-            # before the actual write.  Re-queue the message and reconnect.
-            self._pending_messages.insert(0, (prompt, display_as))
+            # before the actual write.  Re-queue the batch and reconnect.
+            self._pending_messages[:0] = batch
             log.warning(
                 "Agent '%s': CLIConnectionError during drain, "
                 "triggering reconnect (%d message(s) re-queued): %s",

@@ -22,6 +22,9 @@ class MockAgent:
         self._pending_reply_to: str | None = None
         self._reply_nudge_count = 0
         self._nudge_generation = 0
+        # Message backlog read by the queue-depth note and the fail-safe
+        # circuit breaker (mcp._queue_circuit_breaker).
+        self._pending_messages: list[tuple[str, str | None]] = []
 
     @property
     def analytics_id(self) -> str:
@@ -260,3 +263,98 @@ async def test_broadcast_message_fire_and_forget_uses_tell_framing(mock_app):
         # Fire-and-forget framing: "Message from" prefix, no reply instruction.
         assert "[Message from agent 'alice'" in target.received_prompt
         assert "respond using message_agent" not in target.received_prompt
+
+
+# ---------------------------------------------------------------------------
+# Queue-depth backpressure note + fail-safe circuit breaker
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_message_agent_notes_queue_depth(mock_app):
+    """A backlogged (but under-limit) target still receives the message,
+    and the sender's result carries the queue-depth note + etiquette
+    reminder."""
+    alice = MockAgent("alice")
+    bob = MockAgent("bob")
+    bob._pending_messages = [("older 1", None), ("older 2", None)]
+    mock_app.agent_mgr.add(alice)
+    mock_app.agent_mgr.add(bob)
+
+    message_agent = _make_message_agent(caller_name="alice")
+    result = await message_agent.handler({"name": "bob", "message": "update?"})
+    await asyncio.sleep(0)
+
+    assert result.get("isError") is not True
+    text = result["content"][0]["text"]
+    assert "2 queued message(s) ahead of yours" in text
+    assert "acknowledgement-only" in text
+    assert bob.received_prompt is not None  # still delivered
+
+
+@pytest.mark.asyncio
+async def test_message_agent_idle_target_gets_no_note(mock_app):
+    """No backlog -> plain result, no note."""
+    alice = MockAgent("alice")
+    bob = MockAgent("bob")
+    mock_app.agent_mgr.add(alice)
+    mock_app.agent_mgr.add(bob)
+
+    message_agent = _make_message_agent(caller_name="alice")
+    result = await message_agent.handler({"name": "bob", "message": "hi"})
+    await asyncio.sleep(0)
+
+    text = result["content"][0]["text"]
+    assert "queued message(s)" not in text
+
+
+@pytest.mark.asyncio
+async def test_message_agent_circuit_breaker_refuses_at_limit(mock_app):
+    """At MAX_QUEUED_MESSAGES the delivery is refused with an error that
+    tells the sender to wait (not retry immediately) and points at
+    interrupt_agent for genuine urgency."""
+    from claudechic.mcp import MAX_QUEUED_MESSAGES
+
+    alice = MockAgent("alice")
+    bob = MockAgent("bob")
+    bob._pending_messages = [(f"m{i}", None) for i in range(MAX_QUEUED_MESSAGES)]
+    mock_app.agent_mgr.add(alice)
+    mock_app.agent_mgr.add(bob)
+
+    message_agent = _make_message_agent(caller_name="alice")
+    result = await message_agent.handler({"name": "bob", "message": "one more"})
+    await asyncio.sleep(0)
+
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    assert "NOT delivered" in text
+    assert "do not retry immediately" in text
+    assert "interrupt_agent" in text
+    assert bob.received_prompt is None  # nothing was sent
+
+
+@pytest.mark.asyncio
+async def test_broadcast_circuit_breaker_refuses_per_target(mock_app):
+    """A broadcast is not a loophole: the backlogged target is refused,
+    the healthy target still receives."""
+    from claudechic.mcp import MAX_QUEUED_MESSAGES
+
+    alice = MockAgent("alice")
+    bob = MockAgent("bob")  # healthy
+    carol = MockAgent("carol")  # backlogged
+    carol._pending_messages = [(f"m{i}", None) for i in range(MAX_QUEUED_MESSAGES)]
+    mock_app.agent_mgr.add(alice)
+    mock_app.agent_mgr.add(bob)
+    mock_app.agent_mgr.add(carol)
+
+    broadcast = _make_broadcast_message(caller_name="alice")
+    result = await broadcast.handler({"names": ["bob", "carol"], "message": "ping"})
+    await asyncio.sleep(0)
+
+    assert result.get("isError") is not True  # partial delivery, not a failure
+    text = result["content"][0]["text"]
+    assert "1/2 delivered" in text
+    assert "bob: sent" in text
+    assert "carol: refused (backlog full" in text
+    assert bob.received_prompt is not None
+    assert carol.received_prompt is None

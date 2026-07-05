@@ -140,6 +140,33 @@ def _clear_pending_reply_if_matched(
         )
 
 
+# Fail-safe circuit breaker: refuse NEW message delivery when the target's
+# backlog is already this deep. Normal-path backpressure is informational
+# (the sender is told how many messages are queued ahead); this hard cap
+# only exists to stop runaway message storms. It never blocks (no deadlock)
+# and only rejects at pathological depth (no normal-path retry churn).
+MAX_QUEUED_MESSAGES = 5
+
+
+def _queue_circuit_breaker(agent, name: str) -> str | None:
+    """Return a refusal message when *agent*'s backlog is pathologically deep.
+
+    Returns None (deliver normally) below MAX_QUEUED_MESSAGES. getattr:
+    duck-typed agents (tests, remote shims) may not carry the queue.
+    """
+    queued = len(getattr(agent, "_pending_messages", ()))
+    if queued < MAX_QUEUED_MESSAGES:
+        return None
+    return (
+        f"NOT delivered: {name} already has {queued} unanswered messages "
+        f"queued (fail-safe limit {MAX_QUEUED_MESSAGES}). Queued messages "
+        "are delivered together in one turn -- wait for the target to "
+        "drain its backlog before messaging again; do not retry "
+        "immediately. If this is genuinely urgent, use interrupt_agent "
+        "instead."
+    )
+
+
 def _send_prompt_fire_and_forget(
     agent,
     prompt: str,
@@ -437,6 +464,18 @@ def _make_message_agent(caller_name: str | None = None):
         if agent is None:
             return _error_response(error or "Agent not found")
 
+        # Read the backlog BEFORE our (background) send lands: this is the
+        # number of queued messages that will be delivered ahead of ours.
+        # getattr: duck-typed agents (tests, remote shims) may not carry
+        # the queue attribute.
+        queued_ahead = len(getattr(agent, "_pending_messages", ()))
+
+        # Fail-safe circuit breaker: at pathological backlog depth, refuse
+        # delivery instead of piling on (see _queue_circuit_breaker).
+        refusal = _queue_circuit_breaker(agent, name)
+        if refusal is not None:
+            return _error_response(refusal)
+
         _send_prompt_fire_and_forget(
             agent, message, caller_name=caller_name, expect_reply=requires_answer
         )
@@ -447,7 +486,21 @@ def _make_message_agent(caller_name: str | None = None):
             _clear_pending_reply_if_matched(caller_name, name)
 
         preview = message[:80] + "..." if len(message) > 80 else message
-        return _text_response(f"→ {name}: {preview}")
+        result = f"→ {name}: {preview}"
+        if queued_ahead:
+            # Backpressure as information (never blocking, never rejecting):
+            # tell the sender how deep the target's backlog is so it can
+            # self-throttle instead of piling on.
+            result += (
+                f"\nNote: {name} is busy and already has {queued_ahead} "
+                "queued message(s) ahead of yours. Queued messages are "
+                "delivered together in one turn, so the reply may address "
+                "several messages at once. Do not follow up with "
+                'acknowledgement-only messages ("thanks", "good job", '
+                '"got it") or repeats -- message again only when you have '
+                "new substance."
+            )
+        return _text_response(result)
 
     return message_agent
 
@@ -537,6 +590,12 @@ def _make_broadcast_message(caller_name: str | None = None):
             agent, error = _find_agent_by_name(n)
             if agent is None:
                 results.append((n, error or "not found"))
+                continue
+            # Same fail-safe as message_agent -- a broadcast must not be a
+            # loophole around the backlog circuit breaker.
+            if _queue_circuit_breaker(agent, n) is not None:
+                queued = len(getattr(agent, "_pending_messages", ()))
+                results.append((n, f"refused (backlog full: {queued} queued)"))
                 continue
             _send_prompt_fire_and_forget(
                 agent, message, caller_name=caller_name, expect_reply=requires_answer
