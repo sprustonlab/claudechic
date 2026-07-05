@@ -11,7 +11,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from claudechic.app import (
-    DEFAULT_EXTRA_MODEL_ENTRIES,
+    LEGACY_MODEL_PINS,
     _merge_model_extras,
 )
 from claudechic.commands import _is_valid_model, _invalid_model_message
@@ -22,7 +22,7 @@ from claudechic.formatting import get_context_window
 
 
 def test_merge_appends_default_extras():
-    """Default extras are appended to an SDK list they don't overlap with."""
+    """Legacy pins are appended to an SDK list they don't overlap with."""
     sdk = [
         {"value": "default", "displayName": "Default"},
         {"value": "opus[1m]", "displayName": "Opus 4.7 (1M context)"},
@@ -35,7 +35,7 @@ def test_merge_appends_default_extras():
 
     # All default extras appear.
     values = [m["value"] for m in merged]
-    for extra in DEFAULT_EXTRA_MODEL_ENTRIES:
+    for extra in LEGACY_MODEL_PINS:
         assert extra["value"] in values
 
     # The user's target versions are present (including 1M variants).

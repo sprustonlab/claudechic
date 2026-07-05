@@ -34,7 +34,7 @@ claudechic is a terminal UI for Claude Code with multi-agent support, workflows,
 
 The status footer shows per-agent state:
 
-- **Effort** -- `effort: low | medium | high | max`. Click `EffortLabel` to cycle. `max` is Opus-only; switching to a non-Opus model snaps effort to `medium` automatically.
+- **Effort** -- `effort: low | medium | high | xhigh | max`. Click `EffortLabel` to cycle through the levels the active model supports (advertised by the Claude Code CLI). Switching to a model that doesn't support the current level snaps effort to `medium` automatically.
 - **Model** -- active model name.
 - **Permission mode** -- current tool-use permission level (Shift+Tab to cycle).
 - **Context bar** -- token usage fraction (colors: dim -> yellow -> red).

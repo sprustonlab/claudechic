@@ -60,8 +60,9 @@ def _load() -> tuple[dict, bool]:
         # SDK thinking-budget level (SPEC C3). Survives restart and is
         # mirrored into Agent.effort by the StatusFooter on mount + by
         # the settings re-apply path.  Valid values: low / medium / high
-        # / max ("max" is Opus-only; non-Opus models snap to "medium"
-        # via EffortLabel.set_available_levels).
+        # / xhigh / max (levels the active model doesn't support -- per
+        # the CLI-advertised capabilities -- snap to "medium" via
+        # EffortLabel.set_available_levels).
         config.setdefault("effort", "high")
         # Migrate legacy vim key to vi-mode
         if "vim" in config:

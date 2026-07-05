@@ -276,9 +276,10 @@ class Agent:
             "claude-opus-4-8[1m]"  # Model override (None = SDK default)
         )
         # SDK thinking-budget level. Plumbed into ClaudeAgentOptions(effort=...)
-        # via _make_options. "max" is Opus-only; non-Opus models snap to
-        # "medium" on model change. Read live by the options factory.
-        self.effort: Literal["low", "medium", "high", "max"] = "high"
+        # via _make_options. Levels the model doesn't support (per the
+        # CLI-advertised capabilities) snap to "medium" on model change.
+        # Read live by the options factory.
+        self.effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
 
         # Worktree finish state (for /worktree finish flow)
         self.finish_state: FinishState | None = None
