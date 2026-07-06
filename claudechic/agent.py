@@ -1557,6 +1557,16 @@ Key Rules:
             log.info(f"Auto-approved {tool_name} (acceptEdits mode)")
             return PermissionResultAllow()
 
+        # Auto-approve everything in auto mode. The CLI subprocess normally
+        # auto-approves in auto mode and never invokes can_use_tool, so this
+        # branch is usually unreached. Defense-in-depth (mirrors the
+        # bypassPermissions branch above): if a mode-sync race or CLI quirk
+        # routes a tool through can_use_tool while permission_mode is
+        # "auto", honor the user's intent (don't prompt).
+        if self.permission_mode == "auto":
+            log.info(f"Auto-approved {tool_name} (auto mode)")
+            return PermissionResultAllow()
+
         # Auto-approve if tool was allowed for session
         if tool_name in self.session_allowed_tools:
             log.info(f"Auto-approved {tool_name} (session allowed)")

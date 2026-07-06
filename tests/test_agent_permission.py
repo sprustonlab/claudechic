@@ -294,3 +294,32 @@ class TestSetPermissionModeLocal:
         agent._set_permission_mode_local("plan")
 
         mock_observer.on_permission_mode_changed.assert_not_called()
+
+
+class TestAutoModeAutoApproves:
+    """Auto mode: _handle_permission must approve without prompting.
+
+    The CLI normally auto-approves in auto mode and never invokes
+    can_use_tool, but a mode-sync race (mode set before session_id
+    exists is silently skipped) can leave the CLI in the old mode and
+    routing tools through the callback while the UI shows "auto".
+    """
+
+    @pytest.mark.asyncio
+    async def test_handle_permission_auto_mode_approves_all(self, tmp_path):
+        from claude_agent_sdk import PermissionResultAllow
+
+        agent = Agent("test", tmp_path)
+        agent.permission_mode = "auto"
+
+        for tool_name, tool_input in [
+            ("Bash", {"command": "ls"}),
+            ("Write", {"file_path": str(tmp_path / "f.txt"), "content": "x"}),
+            ("WebFetch", {"url": "https://example.com"}),
+        ]:
+            result = await agent._handle_permission(
+                tool_name, tool_input, MagicMock()
+            )
+            assert isinstance(result, PermissionResultAllow), tool_name
+        # Nothing queued for the UI: the user was never prompted.
+        assert len(agent.pending_prompts) == 0
