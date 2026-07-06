@@ -69,7 +69,7 @@ CONSTRAINTS_SEGMENT_SITES: frozenset[str] = frozenset(
     {"spawn", "activation", "phase-advance", "post-compact"}
 )
 ENVIRONMENT_SEGMENT_SITES: frozenset[str] = frozenset(
-    {"spawn", "activation", "post-compact"}
+    {"spawn", "activation", "phase-advance", "post-compact"}
 )
 
 
@@ -265,8 +265,8 @@ class RenderContext:
     # Mapping ``role -> registered_name`` for currently-spawned peer
     # agents. Used by the environment renderer to build the
     # ``${PEER_ROSTER}`` table (3-col: role | registered_name |
-    # description). Coordinator-only segment; rows are limited to roles
-    # currently present in this map.
+    # description). Rendered for every typed role; rows are limited to
+    # roles currently present in this map.
     peer_agents: dict[str, str] = field(default_factory=dict)
 
 
@@ -400,13 +400,16 @@ def _render_environment(ctx: RenderContext) -> str:
 
     # Build ${PEER_ROSTER}: 3-column table (role | registered_name |
     # description) merged from the workflow overlay's 2-column
-    # role|description table and ``ctx.peer_agents``. Coordinator-only
-    # (mirrors the advance-checks coordinator-only check in
-    # ``_render_constraints_phase``); empty string for any other role.
+    # role|description table and ``ctx.peer_agents``. Rendered for EVERY
+    # typed role, not just the coordinator: specialists need the roster
+    # even more than the coordinator (who spawned everyone) -- without it
+    # they only know the names embedded in their task prompt and route
+    # all traffic through the coordinator as a relay hub.
     peer_roster_value = ""
-    if ctx.role == "coordinator" and ctx.peer_agents:
-        overlay_path = env_dir / f"{ctx.active_workflow}.md"
-        role_to_desc = _parse_role_description_table(overlay_path)
+    if ctx.peer_agents:
+        role_to_desc = _parse_role_description_table(
+            _resolve_env_overlay_path(env_dir, ctx)
+        )
         peer_roster_value = _render_peer_roster(role_to_desc, ctx.peer_agents)
 
     intrinsic = {
@@ -427,6 +430,32 @@ def _render_environment(ctx: RenderContext) -> str:
         logger.debug("environment: failed to read %s: %s", base_path, e)
         return ""
     return Template(base_text).safe_substitute(tokens).rstrip()
+
+
+def _resolve_env_overlay_path(env_dir: Path, ctx: RenderContext) -> Path:
+    """Resolve the workflow's environment overlay file.
+
+    Workflow ids use hyphens (``project-team``) while the bundled
+    overlay files use underscores (``project_team.md``) -- looking up
+    ``<workflow_id>.md`` verbatim therefore missed the bundled overlay
+    and every roster row rendered with an empty description. Try, in
+    order: the id verbatim, the id with hyphens normalized to
+    underscores, and the workflow directory's folder name. The first
+    existing file wins; when none exists, return the verbatim candidate
+    (``_parse_role_description_table`` handles a missing file).
+    """
+    candidates = [f"{ctx.active_workflow}.md"]
+    if ctx.active_workflow:
+        normalized = ctx.active_workflow.replace("-", "_")
+        if normalized != ctx.active_workflow:
+            candidates.append(f"{normalized}.md")
+    if ctx.workflow_dir is not None:
+        candidates.append(f"{ctx.workflow_dir.name}.md")
+    for candidate in candidates:
+        path = env_dir / candidate
+        if path.is_file():
+            return path
+    return env_dir / candidates[0]
 
 
 def _parse_role_description_table(overlay_path: Path) -> dict[str, str]:
@@ -490,7 +519,15 @@ def _render_peer_roster(
         "| role | name | description |",
         "|------|------|-------------|",
     ]
-    return "\n".join(header + rows)
+    footer = [
+        "",
+        "Message peers DIRECTLY (`message_agent`) when a question falls in"
+        " their domain -- do not route peer-to-peer content through the"
+        " coordinator as a relay. Involve the coordinator for decisions and"
+        " status, not forwarding. Peers may spawn after you; call"
+        " `list_agents` for the live roster.",
+    ]
+    return "\n".join(header + rows + footer)
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +555,7 @@ _DEFAULT_SEGMENT_SET: dict[str, frozenset[str]] = {
             "environment",
         }
     ),
-    "phase-advance": frozenset({"phase", "constraints_phase"}),
+    "phase-advance": frozenset({"phase", "constraints_phase", "environment"}),
     "post-compact": frozenset(
         {
             "identity",

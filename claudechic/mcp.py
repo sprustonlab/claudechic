@@ -89,7 +89,7 @@ def _build_peer_agents() -> dict[str, str]:
 
     Used by the four prompt-injection sites to populate
     ``RenderContext.peer_agents`` so the environment renderer can build
-    the coordinator's ``${PEER_ROSTER}`` table. Default-roled agents are
+    the ``${PEER_ROSTER}`` table (every typed role). Default-roled agents are
     skipped (they have no role-scoped description in the workflow
     overlay). When two agents share the same ``agent_type``, the first
     encountered wins -- the renderer needs a one-row-per-role mapping.
@@ -1223,6 +1223,16 @@ def _make_advance_phase(caller_name: str | None = None):
                         if caller_name and agent.name == caller_name:
                             continue
                         if wf_data_b is None:
+                            continue
+                        # Graceful-skip: the role folder may have been
+                        # removed after spawn. The environment segment is
+                        # role-independent (it renders even for a deleted
+                        # role), so assemble_agent_prompt alone can no
+                        # longer signal "not a workflow role" -- check the
+                        # folder explicitly. Standing-by roles (folder
+                        # present, no <phase>.md) still receive the
+                        # environment/roster refresh.
+                        if not (wf_data_b.path / agent.agent_type).is_dir():
                             continue
                         try:
                             agent_prompt = assemble_agent_prompt(
