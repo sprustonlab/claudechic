@@ -1,9 +1,12 @@
 - id: no_rm_rf
   trigger: PreToolUse/Bash
   enforcement: deny
+  # Recursive+force rm (combined -rf/-fr/-Rf, split -r -f, or --recursive
+  # --force, in any order) targeting a root/home path: / , ~, or $HOME.
+  # Relative targets (build/, ./x) are intentionally allowed.
   detect:
-    pattern: "rm\\s+-rf\\s+/"
-  message: "Dangerous: rm -rf on absolute path. Request override if intentional."
+    pattern: "\\brm\\s+(-\\w*[rR]\\w*f\\w*|-\\w*f\\w*[rR]\\w*|-[rR]\\s+-f|-f\\s+-[rR]|--recursive\\s+--force|--force\\s+--recursive)(\\s+-\\S+)*\\s+(/|~|\\$\\{?HOME\\b)"
+  message: "Dangerous: recursive force-remove of a root/home path (/ , ~, or $HOME). Request override if intentional."
 
 - id: warn_sudo
   trigger: PreToolUse/Bash
