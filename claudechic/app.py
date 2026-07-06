@@ -2037,8 +2037,8 @@ class ChatApp(App):
 
         Used by the activation prompt-injection site (and exposed through
         the post-compact hook's ``get_peer_agents`` provider) so the
-        environment renderer can build the coordinator's
-        ``${PEER_ROSTER}`` table. Default-roled agents are skipped
+        environment renderer can build the ``${PEER_ROSTER}`` table
+        (every typed role). Default-roled agents are skipped
         (they have no role-scoped description in the workflow overlay).
         """
         from claudechic.agent import DEFAULT_ROLE

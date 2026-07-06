@@ -89,7 +89,7 @@ def _build_peer_agents() -> dict[str, str]:
 
     Used by the four prompt-injection sites to populate
     ``RenderContext.peer_agents`` so the environment renderer can build
-    the coordinator's ``${PEER_ROSTER}`` table. Default-roled agents are
+    the ``${PEER_ROSTER}`` table (every typed role). Default-roled agents are
     skipped (they have no role-scoped description in the workflow
     overlay). When two agents share the same ``agent_type``, the first
     encountered wins -- the renderer needs a one-row-per-role mapping.

@@ -11,7 +11,7 @@ ${PEER_ROSTER}
 
 ## Tools
 
-`message_agent` for tasks and questions (recipient expected to reply); `message_agent` with `requires_answer=false` for status updates and answers. `interrupt_agent` to halt or redirect a busy peer. Call `mcp__chic__get_agent_info` for a full snapshot: your identity, current phase, and applicable rules in one document.
+`message_agent` for tasks and questions (recipient expected to reply); `message_agent` with `requires_answer=false` for status updates and answers. `interrupt_agent` to halt or redirect a busy peer. `list_agents` for the current team roster (peers may spawn after you). Call `mcp__chic__get_agent_info` for a full snapshot: your identity, current phase, and applicable rules in one document.
 
 ## Replying to peers
 

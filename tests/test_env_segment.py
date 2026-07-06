@@ -109,14 +109,14 @@ def test_render_environment_returns_base_md_content(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Peer roster: coordinator-only
+# Peer roster: every typed role
 # ---------------------------------------------------------------------------
 
 
-def test_render_environment_peer_roster_coordinator_only(tmp_path):
-    """When role=coordinator and peer_agents is non-empty, the roster
-    table heading appears. When role=skeptic, the roster heading is
-    absent (coordinator-only segment).
+def test_render_environment_peer_roster_all_roles(tmp_path):
+    """When peer_agents is non-empty, the roster table heading appears
+    for the coordinator AND for specialist roles (specialists need the
+    roster to message peers directly).
     """
     peers = {"skeptic": "sk_1", "test_engineer": "te_1"}
     coord_out = _render_environment(
@@ -125,7 +125,7 @@ def test_render_environment_peer_roster_coordinator_only(tmp_path):
     assert "| role | name | description |" in coord_out
 
     skep_out = _render_environment(_ctx(tmp_path, role="skeptic", peer_agents=peers))
-    assert "| role | name | description |" not in skep_out
+    assert "| role | name | description |" in skep_out
 
 
 def test_render_environment_peer_roster_renders_provided_peers_only(tmp_path):

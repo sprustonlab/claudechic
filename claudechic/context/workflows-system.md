@@ -60,7 +60,7 @@ When a workflow is active, `assemble_agent_prompt(role, phase, loader, ...)` ass
 3. Phase-advance broadcast (`app._inject_phase_prompt` + `mcp._make_advance_phase` loop)
 4. Post-compact re-injection (SDK `SessionStart` hook with `matcher="compact"`)
 
-Token substitution: `${COORDINATOR_NAME}` resolves to the coordinator's registered name in phase markdown (coordinator only). `${PEER_ROSTER}` expands to the role/name/description table in the environment segment (coordinator only).
+Token substitution: `${COORDINATOR_NAME}` resolves to the coordinator's registered name in phase markdown (coordinator only). `${PEER_ROSTER}` expands to the role/name/description table in the environment segment for every typed role (specialists included -- the roster is what enables direct peer-to-peer messaging instead of coordinator relaying).
 
 Config knobs: `constraints_segment.{compact, scope.sites, include_skipped}` controls constraint rendering; `environment_segment.{enabled, compact, scope.sites}` controls environment segment delivery. See `SPEC_bypass.md` for full semantics.
 

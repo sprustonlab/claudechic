@@ -56,11 +56,28 @@ def test_peer_roster_unknown_role_renders_with_empty_description_cell(tmp_path):
     assert "| made_up_role | x_1 |" in out
 
 
-def test_peer_roster_skeptic_role_does_not_emit_table(tmp_path):
-    """Coordinator-only segment -- non-coordinator roles get no table."""
-    peers = {"test_engineer": "te_1"}
+def test_peer_roster_renders_for_specialist_roles(tmp_path):
+    """Every typed role gets the roster, not just the coordinator --
+    specialists need it to message peers directly instead of routing
+    everything through the coordinator as a relay."""
+    peers = {"test_engineer": "te_1", "coordinator": "lead_1"}
     out = _render_environment(_coord_ctx(tmp_path, role="skeptic", peer_agents=peers))
-    assert "| role | name | description |" not in out
+    assert "| role | name | description |" in out
+    assert "| test_engineer | te_1 |" in out
+    assert "| coordinator | lead_1 |" in out
+
+
+def test_peer_roster_hyphenated_workflow_id_finds_underscore_overlay(tmp_path):
+    """Runtime workflow ids use hyphens (``project-team``) while the
+    bundled overlay file is ``project_team.md`` -- the lookup must
+    normalize, or every description cell renders empty (the bug the
+    pinkas run hit)."""
+    peers = {"skeptic": "sk_1"}
+    out = _render_environment(
+        _coord_ctx(tmp_path, active_workflow="project-team", peer_agents=peers)
+    )
+    # Description comes from the bundled project_team.md overlay.
+    assert "| skeptic | sk_1 | Falsifier" in out
 
 
 # ---------------------------------------------------------------------------
