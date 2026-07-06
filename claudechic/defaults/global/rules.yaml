@@ -26,16 +26,17 @@
   trigger: PreToolUse/Bash
   enforcement: deny
   detect:
-    pattern: "(?:^|[;&|]\\s*)(?:python\\s+-m\\s+)?pytest\\b(?!.*(?:\\.py\\b|-k\\s|--junitxml|\\.test_results/|\\btee\\b|--co\\b|--collect-only|--fixtures))"
+    pattern: "(?:^|[;&|]\\s*)(?:\\w+=\\S+\\s+)*(?:time\\s+|env\\s+|xargs\\s+)?(?:(?:\\S*python(?:\\d+(?:\\.\\d+)*)?|uv\\s+run|uvx|poetry\\s+run|hatch\\s+run|nox\\s+-s|make)\\s+(?:-m\\s+)?)?(?:\\S*/)?pytest\\b(?!.*(?:\\.py\\b|-k\\s|--junitxml|\\.test_results/|\\btee\\b|--co\\b|--collect-only|--fixtures))"
   message: |
     Bare pytest blocked. Full-suite runs must save timestamped results.
-    Use: TS=$(date -u +%Y-%m-%d_%H%M%S) && pytest --junitxml=.test_results/${TS}.xml --tb=short 2>&1 | tee .test_results/${TS}.log
+    Use: TS=$(date -u +%Y-%m-%d_%H%M%S) && pytest -n auto --junitxml=.test_results/${TS}.xml --tb=short 2>&1 | tee .test_results/${TS}.log
+    (-n auto needs pytest-xdist; drop it if unavailable.)
     Or target a specific test: pytest tests/test_foo.py
 
 - id: pytest_needs_timeout
   trigger: PreToolUse/Bash
   enforcement: warn
   detect:
-    pattern: "(?:^|[;&|]\\s*)(?:(?:\\w+=\\S+\\s+)*(?:time\\s+|env\\s+|xargs\\s+)?(?:(?:python(?:\\d+(?:\\.\\d+)*)?|uv\\s+run|uvx|poetry\\s+run|hatch\\s+run|nox\\s+-s|make)\\s+(?:-m\\s+)?)?)?pytest\\b(?!.*--timeout(?:=|\\s|$))"
+    pattern: "(?:^|[;&|]\\s*)(?:(?:\\w+=\\S+\\s+)*(?:time\\s+|env\\s+|xargs\\s+)?(?:(?:\\S*python(?:\\d+(?:\\.\\d+)*)?|uv\\s+run|uvx|poetry\\s+run|hatch\\s+run|nox\\s+-s|make)\\s+(?:-m\\s+)?)?)?(?:\\S*/)?pytest\\b(?!.*--timeout(?:=|\\s|$))"
   message: "use --timeout=N (default 30) to avoid hung tests"
 
