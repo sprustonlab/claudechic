@@ -241,7 +241,7 @@ Controls the team-coordination context block delivered to agents.
 
 - **`environment_segment.enabled`** — `bool`, default `true`. User-tier override of the per-workflow default.
 - **`environment_segment.compact`** — `bool`, default `false`. When `true`, the workflow overlay is omitted; only `base.md` is delivered.
-- **`environment_segment.scope.sites`** — `list[str]`, default `[spawn, activation, post-compact]` (phase-advance excluded). An empty list raises `ConfigValidationError`.
+- **`environment_segment.scope.sites`** — `list[str]`, default `[spawn, activation, phase-advance, post-compact]` (all four sites). Phase-advance delivery keeps the peer roster current at each phase boundary — spawn-time snapshots go stale as later peers join. An empty list raises `ConfigValidationError`.
 
 **Settings UI:** `/settings` -> "Agent prompt context": "Team coordination context", "Compact coordination context", "Coordination context: advanced...".
 

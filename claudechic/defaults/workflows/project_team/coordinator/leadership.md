@@ -1,17 +1,16 @@
 # Leadership Spawn Phase
 
-THIS IS NOT OPTIONAL. DO NOT SKIP.
+Spawn ALL 4 with `requires_answer: false` and `type` set (required for phase updates):
+1. Composability (type: composability)
+2. Terminology (type: terminology)
+3. Skeptic (type: skeptic)
+4. UserAlignment (type: user_alignment)
 
-Spawn ALL 4 Leadership agents with `requires_answer: true` and `type` set to their role folder name (required for phase updates):
-1. Composability (type: composability) -- review through composability lens, identify axes
-2. Terminology (type: terminology) -- identify domain terms, define canonical meanings
-3. Skeptic (type: skeptic) -- challenge assumptions, identify risks and failure modes
-4. UserAlignment (type: user_alignment) -- verify vision captures user intent, flag gaps
+Conditional: Researcher (prior art / libraries), LabNotebook (experiments / hypotheses).
 
-VERIFY: Run `list_agents`. Confirm all 4 are visible.
+Spawn prompts = docs to read (absolute paths) + mission. No tasks, no questions,
+no messages this phase -- specialists stand by silently; silence is compliance.
+VERIFY with `list_agents`, not replies.
 
-Conditionally spawn:
-- Researcher -- if project involves prior art, external libraries, or scientific methods
-- LabNotebook -- if project involves experiments or iterative hypothesis testing
-
-All paths in agent prompts MUST be absolute paths.
+Then advance to Specification and dispatch work there. Route specialist-to-specialist
+questions directly (tell A to message B); do not relay content yourself.

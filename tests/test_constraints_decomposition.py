@@ -315,14 +315,15 @@ def test_assemble_constraints_block_post_compact_full_refresh_single_constraints
 
 
 # ---------------------------------------------------------------------------
-# at_broadcast: phase-advance emits phase + constraints_phase only
+# at_broadcast: phase-advance emits phase + constraints_phase + environment
 # ---------------------------------------------------------------------------
 
 
 def test_at_broadcast_emits_phase_and_constraints_phase_only(monkeypatch, tmp_path):
-    """At T3 (phase-advance): identity is suppressed, environment is
-    suppressed, only phase + constraints_phase render. Single
-    ``## Constraints`` heading.
+    """At T3 (phase-advance): identity is suppressed; phase +
+    constraints_phase render. The environment segment also renders at
+    T3 (roster refresh at phase boundaries) but carries no
+    ``## Constraints`` heading. Single ``## Constraints`` heading.
     """
     entries = [
         _entry(id_="global:agnostic"),
