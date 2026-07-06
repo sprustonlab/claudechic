@@ -458,6 +458,43 @@ class TestGuardsPanelWidget:
             assert "[x]" in items[0].render().plain
             assert "[.]" in items[1].render().plain
 
+    async def test_id_truncation_adapts_to_width(self):
+        from textual.app import App, ComposeResult
+
+        from claudechic.widgets import GuardItem, GuardRow, GuardsPanel
+
+        long_id = "tutorial_toy_project:R-TOY-01b"
+
+        class TestApp(App):
+            def compose(self) -> ComposeResult:
+                yield GuardsPanel(id="guards-panel")
+
+        row = GuardRow(
+            rule_id=long_id,
+            display_id=long_id,
+            enforcement="deny",
+            state="dormant",
+            message="m",
+        )
+
+        # Wide panel: the full id fits without truncation.
+        app = TestApp()
+        async with app.run_test(size=(80, 20)) as pilot:
+            app.query_one(GuardsPanel).update_guards([row])
+            await pilot.pause()
+            plain = app.query_one(GuardItem).render().plain
+            assert long_id in plain, f"wide panel should show full id, got {plain!r}"
+
+        # Narrow panel: the id is front-truncated so the enforcement suffix
+        # stays visible on the single-line row.
+        app2 = TestApp()
+        async with app2.run_test(size=(24, 20)) as pilot:
+            app2.query_one(GuardsPanel).update_guards([row])
+            await pilot.pause()
+            plain = app2.query_one(GuardItem).render().plain
+            assert long_id not in plain, "narrow panel should truncate the id"
+            assert ".." in plain, f"expected front-truncation marker, got {plain!r}"
+
     async def test_click_posts_toggled_message(self):
         from textual.app import App, ComposeResult
 

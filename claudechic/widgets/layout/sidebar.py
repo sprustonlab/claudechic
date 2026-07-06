@@ -205,7 +205,12 @@ class FileItem(SidebarItem):
             self.file_path = file_path
             super().__init__()
 
+    # Fallback front-truncation budget, used before the widget has been laid
+    # out (content_size unknown). Once a width is known the budget adapts to
+    # it so a wider sidebar shows more of the path.
     max_name_length: int = 14
+    # Never truncate the name below this many chars.
+    min_name_length: int = 6
 
     def __init__(
         self,
@@ -220,15 +225,32 @@ class FileItem(SidebarItem):
         self.deletions = deletions
         self.untracked = untracked
 
-    def _truncate_front(self, name: str) -> str:
+    def _truncate_front(self, name: str, budget: int) -> str:
         """Truncate from front with ellipsis if too long."""
-        if len(name) > self.max_name_length:
-            return "…" + name[-(self.max_name_length - 1) :]
+        if len(name) > budget:
+            return "…" + name[-(budget - 1) :]
         return name
+
+    def _name_budget(self) -> int:
+        """Chars available for the path, derived from the rendered width.
+
+        Width is shared between the optional ``"U "`` prefix, the path, and
+        the ``" +adds"`` / ``" -dels"`` stat suffixes. Falls back to
+        ``max_name_length`` before the widget has a known content width.
+        """
+        overhead = 2 if self.untracked else 0
+        if self.additions:
+            overhead += len(f" +{self.additions}")
+        if self.deletions:
+            overhead += len(f" -{self.deletions}")
+        avail = self.content_size.width
+        if avail <= 0:
+            return self.max_name_length
+        return max(self.min_name_length, avail - overhead)
 
     def render(self) -> Text:
         """Render the file item text."""
-        name = self._truncate_front(str(self.file_path))
+        name = self._truncate_front(str(self.file_path), self._name_budget())
         parts: list[tuple[str, str]] = []
         if self.untracked:
             parts.append(("U ", "dim yellow"))
@@ -238,6 +260,11 @@ class FileItem(SidebarItem):
         if self.deletions:
             parts.append((f" -{self.deletions}", "dim red"))
         return Text.assemble(*parts)
+
+    def on_resize(self, event) -> None:  # noqa: ARG002
+        # Re-render so the truncation budget tracks the sidebar width
+        # (the panel grows into unused horizontal space).
+        self.refresh()
 
     def on_click(self, event) -> None:
         self.post_message(self.Selected(self.file_path))
