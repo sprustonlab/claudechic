@@ -41,7 +41,13 @@ from claude_agent_sdk.types import (
     ToolPermissionContext,
 )
 
-from claudechic.enums import AgentStatus, PermissionChoice, ResponseState, ToolName
+from claudechic.enums import (
+    AgentStatus,
+    PermissionChoice,
+    ResponseState,
+    TodoStatus,
+    ToolName,
+)
 from claudechic.features.worktree.git import FinishState
 from claudechic.file_index import FileIndex
 from claudechic.permissions import PermissionRequest
@@ -52,6 +58,43 @@ if TYPE_CHECKING:
     from claudechic.protocols import AgentObserver, PermissionHandler
 
 log = logging.getLogger(__name__)
+
+
+def _normalize_todos(raw) -> list[dict]:
+    """Coerce a TodoWrite ``todos`` payload into a list of dicts.
+
+    The SDK forwards the model's raw tool arguments unchanged. A well-formed
+    TodoWrite call delivers ``todos`` as a list of dicts (each with
+    ``content``/``status``/``activeForm``), but a malformed call may instead
+    deliver a list of plain strings, ``None``, or some other shape. The todo
+    widgets assume every item is a dict and call ``item.get(...)``, so a
+    non-dict item raised ``AttributeError: 'str' object has no attribute 'get'``
+    and tore down the whole response loop. Normalizing here, at the single
+    entry boundary, keeps every downstream consumer safe.
+    """
+    if not isinstance(raw, list):
+        return []
+    normalized: list[dict] = []
+    for item in raw:
+        if isinstance(item, dict):
+            normalized.append(item)
+        elif isinstance(item, str):
+            normalized.append(
+                {
+                    "content": item,
+                    "status": TodoStatus.PENDING.value,
+                    "activeForm": item,
+                }
+            )
+        else:
+            normalized.append(
+                {
+                    "content": str(item),
+                    "status": TodoStatus.PENDING.value,
+                    "activeForm": str(item),
+                }
+            )
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -1434,7 +1477,8 @@ Key Rules:
 
         # TodoWrite updates todos
         if block.name == ToolName.TODO_WRITE:
-            self.todos = block.input.get("todos", [])
+            tool_input = block.input if isinstance(block.input, dict) else {}
+            self.todos = _normalize_todos(tool_input.get("todos", []))
             if self.observer:
                 self.observer.on_todos_updated(self)
             return
