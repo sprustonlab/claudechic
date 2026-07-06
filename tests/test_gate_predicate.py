@@ -73,7 +73,7 @@ def test_gate_phase_advance_default_set_excludes_identity_and_environment():
     # and we exercise only the default-segment-set + sites layers.
     manifest = GateManifest(role_phase_files=frozenset({("coordinator", "design")}))
     # Excluded
-    for place in ("identity", "environment", "constraints_stable"):
+    for place in ("identity", "constraints_stable"):
         assert (
             gate(
                 time="phase-advance",
@@ -85,8 +85,9 @@ def test_gate_phase_advance_default_set_excludes_identity_and_environment():
             )
             is False
         ), f"phase-advance / {place} should be False under defaults"
-    # Included
-    for place in ("phase", "constraints_phase"):
+    # Included. ``environment`` is included at phase-advance so the peer
+    # roster refreshes at each phase boundary (spawn snapshots go stale).
+    for place in ("phase", "constraints_phase", "environment"):
         assert (
             gate(
                 time="phase-advance",
@@ -277,5 +278,5 @@ def test_gate_site_set_constants_match_defaults():
         {"spawn", "activation", "phase-advance", "post-compact"}
     )
     assert ENVIRONMENT_SEGMENT_SITES == frozenset(
-        {"spawn", "activation", "post-compact"}
+        {"spawn", "activation", "phase-advance", "post-compact"}
     )

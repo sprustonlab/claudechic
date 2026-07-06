@@ -1224,6 +1224,16 @@ def _make_advance_phase(caller_name: str | None = None):
                             continue
                         if wf_data_b is None:
                             continue
+                        # Graceful-skip: the role folder may have been
+                        # removed after spawn. The environment segment is
+                        # role-independent (it renders even for a deleted
+                        # role), so assemble_agent_prompt alone can no
+                        # longer signal "not a workflow role" -- check the
+                        # folder explicitly. Standing-by roles (folder
+                        # present, no <phase>.md) still receive the
+                        # environment/roster refresh.
+                        if not (wf_data_b.path / agent.agent_type).is_dir():
+                            continue
                         try:
                             agent_prompt = assemble_agent_prompt(
                                 agent.agent_type,
