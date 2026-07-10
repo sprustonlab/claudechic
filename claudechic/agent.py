@@ -258,14 +258,6 @@ class Agent:
     # Tools to auto-approve when auto_approve_edits is True
     AUTO_EDIT_TOOLS = {ToolName.EDIT, ToolName.WRITE}
 
-    # Tools blocked in plan mode (read-only enforcement)
-    PLAN_MODE_BLOCKED_TOOLS = {
-        ToolName.EDIT,
-        ToolName.WRITE,
-        ToolName.BASH,
-        ToolName.NOTEBOOK_EDIT,
-    }
-
     def __init__(
         self,
         name: str,
@@ -1073,7 +1065,8 @@ Key Rules:
 - Use AskUserQuestion for requirement clarification
 - Use ExitPlanMode for plan approval (never ask "is this plan okay?" via text)
 - Build plan incrementally by writing/editing the plan file
-- Edit, Write, Bash, and NotebookEdit are NOT available (except writing to the plan file)
+- Edit, Write, and NotebookEdit are NOT available (except writing to the plan file)
+- Bash is available ONLY for read-only inspection: e.g. ls, find, grep, cat, git status, git log, git diff. Do NOT use Bash to install packages, modify files, fetch/pull, commit, push, or change configuration.
 {plan_file_info}
 </system-reminder>
 """
@@ -1577,28 +1570,53 @@ Key Rules:
             log.info(f"Auto-approved {tool_name} (bypassPermissions mode)")
             return PermissionResultAllow()
 
-        # Block mutating tools in plan mode (except writes to plan file)
-        # Note: PreToolUse hook in app.py also blocks these; this is a fallback
-        if self.permission_mode == "plan" and tool_name in self.PLAN_MODE_BLOCKED_TOOLS:
-            # Allow Write/Edit to files in ~/.claude/plans/
+        # Plan mode: the PreToolUse hook in app.py
+        # (_plan_mode_pre_tool_use_decision) is the primary enforcer for
+        # mutating tools. We still capture plan_path here (used by the
+        # ExitPlanMode UI) and keep an explicit deny as defense-in-depth
+        # in case the hook misfires. Bash is deliberately NOT blocked:
+        # read-only Bash (ls, find, git status, ...) is legitimate in plan
+        # mode, matching the CLI's own plan-mode behavior.
+        if self.permission_mode == "plan" and tool_name in (
+            ToolName.WRITE,
+            ToolName.EDIT,
+            ToolName.NOTEBOOK_EDIT,
+        ):
             if tool_name in (ToolName.WRITE, ToolName.EDIT):
                 file_path = tool_input.get("file_path", "")
                 if file_path:
                     plans_dir = Path.home() / ".claude" / "plans"
                     resolved = Path(file_path).expanduser().resolve()
-                    if str(resolved).startswith(str(plans_dir)):
-                        self.plan_path = resolved  # Capture for ExitPlanMode display
+                    if resolved.is_relative_to(plans_dir):
+                        self.plan_path = resolved  # for ExitPlanMode display
                         log.info(f"Auto-approved {tool_name} to plan file (plan mode)")
                         return PermissionResultAllow()
-            log.info(f"Denied {tool_name} (plan mode)")
+            log.warning(
+                f"plan-mode {tool_name} reached can_use_tool - "
+                "PreToolUse hook should have denied first"
+            )
             return PermissionResultDeny(
-                message=f"{tool_name} is not available in plan mode. Write your plan to the plan file and use ExitPlanMode when ready.",
+                message=(
+                    f"{tool_name} is not available in plan mode. "
+                    "Write your plan to the plan file and use ExitPlanMode "
+                    "when ready."
+                ),
                 interrupt=False,
             )
 
         # Auto-approve edits if in acceptEdits mode
         if self.permission_mode == "acceptEdits" and tool_name in self.AUTO_EDIT_TOOLS:
             log.info(f"Auto-approved {tool_name} (acceptEdits mode)")
+            return PermissionResultAllow()
+
+        # Auto-approve everything in auto mode. The CLI subprocess normally
+        # auto-approves in auto mode and never invokes can_use_tool, so this
+        # branch is usually unreached. Defense-in-depth (mirrors the
+        # bypassPermissions branch above): if a mode-sync race or CLI quirk
+        # routes a tool through can_use_tool while permission_mode is
+        # "auto", honor the user's intent (don't prompt).
+        if self.permission_mode == "auto":
+            log.info(f"Auto-approved {tool_name} (auto mode)")
             return PermissionResultAllow()
 
         # Auto-approve if tool was allowed for session

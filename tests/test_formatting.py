@@ -1,0 +1,56 @@
+"""Tests for formatting helpers: ANSI stripping and literal_eval guards."""
+
+import pytest
+
+from claudechic.formatting import (
+    LITERAL_EVAL_MAX_SIZE,
+    extract_tool_search_names,
+    strip_ansi,
+)
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        # SGR colors and resets - the common case
+        ("\x1b[31mred\x1b[0m", "red"),
+        ("\x1b[1;31mbold red\x1b[0m", "bold red"),
+        ("\x1b[31m[ERROR]\x1b[0m boom", "[ERROR] boom"),
+        # Cursor movement
+        ("before\x1b[2Jafter", "beforeafter"),
+        # Bracketed paste markers
+        ("\x1b[?2004hpasted\x1b[?2004l", "pasted"),
+        # Pass-through cases - must not corrupt
+        ("plain text", "plain text"),
+        ("", ""),
+        ("[INFO] not a real escape", "[INFO] not a real escape"),
+        # Non-ASCII / C1-range Unicode codepoints must be preserved
+        # (a broader C1-byte regex would strip these - we deliberately don't)
+        ("caf\u00e9 \u2014 r\u00e9sum\u00e9", "caf\u00e9 \u2014 r\u00e9sum\u00e9"),
+        ("NEL\u0085char preserved", "NEL\u0085char preserved"),
+    ],
+)
+def test_strip_ansi(raw, expected):
+    assert strip_ansi(raw) == expected
+
+
+def test_extract_tool_search_names_size_capped():
+    """Oversized stringified list bypasses ast.literal_eval to avoid UI freeze."""
+    # Build a string just over the cap that *looks* parseable. literal_eval
+    # on this would succeed but cost time/memory proportional to length -
+    # the guard short-circuits to None instead.
+    payload = "[{'type': 'tool_reference', 'tool_name': 'X'}," * 2000
+    payload = "[" + payload.rstrip(",") + "]"
+    assert len(payload) > LITERAL_EVAL_MAX_SIZE
+    assert extract_tool_search_names(payload) is None
+
+
+def test_extract_tool_search_names_normal_case_still_works():
+    """Size guard doesn't regress the happy path."""
+    payload = "[{'type': 'tool_reference', 'tool_name': 'Read'}]"
+    assert extract_tool_search_names(payload) == ["Read"]
+
+
+def test_extract_tool_search_names_malformed_returns_none():
+    """Unparseable repr degrades to None instead of raising."""
+    assert extract_tool_search_names("[{'type': 'tool_reference'") is None

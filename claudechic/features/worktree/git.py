@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import shlex
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -187,11 +188,101 @@ def get_main_worktree() -> tuple[Path, str] | None:
     return None
 
 
+_PARENT_BRANCH_FILE = "claudechic-parent-branch"
+
+
+def _worktree_git_dir(worktree_path: Path) -> Path | None:
+    """Resolve the per-worktree git dir (e.g. <main>/.git/worktrees/<name>).
+
+    For a linked worktree the worktree's ``.git`` is a file containing
+    ``gitdir: <abs path>`` pointing into the main repo's ``.git/worktrees/``.
+    For the main worktree, ``.git`` is itself a directory. We parse the
+    pointer file directly rather than shelling out to ``git rev-parse`` so
+    this is cheap and doesn't muddy subprocess-based tests.
+    """
+    git_marker = worktree_path / ".git"
+    if git_marker.is_dir():
+        return git_marker
+    if not git_marker.is_file():
+        return None
+    try:
+        content = git_marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    prefix = "gitdir: "
+    if not content.startswith(prefix):
+        return None
+    git_dir = Path(content[len(prefix) :])
+    if not git_dir.is_absolute():
+        git_dir = (worktree_path / git_dir).resolve()
+    return git_dir
+
+
+def record_parent_branch(worktree_path: Path, parent_branch: str) -> None:
+    """Persist the parent branch for a worktree in its private git dir.
+
+    Best-effort: failures are swallowed so worktree creation isn't blocked
+    by metadata IO. Stored alongside git's per-worktree state so removal of
+    the worktree cleans it up automatically.
+
+    No-op for the main worktree: its ``.git`` is the shared repo dir, not a
+    per-worktree dir, so a file written there wouldn't be auto-cleaned and
+    would leak across worktrees.
+    """
+    if _is_main_worktree(worktree_path):
+        return
+    try:
+        git_dir = _worktree_git_dir(worktree_path)
+        if git_dir is None:
+            return
+        (git_dir / _PARENT_BRANCH_FILE).write_text(
+            parent_branch + "\n", encoding="utf-8"
+        )
+    except OSError as e:
+        log.debug("Failed to record parent branch for %s: %s", worktree_path, e)
+
+
+def read_parent_branch(worktree_path: Path) -> str | None:
+    """Read the recorded parent branch for a worktree, if any."""
+    try:
+        git_dir = _worktree_git_dir(worktree_path)
+        if git_dir is None:
+            return None
+        f = git_dir / _PARENT_BRANCH_FILE
+        if not f.exists():
+            return None
+        value = f.read_text(encoding="utf-8").strip()
+        return value or None
+    except OSError:
+        return None
+
+
+def _current_branch(cwd: Path) -> str | None:
+    """Return the current branch name at cwd, or None if detached/error."""
+    result = subprocess.run(
+        ["git", "symbolic-ref", "--short", "HEAD"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    name = result.stdout.strip()
+    return name or None
+
+
 def get_parent_branch(branch: str, cwd: Path | None = None) -> str | None:
     """Find the branch that the given branch was forked from.
 
     Returns the branch whose tip is an ancestor of our branch and is closest
     to our branch tip. This handles nested worktrees correctly.
+
+    Note: this is a best-effort heuristic used as a fallback. Worktrees
+    created via ``start_worktree`` record their parent explicitly -- see
+    ``record_parent_branch`` / ``read_parent_branch``. The heuristic is
+    ambiguous when sibling worktrees share a tip commit (e.g. a fresh
+    sibling that hasn't diverged yet looks identical to the real parent),
+    so prefer the recorded value when available.
     """
     worktrees = list_worktrees()
     other_branches = [wt.branch for wt in worktrees if wt.branch != branch]
@@ -278,6 +369,8 @@ def _expand_worktree_path(template: str, repo_name: str, feature_name: str) -> P
 def start_worktree(
     feature_name: str,
     on_symlink_fallback: SymlinkFallbackCallback | None = None,
+    base: str | None = None,
+    parent_cwd: Path | None = None,
 ) -> tuple[bool, str, Path | None]:
     """Create a worktree for the given feature.
 
@@ -291,11 +384,42 @@ def start_worktree(
             ``worktree.symlink_fallback`` value is consulted; if that
             resolves to ``"ask"`` and no callback is provided the call
             defensively aborts to avoid silent degradation. See #26.
+        base: Ref to fork the new branch from. When given, git runs with
+            cwd anchored to the main worktree so the ref resolves
+            deterministically regardless of caller cwd (parallel spawns
+            fork off the same base, not off each other). When ``None``,
+            HEAD is resolved from the process cwd (legacy ``/worktree``
+            behavior).
+        parent_cwd: If given, used to determine the parent branch to
+            record on the new worktree (used by ``/worktree finish`` to
+            pick the merge target unambiguously). When ``base`` is given
+            it's recorded directly. When neither is given we fall back to
+            the current process cwd's branch.
 
     Returns (success, message, worktree_path).
     """
+    # Reject dash-prefixed values that would be parsed as git flags. Also
+    # reject empty strings -- both fields go straight onto a git command line.
+    feature_stripped = feature_name.strip()
+    if not feature_stripped:
+        return False, "Invalid feature name: must not be empty", None
+    if feature_stripped.startswith("-"):
+        return False, "Invalid feature name: must not start with '-'", None
+    if base is not None:
+        base_stripped = base.strip()
+        if not base_stripped:
+            return False, "Invalid base branch: must not be empty", None
+        if base_stripped.startswith("-"):
+            return False, "Invalid base branch: must not start with '-'", None
+
     try:
-        repo_name = get_repo_name()
+        main_wt = get_main_worktree()
+
+        # Prefer the main worktree's dir name over `git rev-parse
+        # --show-toplevel` so we don't inherit "repo-feature-a" style names
+        # when the caller happens to be in a feature worktree (same
+        # cwd-drift family as the base-ref bug).
+        repo_name = main_wt[0].name if main_wt else get_repo_name()
         path_template = CONFIG.get("worktree", {}).get("path_template")
 
         if path_template:
@@ -307,15 +431,31 @@ def start_worktree(
             except ValueError as e:
                 return False, str(e), None
         else:
-            main_wt = get_main_worktree()
             parent_dir = main_wt[0].parent if main_wt else Path.cwd().parent
             worktree_dir = parent_dir / f"{repo_name}-{feature_name}"
 
         if worktree_dir.exists():
             return False, f"Directory {worktree_dir} already exists", None
 
+        # When a base is given, the caller wants deterministic ref
+        # resolution; silently falling back to cwd-of-process would
+        # re-introduce the parallel-spawn stacking bug.
+        if base and not main_wt:
+            return False, "Cannot resolve base ref: main worktree not found", None
+        base_ref = base or "HEAD"
+        git_cwd: Path | None = main_wt[0] if base and main_wt else None
+
         subprocess.run(
-            ["git", "worktree", "add", "-b", feature_name, str(worktree_dir), "HEAD"],
+            [
+                "git",
+                "worktree",
+                "add",
+                "-b",
+                feature_name,
+                str(worktree_dir),
+                base_ref,
+            ],
+            cwd=git_cwd,
             check=True,
             capture_output=True,
             text=True,
@@ -326,16 +466,29 @@ def start_worktree(
         # (they're typically gitignored). Symlink is the preferred mechanism
         # (live propagation); copy is the user-approved fallback when symlinks
         # are unavailable. See SPEC.md §10.2 and issue #26.
-        main_wt_info = get_main_worktree()
-        if main_wt_info is not None:
+        if main_wt is not None:
             ok, msg = _propagate_state_sync(
-                source_root=main_wt_info[0],
+                source_root=main_wt[0],
                 target_root=worktree_dir,
                 on_symlink_fallback=on_symlink_fallback,
             )
             if not ok:
                 _rollback_worktree(worktree_dir)
                 return False, msg, None
+
+        # Record the parent branch so /worktree finish can pick the right
+        # merge target without guessing from commit topology. Prefer an
+        # explicit `base` (already a branch name); otherwise read the
+        # current branch from `parent_cwd`, falling back to process cwd.
+        # `base="HEAD"` is treated as "no explicit base" since it's just
+        # a placeholder for cwd resolution.
+        recorded_parent: str | None = None
+        if base and base.upper() != "HEAD":
+            recorded_parent = base
+        else:
+            recorded_parent = _current_branch(parent_cwd or Path.cwd())
+        if recorded_parent:
+            record_parent_branch(worktree_dir, recorded_parent)
 
         return True, f"Created worktree at {worktree_dir}", worktree_dir
 
@@ -473,8 +626,36 @@ def get_finish_info(cwd: Path | None = None) -> tuple[bool, str, FinishInfo | No
 
     main_dir = main_wt[0]
 
-    # Find parent branch (handles nested worktrees)
-    parent_branch = get_parent_branch(current_wt.branch, cwd=cwd)
+    # Prefer the parent branch recorded at worktree-creation time. The
+    # commit-topology heuristic (get_parent_branch) is ambiguous when a
+    # sibling worktree shares a tip with the real parent, and can route
+    # the merge into the wrong worktree.
+    #
+    # Validation: the recorded branch must currently have a checked-out
+    # worktree. If only the branch ref exists (worktree was removed), we
+    # have nowhere safe to merge -- `parent_dir` would fall back to the
+    # main worktree, which has *main* checked out, and the merge would
+    # silently land on main instead of the recorded parent.
+    parent_branch = read_parent_branch(current_wt.path)
+    if parent_branch:
+        has_worktree = any(wt.branch == parent_branch for wt in worktrees)
+        if not has_worktree:
+            log.debug(
+                "Recorded parent branch %r for worktree %s has no checked-out "
+                "worktree; falling back to topology heuristic.",
+                parent_branch,
+                current_wt.path,
+            )
+            parent_branch = None
+    if parent_branch is None:
+        parent_branch = get_parent_branch(current_wt.branch, cwd=cwd)
+        if parent_branch is not None:
+            log.debug(
+                "No recorded parent for worktree %s; topology heuristic "
+                "selected %r (may be ambiguous if siblings share a tip).",
+                current_wt.path,
+                parent_branch,
+            )
     if parent_branch is None:
         # Fallback to main branch
         parent_branch = main_wt[1]
@@ -612,14 +793,19 @@ def discard_all_changes(worktree_dir: Path) -> tuple[bool, str]:
 
     Returns (success, error).
     """
-    # Reset staged and unstaged changes
+    # `reset --hard HEAD` clobbers both the index and the working tree in a
+    # single shot -- staged and unstaged changes both go. `git checkout .`
+    # only restores unstaged tracked files, so a staged change would survive.
     result = subprocess.run(
-        ["git", "checkout", "."], cwd=worktree_dir, capture_output=True, text=True
+        ["git", "reset", "--hard", "HEAD"],
+        cwd=worktree_dir,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
-        return False, f"checkout failed: {result.stderr.strip()}"
+        return False, f"reset failed: {result.stderr.strip()}"
 
-    # Remove all untracked files
+    # `reset --hard` doesn't touch untracked files; clean them separately.
     result = subprocess.run(
         ["git", "clean", "-fd"], cwd=worktree_dir, capture_output=True, text=True
     )
@@ -668,20 +854,28 @@ def fast_forward_merge(info: FinishInfo) -> tuple[bool, str]:
 
 
 def get_finish_prompt(info: FinishInfo) -> str:
-    """Generate the prompt for Claude to rebase and merge a feature branch."""
+    """Generate the prompt for Claude to rebase and merge a feature branch.
+
+    All interpolated values are shlex-quoted (including descriptive lines)
+    so a hostile branch name can't inject shell commands.
+    """
+    branch = shlex.quote(info.branch_name)
+    base = shlex.quote(info.base_branch)
+    worktree_dir = shlex.quote(str(info.worktree_dir))
+    main_dir = shlex.quote(str(info.main_dir))
     return f"""Rebase and merge this feature branch:
 
-Branch: {info.branch_name}
-Base branch: {info.base_branch}
-Worktree dir: {info.worktree_dir}
-Main dir: {info.main_dir}
+Branch: {branch}
+Base branch: {base}
+Worktree dir: {worktree_dir}
+Main dir: {main_dir}
 
 Steps:
 1. Check for uncommitted changes in the worktree (fail if any)
-2. Rebase {info.branch_name} onto the LOCAL {info.base_branch} branch (do NOT fetch from remote):
-   git rebase {info.base_branch}
-3. In the main dir ({info.main_dir}), merge {info.branch_name}:
-   cd {info.main_dir} && git merge {info.branch_name}
+2. Rebase {branch} onto the LOCAL {base} branch (do NOT fetch from remote):
+   git rebase {base}
+3. In the main dir ({main_dir}), merge {branch}:
+   cd {main_dir} && git merge {branch}
 
 Do NOT remove the worktree or delete the branch - the app will handle cleanup.
 Do NOT interact with remotes (no fetch, no pull, no push)."""
@@ -773,7 +967,12 @@ def finish_cleanup(info: FinishInfo) -> tuple[bool, str]:
 
 
 def has_uncommitted_changes(worktree_path: Path) -> bool:
-    """Check if a worktree has uncommitted changes."""
+    """Check if a worktree has uncommitted changes.
+
+    Returns False if the worktree path is missing (prunable/stale ref).
+    """
+    if not worktree_path.exists():
+        return False
     result = subprocess.run(
         ["git", "-C", str(worktree_path), "status", "--porcelain"],
         capture_output=True,
@@ -801,10 +1000,19 @@ def is_branch_merged(
 def remove_worktree(worktree: WorktreeInfo, force: bool = False) -> tuple[bool, str]:
     """Remove a worktree and its branch. Returns (success, message)."""
     try:
-        cmd = ["git", "worktree", "remove", str(worktree.path)]
-        if force:
-            cmd.append("--force")
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        if not worktree.path.exists():
+            # Stale worktree (path deleted externally) - prune to clear the ref
+            subprocess.run(
+                ["git", "worktree", "prune"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        else:
+            cmd = ["git", "worktree", "remove", str(worktree.path)]
+            if force:
+                cmd.append("--force")
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
 
         delete_flag = "-D" if force else "-d"
         subprocess.run(

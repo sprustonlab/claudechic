@@ -14,6 +14,7 @@ from textual.widgets import Static
 
 from claudechic.enums import ToolName
 from claudechic.formatting import (
+    LITERAL_EVAL_MAX_SIZE,
     extract_tool_search_names,
     format_result_summary,
     format_tool_header,
@@ -51,8 +52,14 @@ def _extract_text_content(content: str | list) -> str:
         ]
         return "\n".join(texts)
     if isinstance(content, str):
-        # Handle stringified MCP list format (SDK sometimes returns str repr)
-        if content.startswith("[{") and "'text':" in content:
+        # Handle stringified MCP list format (SDK sometimes returns str repr).
+        # Skip ast.literal_eval on oversized payloads - it's O(n) in parse-tree
+        # size and would freeze the UI on a multi-MB tool result.
+        if (
+            content.startswith("[{")
+            and "'text':" in content
+            and len(content) <= LITERAL_EVAL_MAX_SIZE
+        ):
             import ast
 
             try:
@@ -64,7 +71,7 @@ def _extract_text_content(content: str | list) -> str:
                         if isinstance(item, dict)
                     ]
                     return "\n".join(texts)
-            except (ValueError, SyntaxError):
+            except (ValueError, SyntaxError, MemoryError, RecursionError):
                 pass
         return content
     return str(content)

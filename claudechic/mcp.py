@@ -40,6 +40,7 @@ from claudechic.features.worktree.git import (
     get_cleanup_fix_prompt,
     get_finish_info,
     get_finish_prompt,
+    get_main_worktree,
     start_worktree,
 )
 from claudechic.tasks import create_safe_task
@@ -391,7 +392,11 @@ def _make_spawn_worktree(caller_name: str | None = None):
 
     @tool(
         "spawn_worktree",
-        "Create a git worktree (feature branch) with a new agent. Useful for isolated feature development.",
+        "Create a git worktree (feature branch) with a new agent. Useful for "
+        "isolated feature development. The new branch is forked from "
+        "`base_branch` (e.g. 'main') resolved against the main worktree, so "
+        "sibling worktrees created in the same session do not stack on each "
+        "other.",
         {"name": str, "base_branch": str, "prompt": str},
     )
     async def spawn_worktree(args: dict[str, Any]) -> dict[str, Any]:
@@ -402,9 +407,16 @@ def _make_spawn_worktree(caller_name: str | None = None):
 
         name = args["name"]
         prompt = args.get("prompt")
+        # Fork from base_branch so parallel spawns are siblings off the same
+        # base, not stacked on each other. If the model omits base_branch,
+        # default to the main worktree's branch (same intent).
+        base_branch = args.get("base_branch")
+        if not base_branch:
+            main_wt = get_main_worktree()
+            base_branch = main_wt[1] if main_wt else None
 
         # Create the worktree
-        success, message, wt_path = start_worktree(name)
+        success, message, wt_path = start_worktree(name, base=base_branch)
         if not success or wt_path is None:
             return _error_response(f"Error creating worktree: {message}")
 

@@ -150,6 +150,85 @@ def _patch_textarea_undo_crash() -> None:
     log.debug("Textual %s — textarea undo/redo crash patch applied", version)
 
 
+def _patch_markdown_fence_recompose() -> None:
+    """Fix code blocks losing their body on recompose (Textual issue #6518).
+
+    Upstream ``MarkdownFence._update_from_block`` updates the visible Label
+    via ``set_content`` but never syncs ``self.code`` / ``self._highlighted_code``
+    from the new block. When streaming via ``MarkdownStream``, the fence is
+    constructed from the first chunk (a few characters) and updated in-place
+    for later chunks. If anything triggers a recompose afterwards (terminal
+    focus change, style refresh, layout cascade, text selection), ``compose``
+    re-yields ``Label(self._highlighted_code, ...)``, which has been frozen at
+    the first chunk's value, and the code body collapses back to a handful of
+    characters (or empty).
+
+    We wrap (rather than replace) the upstream method so that:
+      * upstream behavior is preserved if internals are renamed
+      * any future upstream fix wins automatically - our sync becomes
+        redundant (re-assigns the same values) rather than conflicting
+
+    Affects: textual 8.x (verified on the pinned 8.2.4).
+    Upstream: https://github.com/Textualize/textual/issues/6518. The
+    upstream fix (PR #6519) was closed unmerged.
+    """
+    try:
+        import textual
+        from packaging.version import Version
+    except ImportError:
+        return
+
+    version = Version(textual.__version__)
+
+    # Once upstream ships the fix, disable this patch.
+    # Bump the ceiling when the fix version is known.
+    if version >= Version("9.0.0"):
+        log.debug(
+            "Textual %s - markdown fence recompose patch skipped (likely fixed upstream)",
+            version,
+        )
+        return
+
+    from textual.widgets._markdown import MarkdownFence
+
+    # Check if already patched (idempotent)
+    if getattr(MarkdownFence, "_chic_fence_patched", False):
+        return
+
+    # Detect whether the bug is present by inspecting source. The bug is
+    # that _update_from_block never assigns ``self.code`` from the new
+    # block. If upstream already syncs it, skip patching.
+    try:
+        src = inspect.getsource(MarkdownFence._update_from_block)
+        if "self.code" in src:
+            log.debug(
+                "Textual %s - fence recompose bug already fixed in source, skipping patch",
+                version,
+            )
+            MarkdownFence._chic_fence_patched = True  # pyright: ignore[reportAttributeAccessIssue]  # runtime monkey-patch marker
+            return
+    except (TypeError, ValueError, OSError):
+        # Can't inspect source - apply patch defensively
+        pass
+
+    _original_update_from_block = MarkdownFence._update_from_block
+
+    async def _patched_update_from_block(self, block) -> None:
+        if isinstance(block, MarkdownFence):
+            try:
+                self.code = block.code
+                self._highlighted_code = block._highlighted_code
+            except AttributeError:
+                # Upstream changed shape; fall through to original behavior.
+                pass
+        await _original_update_from_block(self, block)
+
+    MarkdownFence._update_from_block = _patched_update_from_block
+    MarkdownFence._chic_fence_patched = True  # pyright: ignore[reportAttributeAccessIssue]  # runtime monkey-patch marker
+    log.debug("Textual %s - markdown fence recompose patch applied", version)
+
+
 def apply_all() -> None:
     """Apply all monkey-patches."""
     _patch_textarea_undo_crash()
+    _patch_markdown_fence_recompose()
