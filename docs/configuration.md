@@ -82,6 +82,21 @@ Show timestamp and token count under each chat message.
 show_message_metadata: true
 ```
 
+### `code_copy_button`
+
+- **Type:** `boolean`
+- **Default:** `true`
+- **Exposed in `/settings`:** yes
+
+Render a header bar above each fenced code block with the language on the
+left and a one-click **Copy** button on the right. The button copies the
+block's raw source (no prose or backticks) -- handy for terminal commands
+and snippets. Set to `false` to render plain code fences instead.
+
+```yaml
+code_copy_button: true
+```
+
 ### `recent-tools-expanded`
 
 - **Type:** `integer`
