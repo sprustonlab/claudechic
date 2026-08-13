@@ -669,6 +669,22 @@ class ChatInput(TextArea):
                 event.stop()
                 return
 
+        # Never hand Escape to TextArea: with tab_behavior="indent" it
+        # consumes Escape to focus_next() (Textual's escape-the-focus-trap
+        # convenience), which swallowed the key and made it impossible to
+        # interrupt a running agent while the input was focused.  A plain
+        # early-return is not enough: Textual dispatches _on_key per MRO
+        # class, so TextArea._on_key would still run.  Consume the event
+        # here and delegate straight to the app-level escape action
+        # (interrupt agent, dismiss prompts, close overlays).
+        if event.key == "escape":
+            event.stop()
+            event.prevent_default()
+            escape_action = getattr(self.app, "action_escape", None)
+            if escape_action is not None:
+                escape_action()
+            return
+
         await super()._on_key(event)
 
     def _safe_path_exists(self, path: Path) -> bool:
