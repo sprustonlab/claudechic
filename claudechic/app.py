@@ -3986,6 +3986,15 @@ class ChatApp(App):
         # Close workflow resources (hit logger, etc.)
         self._close_workflow_resources()
 
+        # Close the shared browser if the gated browser feature was used.
+        # Best-effort: playwright's node driver dies with the parent anyway.
+        try:
+            from claudechic.features.browser import shutdown_browser
+
+            await shutdown_browser()
+        except Exception:
+            log.debug("Browser shutdown failed", exc_info=True)
+
         # Close all agents in parallel (fires agent_closed events with message_count)
         if self.agent_mgr:
             await self.agent_mgr.close_all()

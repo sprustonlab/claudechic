@@ -61,6 +61,21 @@ These tools let an agent query its own identity and applicable rules:
 - **`mcp__chic__get_applicable_rules`** -- Markdown list of guardrail rules and advance checks scoped to your (role, phase). Pass `include_skipped=true` for the full audit view.
 - **`mcp__chic__get_agent_info`** -- Aggregator: combines whoami + get_phase + get_applicable_rules into one document. Start here when you need the full picture.
 
+## Browser Control (MCP Tools, gated)
+
+Drive a shared Chromium browser (one page per app process). These tools
+only exist when the user has set `experimental.browser: true` in
+`~/.claudechic/config.yaml`, and EVERY call is blocked by the
+`global:browser_control` deny guardrail: request an override for a
+single action, or ask the user to toggle the rule off in the Guards
+sidebar for a whole browsing session.
+
+- **`browser_navigate`** -- Open a URL; returns title + final URL.
+- **`browser_screenshot`** -- Screenshot the page (inline image + saved temp PNG path). `full_page=true` is token-expensive; prefer the default viewport capture.
+- **`browser_click`** -- Click by CSS selector OR by `x`/`y` viewport coordinates (exactly one).
+- **`browser_type`** -- Fill a selector (or type at focus); `press_enter=true` to submit.
+- **`browser_scroll`** -- Scroll vertically by `dy` pixels.
+
 ## Bundled Workflows
 
 Workflows are activated with `/{id}`. Categories:

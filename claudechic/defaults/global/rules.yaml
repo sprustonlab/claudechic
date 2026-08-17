@@ -40,3 +40,21 @@
     pattern: "(?:^|[;&|]\\s*)(?:(?:\\w+=\\S+\\s+)*(?:time\\s+|env\\s+|xargs\\s+)?(?:(?:\\S*python(?:\\d+(?:\\.\\d+)*)?|uv\\s+run|uvx|poetry\\s+run|hatch\\s+run|nox\\s+-s|make)\\s+(?:-m\\s+)?)?)?(?:\\S*/)?pytest\\b(?!.*--timeout(?:=|\\s|$))"
   message: "use --timeout=N (default 30) to avoid hung tests"
 
+- id: browser_control
+  trigger:
+    - PreToolUse/mcp__chic__browser_navigate
+    - PreToolUse/mcp__chic__browser_screenshot
+    - PreToolUse/mcp__chic__browser_click
+    - PreToolUse/mcp__chic__browser_type
+    - PreToolUse/mcp__chic__browser_scroll
+  enforcement: deny
+  # No detect block: fires on EVERY invocation. Second layer of the browser
+  # hard gate (first: experimental.browser registration gate). Override
+  # tokens are one-time and input-specific; sustained browsing should be
+  # enabled via the Guards sidebar toggle.
+  message: |
+    Browser control is hard-gated: each call needs explicit user approval.
+    For a single action, request an override. For a whole browsing session,
+    ask the user to toggle rule 'global:browser_control' off in the Guards
+    sidebar for this agent.
+

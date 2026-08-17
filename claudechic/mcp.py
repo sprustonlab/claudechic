@@ -1960,6 +1960,16 @@ def create_chic_server(
     if CONFIG.get("experimental", {}).get("finish_worktree", False):
         tools.append(finish_worktree)
 
+    # Browser control tools are hard-gated: registration requires
+    # experimental.browser: true (plus the global:browser_control deny rule).
+    if CONFIG.get("experimental", {}).get("browser", False):
+        try:
+            from claudechic.features.browser import get_browser_tools
+
+            tools.extend(get_browser_tools(caller_name))
+        except ImportError:
+            log.debug("Browser tools enabled but unavailable", exc_info=True)
+
     # LSF cluster tools (always registered; LSF availability checked at runtime)
     try:
         from claudechic.cluster import (  # pyright: ignore[reportMissingImports]  # claudechic.cluster is an optional plugin module (try/except ImportError at runtime)

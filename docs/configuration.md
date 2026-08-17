@@ -305,6 +305,54 @@ models:
 Reserved namespace for experimental flags. Keys here may change without
 notice; consult release notes before relying on any.
 
+### `experimental.browser`
+
+- **Type:** `boolean`
+- **Default:** `false` (absent)
+- **Exposed in `/settings`:** no (hidden, `experimental.*` convention)
+
+Register the gated browser control MCP tools (`browser_navigate`,
+`browser_screenshot`, `browser_click`, `browser_type`, `browser_scroll`)
+on the chic server. Off by default: when unset, the tools are not
+registered at all and are invisible to agents.
+
+The feature is double-gated. Even when registered, every call trips the
+package-tier `global:browser_control` deny guardrail rule: a single
+action needs a `request_override` approval, and a sustained browsing
+session needs the user to toggle the rule off in the Guards sidebar.
+
+Install the backend first:
+
+```bash
+pip install "claudechic[browser]"   # or: uv sync --extra browser
+playwright install chromium
+```
+
+If enabled without playwright installed, the tools register but every
+call returns install guidance. Config is read once at startup: enabling
+or disabling requires a claudechic restart. One shared browser page is
+used across all agents (v1 limitation).
+
+```yaml
+experimental:
+  browser: true
+```
+
+### `experimental.browser_headless`
+
+- **Type:** `boolean`
+- **Default:** `true`
+- **Exposed in `/settings`:** no (hidden, `experimental.*` convention)
+
+Run the browser headless (no visible window). Set to `false` to watch
+the browser on screen while debugging.
+
+```yaml
+experimental:
+  browser: true
+  browser_headless: false
+```
+
 ## Project-tier config keys
 
 The following keys live under

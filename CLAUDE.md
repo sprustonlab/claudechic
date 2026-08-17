@@ -43,6 +43,10 @@ claudechic/
 ├── usage.py           # OAuth usage API fetching (rate limits)
 ├── features/
 │   ├── __init__.py    # Feature module exports
+│   ├── browser/       # Gated browser control MCP tools (experimental.browser)
+│   │   ├── __init__.py   # Public API (get_browser_tools, shutdown_browser, browser_enabled)
+│   │   ├── session.py    # BrowserSession - lazy Playwright-Chromium lifecycle
+│   │   └── tools.py      # browser_navigate/screenshot/click/type/scroll tools
 │   └── worktree/
 │       ├── __init__.py   # Public API (list_worktrees, handle_worktree_command)
 │       ├── commands.py   # /worktree command handlers

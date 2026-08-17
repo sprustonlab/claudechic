@@ -37,6 +37,12 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 
+[project.optional-dependencies]
+# Gated browser control tools (features/browser/). Install with:
+#   pip install "claudechic[browser]"   (or: uv sync --extra browser)
+# then: playwright install chromium
+browser = ["playwright>=1.45"]
+
 [project.urls]
 Homepage = "https://github.com/sprustonlab/claudechic"
 Repository = "https://github.com/sprustonlab/claudechic"
