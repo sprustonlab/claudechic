@@ -61,3 +61,17 @@ def test_no_projects_dir_is_noop(tmp_path):
     home = tmp_path / "home"
     (home / ".claude-empty").mkdir(parents=True)  # account with no projects/
     assert session_log.sync_once(tmp_path / "log", home=home) == 0
+
+
+def test_chicsessions_root_divides_by_account(tmp_path, monkeypatch):
+    cfg = tmp_path / ".claudechic" / "config.yaml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("session_log_dir: /tmp/sl\n", encoding="utf-8")
+
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude-work"))
+    assert session_log.account_name() == "work"
+    # chicsessions live under <base>/<account>, mirroring the transcript split
+    assert session_log.chicsessions_root(tmp_path) == Path("/tmp/sl/work")
+
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    assert session_log.account_name() == "default"

@@ -8,7 +8,7 @@ mirror is split by Claude account (the ``~/.claude-<name>`` selected with
 `use-claude`), then by Claude's own project/cwd layout:
 
     <session_log_dir>/<account>/projects/<cwd-slug>/<session_id>.jsonl
-    <session_log_dir>/.chicsessions/<name>.json
+    <session_log_dir>/<account>/.chicsessions/<name>.json
 
 If ``session_log_dir`` is NOT configured, every function here is inert and
 claudechic behaves exactly as upstream -- so this module is safe to push
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import subprocess
 import time
@@ -78,12 +79,30 @@ def session_log_dir(cwd: Path | None = None) -> Path | None:
     return Path(str(val)).expanduser() if val else None
 
 
+def account_name() -> str:
+    """Active Claude account = the ``~/.claude-<name>`` selected via
+    ``use-claude`` (CLAUDE_CONFIG_DIR). Falls back to ``default`` when unset.
+    Used to divide the session log by account, matching the transcript split.
+    """
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    if cfg:
+        base = Path(cfg).name
+        if base.startswith(".claude-"):
+            base = base[len(".claude-"):]
+        return base or "default"
+    return "default"
+
+
 def chicsessions_root(cwd: Path | None = None) -> Path | None:
-    """Root whose ``.chicsessions/`` holds manifests. Explicit
-    ``chicsessions_root`` wins; otherwise it follows ``session_log_dir``."""
+    """Root whose ``.chicsessions/`` holds manifests, divided by account:
+    ``<base>/<account>`` (so manifests land in ``<base>/<account>/.chicsessions``,
+    mirroring the ``<base>/<account>/projects`` transcript split). Explicit
+    ``chicsessions_root`` wins as the base; otherwise ``session_log_dir``."""
     cfg = merged_config(cwd)
     val = cfg.get("chicsessions_root") or cfg.get("session_log_dir")
-    return Path(str(val)).expanduser() if val else None
+    if not val:
+        return None
+    return Path(str(val)).expanduser() / account_name()
 
 
 # ---------------------------------------------------------------------------
