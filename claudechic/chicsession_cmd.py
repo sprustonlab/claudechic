@@ -91,45 +91,29 @@ def _update_sidebar_label(
         pass  # Widget not mounted yet
 
 
-def _global_chicsessions_root() -> Path | None:
-    """Return the configured global chicsessions root, or None for legacy behavior.
-
-    When ``chicsessions_root`` is set in ~/.claudechic/config.yaml, ALL
-    chicsessions live in that one directory (a flat, folder-independent
-    namespace) regardless of where claudechic was launched. Read directly
-    (not via a heavier config loader) to stay dependency-light and robust;
-    any error falls back to the legacy per-launch-directory behavior.
-    """
-    try:
-        cfg_path = Path.home() / ".claudechic" / "config.yaml"
-        if not cfg_path.exists():
-            return None
-        import yaml
-
-        data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-        val = data.get("chicsessions_root")
-        if not val:
-            return None
-        return Path(str(val)).expanduser()
-    except Exception:
-        return None
-
-
 def _get_root(app: ChatApp | None = None) -> Path:
     """Return the directory whose ``.chicsessions/`` holds the manifests.
 
-    If ``chicsessions_root`` is configured (~/.claudechic/config.yaml), that
-    single global directory is used for every session -- a flat namespace,
-    independent of the launch directory. Otherwise fall back to the legacy
-    per-project root: app._cwd, git root, or PWD.
+    If ``session_log_dir`` / ``chicsessions_root`` is configured (see
+    ``claudechic.session_log`` -- user-tier ~/.claudechic/config.yaml or a
+    project's <cwd>/.claudechic/config.yaml), that single directory is used
+    for every session: a flat namespace, independent of the launch dir.
+    Otherwise fall back to the legacy per-project root (app._cwd, git root,
+    or PWD). With NO config set, behavior is unchanged from upstream.
     """
-    global_root = _global_chicsessions_root()
-    if global_root is not None:
-        try:
-            global_root.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
-        return global_root
+    cwd = getattr(app, "_cwd", None) if app is not None else None
+    try:
+        from claudechic.session_log import chicsessions_root
+
+        root = chicsessions_root(cwd)
+        if root is not None:
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
+            return root
+    except Exception:
+        pass
     # Legacy per-launch-directory behavior:
     # Prefer the app's tracked cwd — it's set at startup from the correct dir
     if app is not None and hasattr(app, "_cwd"):

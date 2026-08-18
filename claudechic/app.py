@@ -1507,6 +1507,23 @@ class ChatApp(App):
             exit_on_error=False,
         )
 
+        # Optional: mirror all transcripts to a session-log repo when
+        # `session_log_dir` is configured (user/project .claudechic/config.yaml).
+        # No-op when unset, so this stays upstream-safe -- only a config value
+        # activates it. Copies are byte-identical; see claudechic.session_log.
+        try:
+            from claudechic.session_log import run_sync_loop, session_log_dir
+
+            _sl_dir = session_log_dir(getattr(self, "_cwd", None))
+            if _sl_dir is not None:
+                self.run_worker(
+                    run_sync_loop(_sl_dir),
+                    exclusive=False,
+                    exit_on_error=False,
+                )
+        except Exception:
+            log.debug("session-log mirror not started", exc_info=True)
+
         # Set up notification callback for log messages (warnings and errors)
         set_log_notify_callback(
             lambda msg, severity: self.notify(msg, severity=severity, timeout=5)
