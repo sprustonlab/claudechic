@@ -3,6 +3,8 @@
 Subcommands:
     /chicsession save <name>       — Snapshot all active agents
     /chicsession restore [name]    — Restore agents (shows picker if no name)
+    /chicsession fork <new-name>   — Fork the active chicsession (duplicate
+                                     each agent's transcript to a fresh id)
 """
 
 from __future__ import annotations
@@ -50,8 +52,111 @@ def handle_chicsession_command(app: ChatApp, command: str) -> bool:
             _show_restore_picker(app)
         return True
 
+    if subcommand == "fork":
+        name = parts[2] if len(parts) > 2 else None
+        if not name:
+            app.notify("Usage: /chicsession fork <new-name>", severity="error")
+            return True
+        _handle_fork(app, name)
+        return True
+
     _show_usage(app)
     return True
+
+
+def _handle_fork(app: ChatApp, new_name: str) -> None:
+    """Fork the ACTIVE chicsession into a new one.
+
+    Each agent's transcript is duplicated byte-for-byte to a fresh session
+    id (so the fork carries full history yet diverges independently), and a
+    new manifest is written. The current live session is left untouched.
+    """
+    current = getattr(app, "_chicsession_name", None)
+    if not current:
+        app.notify(
+            "No active chicsession to fork — save one first with "
+            "/chicsession save <name>",
+            severity="error",
+        )
+        return
+    mgr = _get_manager(app)
+    try:
+        src = mgr.load(current)
+    except (FileNotFoundError, ValueError) as e:
+        app.notify(str(e), severity="error")
+        return
+    try:
+        _new_cs, forked, missing = fork_chicsession(mgr, src, new_name)
+    except ValueError as e:
+        app.notify(str(e), severity="error")
+        return
+    msg = f"Forked '{current}' → '{new_name}' ({forked} agent(s)"
+    if missing:
+        msg += f", {missing} without a transcript kept shared"
+    msg += f"). Open it with /chicsession restore {new_name}."
+    app.notify(msg)
+
+
+def _find_transcript(session_id: str, home: Path | None = None) -> Path | None:
+    """Locate the live JSONL transcript for a session id at
+    ~/.claude-*/projects/<slug>/<session_id>.jsonl. Returns None if absent."""
+    base = home if home is not None else Path.home()
+    try:
+        for cfg in sorted(base.glob(".claude-*")):
+            proj = cfg / "projects"
+            if not proj.is_dir():
+                continue
+            for cand in proj.glob(f"*/{session_id}.jsonl"):
+                return cand
+    except OSError:
+        pass
+    return None
+
+
+def fork_chicsession(
+    mgr: ChicsessionManager,
+    src: Chicsession,
+    new_name: str,
+    home: Path | None = None,
+) -> tuple[Chicsession, int, int]:
+    """Duplicate ``src`` into a new chicsession ``new_name``.
+
+    Every agent's transcript is copied byte-for-byte to a fresh UUID (same
+    history, new id -> diverges on resume) and the new manifest is saved.
+    Agents whose transcript can't be found keep their original id (shared
+    history). Returns ``(new_chicsession, forked, missing)``. Raises
+    ValueError if ``new_name`` already exists.
+    """
+    import shutil
+    import uuid
+
+    if new_name in mgr.list_chicsessions():
+        raise ValueError(f"Chicsession '{new_name}' already exists")
+    new_entries: list[ChicsessionEntry] = []
+    forked = missing = 0
+    for a in src.agents:
+        tpath = _find_transcript(a.session_id, home)
+        if tpath is None:
+            new_entries.append(ChicsessionEntry(a.name, a.session_id, a.cwd))
+            missing += 1
+            continue
+        new_id = str(uuid.uuid4())
+        try:
+            shutil.copy2(tpath, tpath.parent / f"{new_id}.jsonl")
+        except OSError:
+            new_entries.append(ChicsessionEntry(a.name, a.session_id, a.cwd))
+            missing += 1
+            continue
+        new_entries.append(ChicsessionEntry(a.name, new_id, a.cwd))
+        forked += 1
+    new_cs = Chicsession(
+        name=new_name,
+        active_agent=src.active_agent,
+        agents=new_entries,
+        workflow_state=src.workflow_state,
+    )
+    mgr.save(new_cs)
+    return new_cs, forked, missing
 
 
 def _show_usage(app: ChatApp) -> None:
@@ -63,7 +168,8 @@ def _show_usage(app: ChatApp) -> None:
         "| Subcommand | Description |\n"
         "|------------|-------------|\n"
         "| `save <name>` | Snapshot all active agents |\n"
-        "| `restore [name]` | Restore agents (shows picker if no name) |"
+        "| `restore [name]` | Restore agents (shows picker if no name) |\n"
+        "| `fork <new-name>` | Fork the active chicsession into a new one |"
     )
     chat_view = app._chat_view
     if chat_view:

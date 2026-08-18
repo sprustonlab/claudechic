@@ -99,6 +99,7 @@ COMMANDS: list[tuple[str, str, list[str]]] = [
         [
             "/chicsession save",
             "/chicsession restore",
+            "/chicsession fork",
         ],
     ),
     ("/shell", "Run shell command (or -i for interactive)", []),
