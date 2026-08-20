@@ -1294,13 +1294,23 @@ def _make_advance_phase(caller_name: str | None = None):
         "hand-off material) are written. Accepts an absolute path, or a "
         "relative path resolved against the launched-repo root. Rejects "
         "paths inside any '.claude/' directory. Idempotent on the same "
-        "resolved path; raises on a different path once one is set. "
-        "Returns the resolved absolute path string."
+        "resolved path (no prompt). Changing to a DIFFERENT path once one "
+        "is set is a rebind: it is only performed after the user approves "
+        "an on-screen prompt; if the user declines, the artifact dir is "
+        "left unchanged and an error is returned. The old directory's "
+        "contents are never moved or deleted -- only the workflow's pointer "
+        "changes. Returns the resolved absolute path string."
     ),
     {"path": str},
 )
 async def set_artifact_dir(args: dict[str, Any]) -> dict[str, Any]:
-    """Bind an artifact directory to the active workflow."""
+    """Bind an artifact directory to the active workflow.
+
+    First bind and idempotent same-path re-calls proceed with no prompt.
+    A rebind (a different path once one is set) requires explicit user
+    approval via the shared agent-prompt UX before the engine is called
+    with ``allow_rebind=True``.
+    """
     if _app is None or _app._workflow_engine is None:
         return _error_response(
             "No active workflow. set_artifact_dir requires an active workflow run."
@@ -1311,8 +1321,37 @@ async def set_artifact_dir(args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(path, str):
         return _error_response("set_artifact_dir requires a string 'path' argument")
 
+    engine = _app._workflow_engine
+
+    # Detect the rebind case (already bound to a DIFFERENT resolved path).
+    # would_rebind validates the path; surface validation errors as-is.
     try:
-        resolved = await _app._workflow_engine.set_artifact_dir(path)
+        needs_rebind = engine.would_rebind(path)
+    except ValueError as e:
+        return _error_response(str(e))
+
+    if needs_rebind:
+        old_dir = str(engine.get_artifact_dir())
+        # Require explicit user approval before re-pointing. Uses the shared
+        # agent-prompt UX (same mechanism as override/advance prompts).
+        approved = await _app._show_artifact_rebind_prompt(old_dir, path)
+        if not approved:
+            return _error_response(
+                f"Artifact dir rebind declined by user. artifact_dir remains "
+                f"{old_dir} (requested change to {path} was not applied)."
+            )
+        try:
+            resolved = await engine.set_artifact_dir(path, allow_rebind=True)
+        except (ValueError, RuntimeError) as e:
+            return _error_response(str(e))
+        except Exception as e:
+            log.exception("set_artifact_dir rebind failed")
+            return _error_response(f"set_artifact_dir failed: {e}")
+        return _text_response(str(resolved))
+
+    # First bind or idempotent same-path re-call: no prompt.
+    try:
+        resolved = await engine.set_artifact_dir(path)
     except (ValueError, RuntimeError) as e:
         return _error_response(str(e))
     except Exception as e:

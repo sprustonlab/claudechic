@@ -117,13 +117,100 @@ async def test_set_artifact_dir_idempotent_via_samefile(tmp_path):
 
 
 async def test_set_artifact_dir_different_path_raises(tmp_path):
-    """I-6: different-path re-call raises RuntimeError."""
+    """I-6: different-path re-call raises RuntimeError when allow_rebind is False.
+
+    Default (allow_rebind=False) preserves the historical
+    "one artifact dir per workflow run" contract.
+    """
     engine = _make_engine()
     a = tmp_path / "a"
     b = tmp_path / "b"
     await engine.set_artifact_dir(str(a))
+    # Default: rebind blocked.
     with pytest.raises(RuntimeError, match="already set"):
         await engine.set_artifact_dir(str(b))
+    # Explicit allow_rebind=False also blocked (belt and suspenders).
+    with pytest.raises(RuntimeError, match="already set"):
+        await engine.set_artifact_dir(str(b), allow_rebind=False)
+    # Engine remains bound to the original path.
+    assert engine.artifact_dir == a.resolve()
+
+
+async def test_set_artifact_dir_rebind_allowed_updates_and_persists(tmp_path):
+    """allow_rebind=True re-points to a different path, mkdirs, and persists."""
+    persist = AsyncMock()
+    engine = _make_engine(persist=persist)
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    await engine.set_artifact_dir(str(a))
+    persist.reset_mock()
+
+    assert not b.exists()
+    result = await engine.set_artifact_dir(str(b), allow_rebind=True)
+
+    assert result == b.resolve()
+    assert engine.artifact_dir == b.resolve()
+    assert b.is_dir()
+    # Old directory is left in place (engine only re-points).
+    assert a.exists()
+    # Persist fired with the new path.
+    persist.assert_awaited()
+    assert persist.await_args is not None
+    state = persist.await_args.args[0]
+    assert state["artifact_dir"] == str(b.resolve())
+
+
+async def test_set_artifact_dir_rebind_same_path_no_op(tmp_path):
+    """allow_rebind=True with the SAME path stays bound (idempotent)."""
+    engine = _make_engine()
+    a = tmp_path / "a"
+    await engine.set_artifact_dir(str(a))
+    result = await engine.set_artifact_dir(str(a), allow_rebind=True)
+    assert result == a.resolve()
+    assert engine.artifact_dir == a.resolve()
+
+
+async def test_set_artifact_dir_rebind_rollback_on_persist_failure(tmp_path):
+    """Rebind persist failure rolls back _artifact_dir to the prior path."""
+    persist = AsyncMock()
+    engine = _make_engine(persist=persist)
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    await engine.set_artifact_dir(str(a))
+    assert engine.artifact_dir == a.resolve()
+
+    async def fail(_state: dict) -> None:
+        raise RuntimeError("disk full")
+
+    engine._persist_fn = fail
+
+    with pytest.raises(RuntimeError, match="disk full"):
+        await engine.set_artifact_dir(str(b), allow_rebind=True)
+
+    # Rollback restores the prior path (still bound to a).
+    assert engine.artifact_dir == a.resolve()
+
+
+async def test_would_rebind_reports_rebind_state(tmp_path):
+    """would_rebind: False before first set, on same path; True on a different path."""
+    engine = _make_engine()
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    # No artifact_dir set yet.
+    assert engine.would_rebind(str(a)) is False
+    await engine.set_artifact_dir(str(a))
+    # Same path -> not a rebind.
+    assert engine.would_rebind(str(a)) is False
+    # Different path -> rebind.
+    assert engine.would_rebind(str(b)) is True
+
+
+async def test_would_rebind_validates_path(tmp_path):
+    """would_rebind validates the path (once an artifact_dir is set)."""
+    engine = _make_engine(cwd=tmp_path)
+    await engine.set_artifact_dir(str(tmp_path / "a"))
+    with pytest.raises(ValueError, match="null bytes"):
+        engine.would_rebind("foo\x00bar")
 
 
 # ---------------------------------------------------------------------------
@@ -743,6 +830,110 @@ async def test_mcp_set_artifact_dir_propagates_validation_error(monkeypatch, tmp
     response = await handler({"path": "foo\x00bar"})
     assert response.get("isError") is True
     assert "null bytes" in response["content"][0]["text"]
+
+
+async def test_mcp_set_artifact_dir_rebind_requires_permission_approved(
+    monkeypatch, tmp_path
+):
+    """Rebind via MCP tool: user approves -> engine rebinds to the new path."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    await engine.set_artifact_dir(str(a))
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app.agent_mgr = None
+    # User approves the rebind prompt.
+    fake_app._show_artifact_rebind_prompt = AsyncMock(return_value=True)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.set_artifact_dir
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({"path": str(b)})
+
+    assert response.get("isError") is not True
+    assert response["content"][0]["text"] == str(b.resolve())
+    assert engine.artifact_dir == b.resolve()
+    fake_app._show_artifact_rebind_prompt.assert_awaited_once()
+
+
+async def test_mcp_set_artifact_dir_rebind_denied_no_change(monkeypatch, tmp_path):
+    """Rebind via MCP tool: user denies -> no rebind, error returned."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    await engine.set_artifact_dir(str(a))
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app.agent_mgr = None
+    # User declines the rebind prompt.
+    fake_app._show_artifact_rebind_prompt = AsyncMock(return_value=False)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.set_artifact_dir
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({"path": str(b)})
+
+    assert response.get("isError") is True
+    text = response["content"][0]["text"]
+    assert "declined" in text.lower()
+    # Engine unchanged; the new dir was never created.
+    assert engine.artifact_dir == a.resolve()
+    assert not b.exists()
+    fake_app._show_artifact_rebind_prompt.assert_awaited_once()
+
+
+async def test_mcp_set_artifact_dir_first_bind_no_prompt(monkeypatch, tmp_path):
+    """First bind never prompts for permission (non-rebind path)."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app.agent_mgr = None
+    fake_app._show_artifact_rebind_prompt = AsyncMock(return_value=True)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.set_artifact_dir
+    handler = getattr(raw_tool, "handler", raw_tool)
+    target = tmp_path / "first"
+    response = await handler({"path": str(target)})
+
+    assert response.get("isError") is not True
+    assert response["content"][0]["text"] == str(target.resolve())
+    fake_app._show_artifact_rebind_prompt.assert_not_awaited()
+
+
+async def test_mcp_set_artifact_dir_idempotent_same_path_no_prompt(
+    monkeypatch, tmp_path
+):
+    """Idempotent same-path re-call never prompts for permission."""
+    from claudechic import mcp as mcp_mod
+
+    engine = _make_engine(cwd=tmp_path)
+    target = tmp_path / "art"
+    await engine.set_artifact_dir(str(target))
+
+    fake_app = MagicMock()
+    fake_app._workflow_engine = engine
+    fake_app.agent_mgr = None
+    fake_app._show_artifact_rebind_prompt = AsyncMock(return_value=True)
+    monkeypatch.setattr(mcp_mod, "_app", fake_app)
+
+    raw_tool = mcp_mod.set_artifact_dir
+    handler = getattr(raw_tool, "handler", raw_tool)
+    response = await handler({"path": str(target)})
+
+    assert response.get("isError") is not True
+    assert response["content"][0]["text"] == str(target.resolve())
+    fake_app._show_artifact_rebind_prompt.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

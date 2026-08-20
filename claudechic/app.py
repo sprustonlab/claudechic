@@ -1248,6 +1248,49 @@ class ChatApp(App):
         )
         return result == "allow"
 
+    async def _show_artifact_rebind_prompt(
+        self,
+        old_dir: str,
+        new_dir: str,
+        agent: Agent | None = None,
+    ) -> bool:
+        """Show approval prompt for rebinding the workflow artifact dir.
+
+        Thin caller over ``_show_agent_prompt``. The artifact dir is
+        normally bound once per run; rebinding to a different location is a
+        privileged action that requires explicit user approval. The old
+        directory's contents are left untouched -- only the engine's
+        pointer changes.
+
+        Returns True only if the user selects "allow".
+        """
+        target = agent or self._agent
+        agent_name = target.name if target else None
+
+        result = await self._show_agent_prompt(
+            title="[Artifact dir] Rebind requested",
+            options=[
+                ("allow", "Allow -- re-point the artifact directory"),
+                ("deny", "Deny -- keep the current artifact directory"),
+            ],
+            subtitle=(
+                f"Agent wants to change the workflow artifact directory:\n"
+                f"  From: {old_dir}\n"
+                f"  To:   {new_dir}\n"
+                f"The old directory's contents are left in place. "
+                f"Approve this change?"
+            ),
+            agent=agent,
+            toast_message=(
+                f"Agent '{agent_name}' needs approval to rebind the artifact dir"
+                if agent_name
+                else None
+            ),
+            toast_key=f"{target.id}:artifact_rebind" if target else None,
+            post_deny_message="Artifact dir rebind denied.",
+        )
+        return result == "allow"
+
     def _merged_hooks(
         self,
         agent: Agent | None = None,

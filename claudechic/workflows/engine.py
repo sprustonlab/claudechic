@@ -231,7 +231,9 @@ class WorkflowEngine:
     # Artifact directory API
     # ------------------------------------------------------------------
 
-    async def set_artifact_dir(self, path: str | Path) -> Path:
+    async def set_artifact_dir(
+        self, path: str | Path, *, allow_rebind: bool = False
+    ) -> Path:
         """Bind an artifact directory to this workflow run.
 
         Validates ``path`` (per ``_validate_artifact_path``), creates the
@@ -240,11 +242,24 @@ class WorkflowEngine:
 
         Idempotent on the same resolved path (re-calling with a path that
         resolves to the existing artifact_dir is a no-op return; persist
-        still fires — write is idempotent). Raises ``RuntimeError`` on
-        re-call with a different resolved path. Same-path comparison uses
+        still fires — write is idempotent). Same-path comparison uses
         ``Path.samefile`` when both paths exist on disk; falls back to
         string compare on the resolved paths otherwise (handles deleted
         targets and case-insensitive filesystems).
+
+        Rebinding to a *different* resolved path is gated by
+        ``allow_rebind``:
+
+        - ``allow_rebind=False`` (default): re-call with a different
+          resolved path raises ``RuntimeError``. This keeps the historical
+          "one artifact dir per workflow run" contract for existing
+          callers.
+        - ``allow_rebind=True``: the engine re-points ``_artifact_dir`` at
+          the new resolved path (validate + mkdir + persist, same rollback
+          semantics as below). The old directory's contents are left
+          untouched — moving or deleting them is the caller's concern; the
+          engine only re-points. Gating on caller-supplied consent is the
+          caller's responsibility (e.g. the MCP tool prompts the user).
 
         Persist failure semantics: if ``persist_fn`` raises, the prior
         ``self._artifact_dir`` value is restored before the exception
@@ -253,21 +268,18 @@ class WorkflowEngine:
         """
         resolved = _validate_artifact_path(path, self._cwd)
 
-        if self._artifact_dir is not None:
-            same = False
-            try:
-                if self._artifact_dir.exists() and resolved.exists():
-                    same = self._artifact_dir.samefile(resolved)
-                else:
-                    same = str(self._artifact_dir) == str(resolved)
-            except OSError:
-                same = str(self._artifact_dir) == str(resolved)
-            if not same:
+        if self._artifact_dir is not None and not self._same_artifact_path(resolved):
+            if not allow_rebind:
                 raise RuntimeError(
                     f"artifact_dir already set to {self._artifact_dir}; "
                     f"cannot rebind to {resolved} (one artifact dir per "
                     f"workflow run)"
                 )
+            logger.warning(
+                "Rebinding artifact_dir: %s -> %s (allow_rebind=True)",
+                self._artifact_dir,
+                resolved,
+            )
 
         resolved.mkdir(parents=True, exist_ok=True)
 
@@ -288,6 +300,42 @@ class WorkflowEngine:
             self._artifact_dir = prior
             raise
         return resolved
+
+    def _same_artifact_path(self, resolved: Path) -> bool:
+        """Return True if ``resolved`` refers to the current artifact_dir.
+
+        Uses ``Path.samefile`` when both paths exist on disk; falls back to
+        string compare on the resolved paths otherwise (handles deleted
+        targets and case-insensitive filesystems). Returns False when no
+        artifact_dir is set.
+        """
+        current = self._artifact_dir
+        if current is None:
+            return False
+        try:
+            if current.exists() and resolved.exists():
+                return current.samefile(resolved)
+            return str(current) == str(resolved)
+        except OSError:
+            return str(current) == str(resolved)
+
+    def would_rebind(self, path: str | Path) -> bool:
+        """Return True if binding ``path`` would rebind to a different dir.
+
+        A "rebind" means an artifact_dir is already set AND ``path``
+        resolves to a *different* location. Returns False when no
+        artifact_dir is set (first bind) or when ``path`` resolves to the
+        already-bound directory (idempotent same-path re-call). Callers use
+        this to decide whether explicit user permission is required before
+        calling ``set_artifact_dir(path, allow_rebind=True)``.
+
+        Raises the same ``ValueError`` as ``set_artifact_dir`` for invalid
+        paths (empty, null bytes, newlines, ``.claude/`` ancestor).
+        """
+        if self._artifact_dir is None:
+            return False
+        resolved = _validate_artifact_path(path, self._cwd)
+        return not self._same_artifact_path(resolved)
 
     def get_artifact_dir(self) -> Path | None:
         """Return the engine's artifact directory, or None if unset.
