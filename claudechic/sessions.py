@@ -9,6 +9,8 @@ from pathlib import Path
 
 import aiofiles
 
+from claudechic import accounts
+
 log = logging.getLogger(__name__)
 
 
@@ -75,15 +77,17 @@ def encode_project_key(cwd: Path) -> str:
 def get_project_sessions_dir(cwd: Path | None = None) -> Path | None:
     """Get the sessions directory for a project.
 
-    Claude stores sessions in ~/.claude/projects/-path-to-project
-    with dashes instead of slashes (or backslashes on Windows).
+    Claude stores sessions in <config dir>/projects/-path-to-project
+    with dashes instead of slashes (or backslashes on Windows), where the
+    config dir is the selected account (``accounts.config_dir()``) -- so the
+    listing follows ``--use-claude`` rather than always showing ~/.claude.
 
     Args:
         cwd: Project directory. If None, uses current working directory.
     """
     cwd = (cwd or Path.cwd()).absolute()
     project_key = encode_project_key(cwd)
-    sessions_dir = Path.home() / ".claude/projects" / project_key
+    sessions_dir = accounts.config_dir() / "projects" / project_key
     return sessions_dir if sessions_dir.exists() else None
 
 
@@ -288,7 +292,7 @@ async def load_session_messages(session_id: str, cwd: Path | None = None) -> lis
 async def get_plan_path_for_session(
     session_id: str, cwd: Path | None = None, must_exist: bool = True
 ) -> Path | None:
-    """Get the plan file path (~/.claude/plans/{slug}.md) for a session.
+    """Get the plan file path (<config dir>/plans/{slug}.md) for a session.
 
     Args:
         session_id: The session ID
@@ -323,7 +327,7 @@ async def get_plan_path_for_session(
     if not slug:
         return None
 
-    plan_path = Path.home() / ".claude" / "plans" / f"{slug}.md"
+    plan_path = accounts.config_dir() / "plans" / f"{slug}.md"
     if must_exist:
         return plan_path if plan_path.exists() else None
     return plan_path

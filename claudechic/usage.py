@@ -5,7 +5,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+
+from claudechic import accounts
 
 
 @dataclass
@@ -63,7 +64,7 @@ def _get_oauth_token_macos() -> str | None:
 def _get_oauth_token_file() -> str | None:
     """Get OAuth token from credentials file (Linux/other platforms)."""
     try:
-        creds_path = Path.home() / ".claude" / ".credentials.json"
+        creds_path = accounts.config_dir() / ".credentials.json"
         if not creds_path.exists():
             return None
         creds = json.loads(creds_path.read_text(encoding="utf-8"))

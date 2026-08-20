@@ -41,6 +41,7 @@ from claude_agent_sdk.types import (
     ToolPermissionContext,
 )
 
+from claudechic import accounts
 from claudechic.enums import (
     AgentStatus,
     PermissionChoice,
@@ -1585,7 +1586,7 @@ Key Rules:
             if tool_name in (ToolName.WRITE, ToolName.EDIT):
                 file_path = tool_input.get("file_path", "")
                 if file_path:
-                    plans_dir = Path.home() / ".claude" / "plans"
+                    plans_dir = accounts.config_dir() / "plans"
                     resolved = Path(file_path).expanduser().resolve()
                     if resolved.is_relative_to(plans_dir):
                         self.plan_path = resolved  # for ExitPlanMode display

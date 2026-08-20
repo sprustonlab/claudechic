@@ -6,7 +6,16 @@ import json
 import time
 from pathlib import Path
 
-HISTORY_FILE = Path.home() / ".claude" / "history.jsonl"
+from claudechic import accounts
+
+
+def history_file() -> Path:
+    """Path of Claude's global prompt history for the selected account.
+
+    Resolved per call rather than at import: ``--use-claude`` sets the config
+    dir after this module is imported, and prompt history is per-account.
+    """
+    return accounts.config_dir() / "history.jsonl"
 
 
 def append_to_history(display: str, project: Path, session_id: str) -> None:
@@ -19,23 +28,24 @@ def append_to_history(display: str, project: Path, session_id: str) -> None:
         "sessionId": session_id,
     }
     try:
-        with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+        with open(history_file(), "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
     except OSError:
         pass  # Silently fail if can't write
 
 
 def load_global_history(limit: int = 1000) -> list[str]:
-    """Load command history from ~/.claude/history.jsonl.
+    """Load command history from the selected account's history.jsonl.
 
     Returns deduplicated list of commands, most recent first.
     """
-    if not HISTORY_FILE.exists():
+    path = history_file()
+    if not path.exists():
         return []
 
     entries: list[tuple[int, str]] = []  # (timestamp, display)
     try:
-        with open(HISTORY_FILE, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:

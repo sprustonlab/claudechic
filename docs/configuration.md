@@ -442,6 +442,7 @@ disabled_ids:
 
 | Variable | Scope | Default | Description |
 |---|---|---|---|
+| `CLAUDE_CONFIG_DIR` | inherited | unset | Claude Code's config directory, i.e. which login is used. Set it per-shell with `use-claude <name>` or per-run with `--use-claude <name>`. When unset, Claude Code uses `~/.claude`. See [Claude accounts](#claude-accounts). |
 | `CLAUDECHIC_REMOTE_PORT` | runtime | unset | If set to an integer port, start the remote-control HTTP server on that port. Equivalent to `--remote-port`. |
 | `CLAUDECHIC_APP_PID` | inherited | claudechic's PID | Set by claudechic for child processes; lets MCP tools detect the running app. |
 | `CLAUDECHIC_ARTIFACT_DIR` | inherited | unset | Workflow artifact-dir token, set by the engine after `set_artifact_dir(path)` is invoked. Workflow markdown substitutes `${CLAUDECHIC_ARTIFACT_DIR}` with this value. |
@@ -459,9 +460,70 @@ disabled_ids:
 | `--resume`, `-r` | flag | off | Resume the most recent session. |
 | `--session`, `-s <id>` | string | unset | Resume a specific session by ID prefix. |
 | `--theme`, `-t [name]` | string | unset | Use a specific theme for this session; pass without value to list available themes. |
+| `--use-claude [name]` | string | unset | Run against the Claude account in `~/.claude-<name>` by setting `CLAUDE_CONFIG_DIR`; pass without a value to list accounts. An unknown name is fatal (see below). |
 | `--remote-port <port>` | integer | `0` | Start HTTP server for remote control. Falls back to `CLAUDECHIC_REMOTE_PORT` env var. |
 | `--dangerously-skip-permissions`, `--yolo` | flag | off | Auto-approve all tool uses without prompting. Use only in sandboxed environments. |
 | `prompt` | positional | unset | Initial prompt to send (joins all positional args with spaces). |
+
+## Claude accounts
+
+A Claude *account* is one Claude Code config directory. Claude Code reads
+`CLAUDE_CONFIG_DIR` to decide which one to use, so several
+`~/.claude-<name>` directories side by side keep several logins side by
+side -- for example a personal account and an employer's.
+
+`--use-claude <name>` points this run at `~/.claude-<name>`. The
+environment variable is set before the session starts, so both claudechic
+and the `claude` CLI it spawns use that login:
+
+```bash
+claudechic --use-claude hhmi        # run under ~/.claude-hhmi
+claudechic --use-claude             # list accounts and exit
+```
+
+```
+Claude accounts (select with: claudechic --use-claude <name>):
+    * ant      -> arco@personal.example  (/home/arco/.claude-ant)
+      hhmi     -> arco@hhmi.example      (/home/arco/.claude-hhmi)
+```
+
+The `*` marks the active account. `(no login yet)` means the directory
+exists but has never been logged in.
+
+### Selection fails closed
+
+If `<name>` has no `~/.claude-<name>` directory, claudechic prints the
+accounts that do exist and **exits non-zero without starting**. It does
+not create the directory and does not fall back to `~/.claude`.
+
+This is deliberate. A fallback would run the session -- and send the
+repository's contents -- under whichever login happened to be configured,
+which is exactly the mix-up that separate accounts exist to prevent. A
+typo must be a hard error, not a silent switch of account.
+
+```
+$ claudechic --use-claude hmi
+No such Claude account: 'hmi' (expected /home/arco/.claude-hmi)
+Refusing to start: there is no fallback account.
+Available accounts:
+    * ant      -> arco@personal.example  (/home/arco/.claude-ant)
+      hhmi     -> arco@hhmi.example      (/home/arco/.claude-hhmi)
+$ echo $?
+1
+```
+
+Not selecting an account at all is unchanged: with `CLAUDE_CONFIG_DIR`
+unset, Claude Code uses `~/.claude` as it always has. The strictness
+applies to selections that cannot be resolved, not to the absence of one.
+
+### Relationship to the session log
+
+When `session_log_dir` is configured, the mirror is split by account
+(`<session_log_dir>/<account>/...`), where `<account>` is the name after
+the `.claude-` prefix. Selecting an account with `--use-claude` therefore
+also selects which subtree the transcripts and chicsession manifests land
+in. The `~/.claude-<name>` spelling is shared by both features; a
+differently named directory will not be recognised as an account.
 
 ## claudechic-awareness install
 

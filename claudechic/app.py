@@ -45,6 +45,7 @@ from textual.screen import Screen
 # Worktree must load before agent to avoid circular import through widgets.
 from claudechic.features.worktree import list_worktrees
 from claudechic.features.worktree.commands import on_response_complete_finish
+from claudechic import accounts
 from claudechic.agent import DEFAULT_ROLE, Agent, ImageAttachment, ToolUse
 
 from claudechic.agent_manager import AgentManager
@@ -227,7 +228,7 @@ def _plan_mode_pre_tool_use_decision(hook_input: dict) -> dict:
     trips up Explore subagents that need Bash for read-only ops.
     """
     blocked_tools = {"Edit", "Write", "NotebookEdit"}
-    plans_dir = Path.home() / ".claude" / "plans"
+    plans_dir = accounts.config_dir() / "plans"
 
     permission_mode = hook_input.get("permission_mode", "default")
     tool_name = hook_input.get("tool_name", "")
@@ -236,7 +237,7 @@ def _plan_mode_pre_tool_use_decision(hook_input: dict) -> dict:
     if permission_mode != "plan" or tool_name not in blocked_tools:
         return {}
 
-    # Allow Write/Edit to files under ~/.claude/plans/
+    # Allow Write/Edit to files under the account's plans/ dir
     if tool_name in ("Write", "Edit"):
         file_path = tool_input.get("file_path", "")
         if file_path:

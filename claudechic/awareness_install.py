@@ -1,17 +1,23 @@
 """claudechic-awareness install routine.
 
 Idempotent NEW / UPDATE / SKIP / DELETE install of bundled context docs
-into ``~/.claude/rules/claudechic_<name>.md``. Runs at every claudechic
+into ``<config dir>/rules/claudechic_<name>.md``. Runs at every claudechic
 startup so that every Claude Code session in every project auto-loads
 claudechic's bundled rules via the SDK ``setting_sources`` loader.
 
-LEAF MODULE: stdlib + ``claudechic.config`` + ``claudechic.errors`` only.
+The config dir is the selected Claude account (``accounts.config_dir()``):
+the SDK reads rules from ``CLAUDE_CONFIG_DIR``, so installing to a fixed
+``~/.claude/rules/`` would leave the rules unread whenever an account is
+selected with ``--use-claude`` or ``use-claude``.
+
+LEAF MODULE: stdlib + ``claudechic.accounts`` + ``claudechic.config`` +
+``claudechic.errors`` only.
 No imports from ``app.py``, agent code, UI widgets, or workflow engine.
 
 Boundary classification (per SPEC §4.8 and §9): the writes (NEW + UPDATE)
 and unlinks (DELETE pass) of this module are one of the three explicit
 ``.claude/``-area exceptions allowed by the boundary rule. The routine
-MUST NOT write or unlink any path in ``~/.claude/rules/`` whose basename
+MUST NOT write or unlink any path in the rules dir whose basename
 does not match ``claudechic_*.md``; symlinks at any matching basename are
 NEVER read, written, or unlinked (user-managed inodes).
 """
@@ -22,15 +28,25 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from claudechic import accounts
 from claudechic.config import CONFIG
 from claudechic.errors import log
 
-CLAUDE_RULES_DIR = Path.home() / ".claude" / "rules"
 PKG_CONTEXT_DIR = Path(__file__).parent / "context"
 INSTALL_PREFIX = "claudechic_"
 
+
+def claude_rules_dir() -> Path:
+    """Rules directory of the selected Claude account.
+
+    Resolved per call rather than at import: ``--use-claude`` sets the
+    config dir after this module is imported.
+    """
+    return accounts.config_dir() / "rules"
+
+
 # Regex that bounds the DELETE pass to claudechic-prefixed markdown files
-# at the immediate child level of ``~/.claude/rules/``. The pattern
+# at the immediate child level of ``<config dir>/rules/``. The pattern
 # explicitly forbids path separators so the predicate is basename-only.
 _PREFIXED_BASENAME_RE = re.compile(r"^claudechic_[^/]+\.md$")
 
@@ -65,11 +81,11 @@ def _toggle_enabled() -> bool:
 
 def _bundled_target(name: str) -> Path:
     """Resolve the install target for a bundled ``<name>.md`` file."""
-    return CLAUDE_RULES_DIR / f"{INSTALL_PREFIX}{name}.md"
+    return claude_rules_dir() / f"{INSTALL_PREFIX}{name}.md"
 
 
 def install_awareness_rules(force: bool = False) -> InstallResult:
-    """Install bundled context docs into ``~/.claude/rules/``.
+    """Install bundled context docs into ``<config dir>/rules/``.
 
     Args:
         force: If ``True``, ignore the ``awareness.install`` config toggle
@@ -84,14 +100,14 @@ def install_awareness_rules(force: bool = False) -> InstallResult:
     - When ``awareness.install`` is ``False`` and ``force=False``: returns
       immediately with ``skipped_disabled=True`` and performs ZERO file
       I/O (no read, no write, no unlink, no mkdir).
-    - Otherwise creates ``~/.claude/rules/`` if absent (idempotent
+    - Otherwise creates ``<config dir>/rules/`` if absent (idempotent
       ``parents=True, exist_ok=True``).
     - For each ``<name>.md`` in ``claudechic/context/`` (top-level only,
       no recursion): NEW (target absent) / UPDATE (target differs) /
-      SKIP (target identical) at ``~/.claude/rules/claudechic_<name>.md``.
-    - DELETE pass: any ``~/.claude/rules/claudechic_*.md`` whose stem-
+      SKIP (target identical) at ``<config dir>/rules/claudechic_<name>.md``.
+    - DELETE pass: any ``<config dir>/rules/claudechic_*.md`` whose stem-
       minus-prefix is NOT in the bundled catalog is unlinked. The pass
-      is bounded to direct children of ``~/.claude/rules/`` and to the
+      is bounded to direct children of ``<config dir>/rules/`` and to the
       ``claudechic_*.md`` basename pattern.
     - Symlink guard: any target path that ``is_symlink()`` is skipped
       (no read, no write, no unlink) with a WARNING log. Applies to
@@ -103,8 +119,10 @@ def install_awareness_rules(force: bool = False) -> InstallResult:
 
     result = InstallResult()
 
-    # Idempotent parent-directory mkdir. Safe whether ~/.claude/ exists or not.
-    CLAUDE_RULES_DIR.mkdir(parents=True, exist_ok=True)
+    # Idempotent parent-directory mkdir. Safe whether the config dir exists
+    # or not.
+    rules_dir = claude_rules_dir()
+    rules_dir.mkdir(parents=True, exist_ok=True)
 
     # Bundled catalog: top-level *.md files in the package context dir.
     # No recursion into subdirectories.
@@ -119,7 +137,7 @@ def install_awareness_rules(force: bool = False) -> InstallResult:
         # Symlink guard MUST run before any read/write/unlink at the path.
         if target.is_symlink():
             log.warning(
-                "awareness install: target ~/.claude/rules/%s is a symlink; "
+                "awareness install: target rules/%s is a symlink; "
                 "treating as user-managed; skipping",
                 target.name,
             )
@@ -176,8 +194,8 @@ def install_awareness_rules(force: bool = False) -> InstallResult:
 
     # DELETE pass: orphan cleanup. Direct children only; symlinks skipped;
     # only basenames matching ``claudechic_*.md``.
-    if CLAUDE_RULES_DIR.is_dir():
-        for child in sorted(CLAUDE_RULES_DIR.iterdir()):
+    if rules_dir.is_dir():
+        for child in sorted(rules_dir.iterdir()):
             if not _PREFIXED_BASENAME_RE.match(child.name):
                 continue
             if child.is_symlink():

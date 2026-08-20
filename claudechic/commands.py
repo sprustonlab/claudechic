@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from claudechic import accounts
 from claudechic.analytics import capture
 
 log = logging.getLogger(__name__)
@@ -423,28 +424,33 @@ def handle_command(app: ChatApp, prompt: str) -> bool:
 def _is_user_command(cmd_name: str, cwd: Path) -> bool:
     """Check if cmd_name is a user-defined command or skill.
 
-    Commands: ~/.claude/commands/<name>.md or .claude/commands/<name>.md
-    Skills: ~/.claude/skills/<name>/SKILL.md or .claude/skills/<name>/SKILL.md
+    Commands: <config dir>/commands/<name>.md or .claude/commands/<name>.md
+    Skills: <config dir>/skills/<name>/SKILL.md or .claude/skills/<name>/SKILL.md
+
+    The global half lives in the selected account's config dir
+    (``accounts.config_dir()``, i.e. ``~/.claude-<name>`` under
+    ``--use-claude``, else ``~/.claude``); the project half is always
+    ``<cwd>/.claude``.
 
     Skill slash commands use colon notation (e.g. /roborev:fix) but the
     directories on disk use hyphens (e.g. roborev-fix/), so we check both.
     """
     name = cmd_name.lstrip("/")
-    home = Path.home()
+    global_dir = accounts.config_dir()
 
     # Skill directories typically use hyphens on disk, but colons in slash commands
-    # e.g. /roborev:fix -> ~/.claude/skills/roborev-fix/SKILL.md
+    # e.g. /roborev:fix -> <config dir>/skills/roborev-fix/SKILL.md
     # Check both forms for backward compatibility with any colon-named directories.
     skill_names = {name}
     if ":" in name:
         skill_names.add(name.replace(":", "-"))
 
     paths = [
-        home / ".claude" / "commands" / f"{name}.md",  # global command
+        global_dir / "commands" / f"{name}.md",  # global command
         cwd / ".claude" / "commands" / f"{name}.md",  # project command
     ]
     for sname in skill_names:
-        paths.append(home / ".claude" / "skills" / sname / "SKILL.md")  # global skill
+        paths.append(global_dir / "skills" / sname / "SKILL.md")  # global skill
         paths.append(cwd / ".claude" / "skills" / sname / "SKILL.md")  # project skill
     return any(p.exists() for p in paths)
 

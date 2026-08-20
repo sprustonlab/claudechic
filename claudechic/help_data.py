@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from claudechic import accounts
+
 if TYPE_CHECKING:
     from claudechic.agent import Agent
 
@@ -63,7 +65,7 @@ def discover_skills() -> list[tuple[str, str]]:
     skills = []
 
     # Read settings for enabled plugins
-    settings_path = Path.home() / ".claude" / "settings.json"
+    settings_path = accounts.config_dir() / "settings.json"
     if not settings_path.exists():
         return skills
 
@@ -75,7 +77,7 @@ def discover_skills() -> list[tuple[str, str]]:
     enabled = settings.get("enabledPlugins", {})
 
     # Read installed plugins
-    installed_path = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    installed_path = accounts.config_dir() / "plugins" / "installed_plugins.json"
     if not installed_path.exists():
         return skills
 

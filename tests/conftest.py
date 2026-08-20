@@ -21,6 +21,19 @@ async def empty_async_gen():
 
 
 @pytest.fixture(autouse=True)
+def _unset_claude_config_dir(monkeypatch):
+    """Run every test with no Claude account selected.
+
+    ``CLAUDE_CONFIG_DIR`` decides which config dir ``accounts.config_dir()``
+    resolves to, so a developer who has selected an account in their shell
+    (``use-claude``) would otherwise see tests that patch ``Path.home()``
+    silently read the real account instead of their tmp_path. Tests that care
+    about the variable set it themselves.
+    """
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _suppress_welcome_screen(monkeypatch):
     """Prevent welcome screen from showing during tests."""
     monkeypatch.setattr("claudechic.onboarding.check_onboarding", lambda *a, **kw: None)

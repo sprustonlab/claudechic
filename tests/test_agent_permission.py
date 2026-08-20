@@ -317,9 +317,7 @@ class TestAutoModeAutoApproves:
             ("Write", {"file_path": str(tmp_path / "f.txt"), "content": "x"}),
             ("WebFetch", {"url": "https://example.com"}),
         ]:
-            result = await agent._handle_permission(
-                tool_name, tool_input, MagicMock()
-            )
+            result = await agent._handle_permission(tool_name, tool_input, MagicMock())
             assert isinstance(result, PermissionResultAllow), tool_name
         # Nothing queued for the UI: the user was never prompted.
         assert len(agent.pending_prompts) == 0
@@ -379,10 +377,10 @@ class TestPlanModeHook:
             assert out["hookSpecificOutput"]["permissionDecision"] == "deny", tool
 
     def test_allows_writes_to_plan_file(self, tmp_path, monkeypatch):
-        """Writes under ~/.claude/plans/ are the one carve-out."""
+        """Writes under the account's plans/ dir are the one carve-out."""
         from claudechic.app import _plan_mode_pre_tool_use_decision
 
-        monkeypatch.setattr("claudechic.app.Path.home", lambda: tmp_path)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
         plan_file = tmp_path / ".claude" / "plans" / "my-plan.md"
         plan_file.parent.mkdir(parents=True)
         out = _plan_mode_pre_tool_use_decision(
@@ -394,7 +392,7 @@ class TestPlanModeHook:
         """startswith would match ~/.claude/plans-evil/; is_relative_to must not."""
         from claudechic.app import _plan_mode_pre_tool_use_decision
 
-        monkeypatch.setattr("claudechic.app.Path.home", lambda: tmp_path)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
         sneaky = tmp_path / ".claude" / "plans-evil" / "x.md"
         sneaky.parent.mkdir(parents=True)
         out = _plan_mode_pre_tool_use_decision(
@@ -447,7 +445,7 @@ class TestPlanModeHandlePermission:
         """Plan-file Write is auto-approved and captures agent.plan_path."""
         from claude_agent_sdk import PermissionResultAllow
 
-        monkeypatch.setattr("claudechic.agent.Path.home", lambda: tmp_path)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
         plan_file = tmp_path / ".claude" / "plans" / "session.md"
         plan_file.parent.mkdir(parents=True)
 
@@ -480,7 +478,7 @@ class TestPlanModeHandlePermission:
         """~/.claude/plans-evil/ must not pass the plan-file carve-out."""
         from claude_agent_sdk import PermissionResultDeny
 
-        monkeypatch.setattr("claudechic.agent.Path.home", lambda: tmp_path)
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
         sneaky = tmp_path / ".claude" / "plans-evil" / "x.md"
         sneaky.parent.mkdir(parents=True)
 

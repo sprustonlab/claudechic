@@ -16,8 +16,8 @@ Plus three additional symlink edge-case tests (per Skeptic2 mitigation):
 - symlink to a directory
 - symlink loop
 
-Tests use ``monkeypatch`` to redirect ``Path.home()`` and the module-level
-``CLAUDE_RULES_DIR`` / ``CONFIG`` references at the awareness_install
+Tests use ``monkeypatch`` to redirect ``Path.home()`` and the
+``claude_rules_dir()`` / ``CONFIG`` references at the awareness_install
 module surface, so no real ``~/.claude/`` is touched.
 """
 
@@ -47,11 +47,11 @@ from claudechic.awareness_install import (
 def tmp_rules_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect awareness_install to write into ``tmp_path/.claude/rules/``.
 
-    Patches the module-level ``CLAUDE_RULES_DIR`` constant so the install
+    Patches the module-level ``claude_rules_dir()`` resolver so the install
     routine never touches the real ``~/.claude/`` namespace.
     """
     target = tmp_path / ".claude" / "rules"
-    monkeypatch.setattr(awareness_install, "CLAUDE_RULES_DIR", target)
+    monkeypatch.setattr(awareness_install, "claude_rules_dir", lambda: target)
     return target
 
 

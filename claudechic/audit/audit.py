@@ -34,7 +34,18 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
-CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
+
+
+def claude_projects_dir() -> Path:
+    """Transcript root of the selected Claude account.
+
+    Resolved per call rather than at import, so the audit follows
+    ``--use-claude`` instead of always reading ``~/.claude/projects``.
+    """
+    from claudechic import accounts
+
+    return accounts.config_dir() / "projects"
+
 
 # Ensure project root is on sys.path so `from scripts.audit import db` works
 # when invoked directly as `python scripts/audit/audit.py`.
@@ -427,9 +438,10 @@ def _resolve_jsonl_paths(
         return found
 
     # Search all project directories
-    if not CLAUDE_PROJECTS_DIR.is_dir():
+    projects_dir = claude_projects_dir()
+    if not projects_dir.is_dir():
         return found
-    for subdir in CLAUDE_PROJECTS_DIR.iterdir():
+    for subdir in projects_dir.iterdir():
         if not subdir.is_dir():
             continue
         for name in candidates:

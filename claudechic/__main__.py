@@ -46,6 +46,17 @@ def main():
         help="Use a specific theme for this session, or pass without a value to list available themes",
     )
     parser.add_argument(
+        "--use-claude",
+        nargs="?",
+        const="__list__",
+        default=None,
+        metavar="NAME",
+        help="Run against the Claude account in ~/.claude-NAME by setting "
+        "CLAUDE_CONFIG_DIR for this process and the Claude CLI it spawns. "
+        "An unknown NAME is fatal -- there is no fallback to ~/.claude. "
+        "Pass without a value to list available accounts.",
+    )
+    parser.add_argument(
         "--remote-port",
         type=int,
         default=int(os.environ.get("CLAUDECHIC_REMOTE_PORT", "0")),
@@ -59,6 +70,15 @@ def main():
     )
     parser.add_argument("prompt", nargs="*", help="Initial prompt to send")
     args = parser.parse_args()
+
+    # Account selection runs before anything else: the choice of Claude config
+    # dir decides which login the whole session -- and the repository contents
+    # it sees -- goes to. A name we cannot resolve exits here, so the TUI never
+    # starts under the wrong account.
+    if args.use_claude is not None:
+        from claudechic import accounts
+
+        accounts.handle_cli_flag(args.use_claude)
 
     initial_prompt = " ".join(args.prompt) if args.prompt else None
 
