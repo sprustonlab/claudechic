@@ -97,6 +97,12 @@ USER_KEYS: tuple[SettingKey, ...] = (
         editor="bool",
     ),
     SettingKey(
+        key="code_copy_button",
+        label="Code block copy button",
+        tier="user",
+        editor="bool",
+    ),
+    SettingKey(
         key="recent-tools-expanded",
         label="Recent tools expanded",
         tier="user",
@@ -1037,6 +1043,10 @@ class SettingsScreen(Screen[None]):
                 app._update_vi_mode(bool(value))
         elif spec.key == "show_message_metadata":
             # Reactive: existing redraws pick up CONFIG.
+            pass
+        elif spec.key == "code_copy_button":
+            # Applies to code blocks rendered after the toggle; already-mounted
+            # fences keep their current form until the next message.
             pass
         elif spec.key == "recent-tools-expanded":
             pass

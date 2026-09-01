@@ -54,6 +54,9 @@ def _load() -> tuple[dict, bool]:
         config.setdefault(
             "show_message_metadata", True
         )  # Show timestamp/tokens by default
+        config.setdefault(
+            "code_copy_button", True
+        )  # Copy button on code blocks by default
         # claudechic-awareness install toggle (per SPEC §4.3, default True)
         config.setdefault("awareness", {})
         config["awareness"].setdefault("install", True)
@@ -79,6 +82,7 @@ def _load() -> tuple[dict, bool]:
             "recent-tools-expanded": 2,
             "default_permission_mode": "auto",
             "show_message_metadata": True,  # Show timestamp/tokens by default
+            "code_copy_button": True,  # Copy button on code blocks by default
             # claudechic-awareness install toggle (per SPEC §4.3, default True)
             "awareness": {"install": True},
             # SDK thinking-budget level (SPEC C3, default "high").
